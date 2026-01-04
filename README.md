@@ -1,22 +1,22 @@
 # Operator App
 
-A Flutter mobile application for ride-sharing operators to manage their online/offline status, view and edit their profile information, and handle ride requests.
+A Flutter Android app for ride-sharing operators to log in, complete their profile, toggle availability, and view their current location on a map.
 
 ## Features
 
-- **Authentication**: Secure login with email and password using Firebase Authentication
-- **Profile Management**: Operators can view, edit their name and operator ID
-- **Online/Offline Status**: Toggle availability status with a single tap
-- **Bottom Navigation**: Easy navigation between Home and Profile screens
-- **Real-time Data**: Firestore integration for instant data synchronization
-- **Responsive Design**: Clean and intuitive user interface
+- **Authentication**: Email/password via Firebase Auth
+- **Profile Management**: Edit name and operator ID; email is read-only
+- **Availability**: One-tap online/offline toggle with optimistic updates
+- **Navigation**: Bottom nav (Home, Profile)
+- **Maps**: Shows current location, custom recenter button
+- **Realtime**: Firestore-backed profile and status
 
 ## Tech Stack
 
 - **Frontend**: Flutter
-- **Backend**: Firebase (Authentication, Firestore)
-- **State Management**: StatefulWidget
-- **Package Manager**: Pub
+- **Backend**: Firebase (Auth, Firestore)
+- **State**: Stateful widgets
+- **Maps/Location**: google_maps_flutter, geolocator, permission_handler
 
 ## Project Structure
 
@@ -25,51 +25,53 @@ lib/
 ├── main.dart                          # App entry point & AuthWrapper
 ├── operator_login_page.dart          # Login screen
 ├── operator_profile_setup_page.dart  # Profile setup for new operators
-├── operator_home_screen.dart         # Home screen with status toggle
+├── operator_home_screen.dart         # Home screen with map + status toggle
 ├── operator_profile_page.dart        # Profile editing screen
 ├── operator_main_screen.dart         # Main shell with bottom navbar
 └── firebase_options.dart             # Firebase configuration
 ```
 
-## Getting Started
+## Getting Started (Android)
 
 ### Prerequisites
+- Flutter SDK 3.x
+- Firebase project with Auth + Firestore enabled
+- Android device/emulator with Google Play services and location enabled
 
-- Flutter SDK (3.0+)
-- Dart SDK
-- Firebase project with Authentication and Firestore enabled
-- iOS/Android development environment setup
+### Setup
+1) Clone
+```bash
+git clone <repository-url>
+cd operator_app
+```
 
-### Installation
+2) Dependencies
+```bash
+flutter pub get
+```
 
-1. Clone the repository:
-    ```bash
-    git clone <repository-url>
-    cd operator_app
-    ```
+3) Firebase config (Android)
+- Download `google-services.json` from Firebase Console and place it at `android/app/google-services.json`.
+- Ensure your Firebase Android app uses the correct package name and SHA-1/256 fingerprints.
 
-2. Install dependencies:
-    ```bash
-    flutter pub get
-    ```
+4) Google Maps API key (Android)
+- In `android/local.properties`, set:
+```
+MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
+```
+- The manifest reads this via `${MAPS_API_KEY}`.
 
-3. Configure Firebase:
-   - Download `google-services.json` (Android) and `GoogleService-Info.plist` (iOS)
-   - Place them in the appropriate directories
-   - Update `firebase_options.dart` with your Firebase project credentials
-
-4. Run the app:
-    ```bash
-    flutter run
-    ```
+5) Run
+```bash
+flutter run
+```
 
 ## App Flow
 
 1. **Login**: Operators enter email and password
 2. **Profile Setup**: New operators are prompted to enter name and operator ID
-3. **Home Screen**: Display status toggle button and available actions
-4. **Profile Screen**: View and edit operator information
-5. **Logout**: Operators can logout from the profile screen
+3. **Home Screen**: Map centers on current location; toggle online/offline
+4. **Profile Screen**: View/edit name & operator ID, logout
 
 ## Firestore Database Structure
 
@@ -78,14 +80,13 @@ lib/
 **operators/**
 ```
 {
-  uid: string (document ID)
-  name: string
-  operatorId: string
-  email: string
-  isOnline: boolean
-  status: string ('active' or 'inactive')
-  createdAt: timestamp
-  updatedAt: timestamp
+    uid: string (document ID)
+    name: string
+    operatorId: string
+    email: string
+    isOnline: boolean
+    createdAt: timestamp
+    updatedAt: timestamp
 }
 ```
 
@@ -95,8 +96,7 @@ lib/
 2. Firebase authenticates the user
 3. App checks if operator profile exists in Firestore
 4. If profile missing → redirect to profile setup page
-5. If profile exists and status is 'active' → show home screen
-6. If status is not 'active' → sign out and show login page
+5. If profile exists → show home screen
 
 ## Key Components
 
@@ -108,29 +108,25 @@ Handles authentication state and routing logic:
 
 ### OperatorHomeScreen
 Main dashboard with:
-- Online/offline status toggle button
-- Real-time status updates to Firestore
-- Error handling and loading states
+- Online/offline status toggle (optimistic update + Firestore sync)
+- Google Map with current location, custom recenter button
+- Permission handling and error snackbars
 
 ### OperatorProfilePage
 Profile management with:
 - Edit name and operator ID
 - Read-only email display
-- Save changes functionality
-- Logout option
+- Save changes and logout
 
 ### OperatorMainScreen
-Navigation shell with:
-- Bottom navigation bar (Home & Profile)
-- Screen switching functionality
+Navigation shell with bottom navigation (Home, Profile)
 
 ## Dependencies
 
 Key packages used:
-- `firebase_core`: Firebase initialization
-- `firebase_auth`: User authentication
-- `cloud_firestore`: Database operations
-- `flutter`: UI framework
+- `firebase_core`, `firebase_auth`, `cloud_firestore`
+- `google_maps_flutter`, `geolocator`, `permission_handler`
+- `flutter`
 
 ## Error Handling
 
@@ -141,11 +137,10 @@ Key packages used:
 
 ## Future Enhancements
 
-- Real-time ride request notifications
-- Map integration for location tracking
-- Ride history and analytics
-- Rating and review system
-- Payment integration
+- Ride request handling
+- Route display and navigation
+- History and analytics
+- Ratings and payments
 
 ## Support
 

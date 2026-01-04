@@ -36,7 +36,6 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
         'name': _nameController.text.trim(),
         'operatorId': _idController.text.trim(),
         'email': widget.email,
-        'status': 'active',
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));

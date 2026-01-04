@@ -62,22 +62,6 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
         return;
       }
 
-      // Check if operator is active
-      final operatorData = operatorDoc.data();
-      if (operatorData?['status'] != 'active') {
-        await FirebaseAuth.instance.signOut();
-        
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Your operator account is not active'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-
       // Login successful - AuthWrapper will handle navigation
       
     } on FirebaseAuthException catch (e) {

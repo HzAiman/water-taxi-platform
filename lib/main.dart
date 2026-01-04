@@ -122,11 +122,6 @@ class AuthWrapper extends StatelessWidget {
               );
             }
 
-            final data = docSnap.data!.data();
-            if (data?['status'] != 'active') {
-              FirebaseAuth.instance.signOut();
-              return const OperatorLoginPage();
-            }
 
             // Profile exists and active -> main shell with bottom nav
             return const OperatorMainScreen();
