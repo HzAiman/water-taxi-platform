@@ -192,8 +192,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Dashboard'),
-        centerTitle: true,
+        toolbarHeight: 0,
         elevation: 0,
       ),
       body: user == null
@@ -212,6 +211,69 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                     onMapCreated: (GoogleMapController controller) {
                       _mapController = controller;
                       _mapReady = true;
+                    },
+                  ),
+                ),
+                // Welcome Card
+                Positioned(
+                  top: 16,
+                  left: 16,
+                  right: 16,
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 1.0, end: 0.0),
+                    duration: const Duration(seconds: 4),
+                    curve: Curves.easeInExpo,
+                    builder: (context, value, child) {
+                      if (value <= 0.01) return const SizedBox.shrink();
+                      return Opacity(
+                        opacity: value > 0.2 ? 1.0 : value * 5,
+                        child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.1),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.verified_user, color: Color(0xFF0066CC), size: 28),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      'Welcome back, Operator!',
+                                      style: TextStyle(
+                                        fontSize: 16,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.grey[800],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      user.email ?? 'Operator',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Colors.grey[600],
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
                     },
                   ),
                 ),
