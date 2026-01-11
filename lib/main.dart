@@ -101,12 +101,12 @@ class AuthWrapper extends StatelessWidget {
 
         final user = authSnap.data!;
 
-        // Check operator profile in Firestore
-        return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-          future: FirebaseFirestore.instance
+        // Check operator profile in Firestore using StreamBuilder
+        return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
               .collection('operators')
               .doc(user.uid)
-              .get(),
+              .snapshots(),
           builder: (context, docSnap) {
             if (docSnap.connectionState == ConnectionState.waiting) {
               return const Scaffold(

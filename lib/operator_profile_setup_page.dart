@@ -40,9 +40,8 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
 
-      if (mounted) {
-        Navigator.of(context).pop(); // Return to AuthWrapper -> home
-      }
+      // No need to navigate - StreamBuilder in AuthWrapper will auto-detect the new profile
+      // and rebuild to show OperatorMainScreen
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
