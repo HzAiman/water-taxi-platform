@@ -221,7 +221,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                   right: 16,
                   child: TweenAnimationBuilder<double>(
                     tween: Tween(begin: 1.0, end: 0.0),
-                    duration: const Duration(seconds: 4),
+                    duration: const Duration(seconds: 6),
                     curve: Curves.easeInExpo,
                     builder: (context, value, child) {
                       if (value <= 0.01) return const SizedBox.shrink();
