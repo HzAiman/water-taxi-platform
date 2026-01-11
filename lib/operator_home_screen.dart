@@ -25,6 +25,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     zoom: 12,
   );
 
+  int _offlineNotificationKey = 0;
+
   @override
   void initState() {
     super.initState();
@@ -151,6 +153,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     setState(() {
       _isToggling = true;
       _isOnline = nextStatus;
+      if (!nextStatus) {
+        _offlineNotificationKey++;
+      }
     });
 
     try {
@@ -214,69 +219,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                     },
                   ),
                 ),
-                // Welcome Card
-                Positioned(
-                  top: 16,
-                  left: 16,
-                  right: 16,
-                  child: TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 1.0, end: 0.0),
-                    duration: const Duration(seconds: 6),
-                    curve: Curves.easeInExpo,
-                    builder: (context, value, child) {
-                      if (value <= 0.01) return const SizedBox.shrink();
-                      return Opacity(
-                        opacity: value > 0.2 ? 1.0 : value * 5,
-                        child: Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(12),
-                            boxShadow: [
-                              BoxShadow(
-                                color: Colors.black.withOpacity(0.1),
-                                blurRadius: 10,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.verified_user, color: Color(0xFF0066CC), size: 28),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Text(
-                                      'Welcome back, Operator!',
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.grey[800],
-                                      ),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Text(
-                                      user.email ?? 'Operator',
-                                      style: TextStyle(
-                                        fontSize: 14,
-                                        color: Colors.grey[600],
-                                      ),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
+
                 Positioned.fill(
                   child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
                     stream: FirebaseFirestore.instance
@@ -296,6 +239,181 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                         children: [
                           if (loadingSnapshot)
                             const Center(child: CircularProgressIndicator()),
+                          Positioned(
+                            top: 16,
+                            left: 16,
+                            right: 16,
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 1.0, end: 0.0),
+                                  duration: const Duration(seconds: 6),
+                                  curve: Curves.easeInExpo,
+                                  builder: (context, value, child) {
+                                    if (value <= 0.01) return const SizedBox.shrink();
+                                    return Opacity(
+                                      opacity: value > 0.2 ? 1.0 : value * 5,
+                                      child: Container(
+                                        padding: const EdgeInsets.all(16),
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          borderRadius: BorderRadius.circular(12),
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black.withOpacity(0.1),
+                                              blurRadius: 10,
+                                              offset: const Offset(0, 4),
+                                            ),
+                                          ],
+                                        ),
+                                        child: Row(
+                                          children: [
+                                            const Icon(Icons.verified_user, color: Color(0xFF0066CC), size: 28),
+                                            const SizedBox(width: 12),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Text(
+                                                    'Welcome back, Operator!',
+                                                    style: TextStyle(
+                                                      fontSize: 16,
+                                                      fontWeight: FontWeight.bold,
+                                                      color: Colors.grey[800],
+                                                    ),
+                                                  ),
+                                                  const SizedBox(height: 4),
+                                                  Text(
+                                                    user.email ?? 'Operator',
+                                                    style: TextStyle(
+                                                      fontSize: 14,
+                                                      color: Colors.grey[600],
+                                                    ),
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
+                                if (!_isOnline && _offlineNotificationKey > 0) ...[
+                                  const SizedBox(height: 16),
+                                  TweenAnimationBuilder<double>(
+                                    key: ValueKey('offline_$_offlineNotificationKey'),
+                                    tween: Tween(begin: 1.0, end: 0.0),
+                                    duration: const Duration(seconds: 4),
+                                    curve: Curves.easeInExpo,
+                                    builder: (context, value, child) {
+                                      if (value <= 0.01) return const SizedBox.shrink();
+                                      return Opacity(
+                                        opacity: value > 0.2 ? 1.0 : value * 5,
+                                        child: Container(
+                                          width: double.infinity,
+                                          padding: const EdgeInsets.all(16),
+                                          decoration: BoxDecoration(
+                                            color: Colors.white,
+                                            borderRadius: BorderRadius.circular(12),
+                                            boxShadow: [
+                                              BoxShadow(
+                                                color: Colors.black.withOpacity(0.1),
+                                                blurRadius: 10,
+                                                offset: const Offset(0, 4),
+                                              ),
+                                            ],
+                                          ),
+                                          child: Row(
+                                            children: [
+                                              const Icon(Icons.cloud_off, color: Colors.grey, size: 28),
+                                              const SizedBox(width: 12),
+                                              Expanded(
+                                                child: Column(
+                                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                                  mainAxisSize: MainAxisSize.min,
+                                                  children: [
+                                                    Text(
+                                                      'You are now offline',
+                                                      style: TextStyle(
+                                                        fontSize: 16,
+                                                        fontWeight: FontWeight.bold,
+                                                        color: Colors.grey[800],
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      'You will not receive new bookings.',
+                                                      style: TextStyle(
+                                                        fontSize: 14,
+                                                        color: Colors.grey[600],
+                                                      ),
+                                                    ),
+                                                  ],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                  ),
+                                ],
+                                if (_isOnline) ...[
+                                  const SizedBox(height: 16),
+                                  Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.all(16),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(12),
+                                      boxShadow: [
+                                        BoxShadow(
+                                          color: Colors.black.withOpacity(0.1),
+                                          blurRadius: 10,
+                                          offset: const Offset(0, 4),
+                                        ),
+                                      ],
+                                    ),
+                                    child: Row(
+                                      children: [
+                                        const Icon(Icons.hourglass_top, color: Colors.orange, size: 28),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Text(
+                                                'Waiting for booking',
+                                                style: TextStyle(
+                                                  fontSize: 16,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: Colors.grey[800],
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                'You are online. Waiting for passengers...',
+                                                style: TextStyle(
+                                                  fontSize: 14,
+                                                  color: Colors.grey[600],
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
                           Positioned(
                             left: 0,
                             right: 0,
