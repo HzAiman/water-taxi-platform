@@ -1,0 +1,110 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function bookingCreateHasExpectedFields() {
+      return request.resource.data.keys().hasOnly([
+        'bookingId',
+        'userId',
+        'userName',
+        'userPhone',
+        'origin',
+        'destination',
+        'originCoords',
+        'destinationCoords',
+        'adultCount',
+        'childCount',
+        'passengerCount',
+        'adultFare',
+        'childFare',
+        'adultSubtotal',
+        'childSubtotal',
+        'fare',
+        'totalFare',
+        'paymentMethod',
+        'paymentStatus',
+        'status',
+        'driverId',
+        'createdAt',
+        'updatedAt'
+      ]);
+    }
+
+    function bookingUpdateHasExpectedFields() {
+      return request.resource.data.keys().hasOnly([
+        'bookingId',
+        'userId',
+        'userName',
+        'userPhone',
+        'origin',
+        'destination',
+        'originCoords',
+        'destinationCoords',
+        'adultCount',
+        'childCount',
+        'passengerCount',
+        'adultFare',
+        'childFare',
+        'adultSubtotal',
+        'childSubtotal',
+        'fare',
+        'totalFare',
+        'paymentMethod',
+        'paymentStatus',
+        'status',
+        'driverId',
+        'createdAt',
+        'updatedAt',
+        'cancelledAt'
+      ]);
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if isOwner(userId)
+        && request.resource.data.uid == resource.data.uid;
+      allow delete: if isOwner(userId);
+    }
+
+    match /jetties/{jettyId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /fares/{fareId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isOwner(resource.data.userId);
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
+        && request.resource.data.bookingId == bookingId
+        && request.resource.data.status == 'pending'
+        && request.resource.data.paymentStatus == 'paid'
+        && bookingCreateHasExpectedFields();
+
+      allow update: if isOwner(resource.data.userId)
+        && request.resource.data.userId == resource.data.userId
+        && request.resource.data.bookingId == resource.data.bookingId
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'cancelledAt'])
+        && resource.data.status != 'cancelled'
+        && resource.data.status != 'completed'
+        && request.resource.data.status == 'cancelled'
+        && bookingUpdateHasExpectedFields();
+
+      allow delete: if false;
+    }
+  }
+}

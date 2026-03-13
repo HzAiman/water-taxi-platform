@@ -1,5 +1,5 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 class BookingTrackingScreen extends StatefulWidget {
@@ -22,6 +22,13 @@ class BookingTrackingScreen extends StatefulWidget {
 
 class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   bool _isCancelling = false;
+
+  void _closeTrackingScreen() {
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).maybePop();
+  }
 
   Future<void> _cancelBooking() async {
     final shouldCancel = await showDialog<bool>(
@@ -70,6 +77,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           backgroundColor: Color(0xFF0066CC),
         ),
       );
+
+      _closeTrackingScreen();
     } catch (e) {
       if (!mounted) {
         return;
@@ -94,14 +103,14 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Booking Status"),
+        title: const Text('Booking Status'),
         centerTitle: true,
         elevation: 0,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: FirebaseFirestore.instance
             .collection('bookings')
-          .doc(widget.bookingId)
+            .doc(widget.bookingId)
             .snapshots(),
         builder: (context, snapshot) {
           if (snapshot.hasError) {
@@ -111,8 +120,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
             );
           }
 
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              !snapshot.hasData) {
+          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
             return const Center(child: CircularProgressIndicator());
           }
 
@@ -131,10 +139,9 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           final status = (booking['status'] ?? 'pending').toString();
           final paymentMethod = (booking['paymentMethod'] ?? 'unknown').toString();
           final paymentStatus = (booking['paymentStatus'] ?? 'unknown').toString();
-          final createdAt = _formatTimestamp(booking['createdAt']);
-          final updatedAt = _formatTimestamp(booking['updatedAt']);
           final statusTheme = _statusThemeFor(status);
           final canCancel = _canCancelStatus(status);
+
           final originPoint = _geoPointToLatLng(booking['originCoords']);
           final destinationPoint = _geoPointToLatLng(booking['destinationCoords']);
           final markers = _buildMarkers(
@@ -145,9 +152,9 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           );
           final polylines = _buildPolylines(originPoint, destinationPoint);
 
-          return Column(
+          return Stack(
             children: [
-              Expanded(
+              Positioned.fill(
                 child: GoogleMap(
                   initialCameraPosition: _cameraPositionFor(originPoint, destinationPoint),
                   markers: markers,
@@ -159,187 +166,172 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                   mapToolbarEnabled: false,
                 ),
               ),
-              Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  boxShadow: [
-                    BoxShadow(
-                      color: Color(0x1A000000),
-                      blurRadius: 10,
-                      offset: Offset(0, -4),
+              DraggableScrollableSheet(
+                initialChildSize: 0.30,
+                minChildSize: 0.22,
+                maxChildSize: 0.66,
+                snap: true,
+                builder: (context, scrollController) {
+                  return Container(
+                    decoration: const BoxDecoration(
+                      color: Colors.white,
+                      borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Color(0x1A000000),
+                          blurRadius: 12,
+                          offset: Offset(0, -4),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
-                child: SafeArea(
-                  top: false,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Container(
-                              width: 12,
-                              height: 12,
+                    child: SafeArea(
+                      top: false,
+                      child: ListView(
+                        controller: scrollController,
+                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                        children: [
+                          Center(
+                            child: Container(
+                              width: 44,
+                              height: 4,
                               decoration: BoxDecoration(
-                                color: statusTheme.color,
-                                shape: BoxShape.circle,
+                                color: const Color(0xFFDDE5F0),
+                                borderRadius: BorderRadius.circular(999),
                               ),
                             ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                statusTheme.title,
-                                style: const TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.bold,
-                                  color: Color(0xFF1A1A1A),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          statusTheme.message,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: Color(0xFF666666),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            const Text(
-                              "Booking ID",
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF666666),
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                widget.bookingId,
-                                textAlign: TextAlign.end,
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w600,
-                                  color: Color(0xFF1A1A1A),
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF0F5FF),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: const Color(0xFFDDE5F0)),
-                          ),
-                          child: Column(
+                          const SizedBox(height: 16),
+                          Row(
                             children: [
-                              _buildLocationRow(
-                                Icons.location_on,
-                                'Pick-up',
-                                currentOrigin,
+                              Container(
+                                width: 12,
+                                height: 12,
+                                decoration: BoxDecoration(
+                                  color: statusTheme.color,
+                                  shape: BoxShape.circle,
+                                ),
                               ),
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 8.0),
-                                child: Divider(color: Color(0xFFDDE5F0)),
-                              ),
-                              _buildLocationRow(
-                                Icons.flag,
-                                'Drop-off',
-                                currentDestination,
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  statusTheme.title,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1A1A1A),
+                                  ),
+                                ),
                               ),
                             ],
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildInfoTile(
-                                icon: Icons.people,
-                                label: 'Passengers',
-                                value: '$currentPassengerCount ${currentPassengerCount == 1 ? 'Passenger' : 'Passengers'}',
-                              ),
+                          const SizedBox(height: 4),
+                          Text(
+                            statusTheme.message,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF666666),
                             ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildInfoTile(
-                                icon: Icons.account_balance_wallet,
-                                label: 'Payment',
-                                value: '${_formatPaymentMethod(paymentMethod)} • ${_formatStatusLabel(paymentStatus)}',
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: _buildInfoTile(
-                                icon: Icons.schedule,
-                                label: 'Created',
-                                value: createdAt,
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: _buildInfoTile(
-                                icon: Icons.update,
-                                label: 'Last Update',
-                                value: updatedAt,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: ElevatedButton(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: canCancel
-                                  ? const Color(0xFFD64545)
-                                  : const Color(0xFF0066CC),
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            onPressed: _isCancelling
-                                ? null
-                                : canCancel
-                                    ? _cancelBooking
-                                    : () => Navigator.pop(context),
-                            child: _isCancelling
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                    ),
-                                  )
-                                : Text(canCancel ? 'Cancel Booking' : 'Close'),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              const Text(
+                                'Booking ID',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF666666),
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  widget.bookingId,
+                                  textAlign: TextAlign.end,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF1A1A1A),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                          Container(
+                            padding: const EdgeInsets.all(16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0F5FF),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFFDDE5F0)),
+                            ),
+                            child: Column(
+                              children: [
+                                _buildLocationRow(Icons.location_on, 'Pick-up', currentOrigin),
+                                const Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 8.0),
+                                  child: Divider(color: Color(0xFFDDE5F0)),
+                                ),
+                                _buildLocationRow(Icons.flag, 'Drop-off', currentDestination),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: _buildInfoTile(
+                                  icon: Icons.people,
+                                  label: 'Passengers',
+                                  value: '$currentPassengerCount ${currentPassengerCount == 1 ? 'Passenger' : 'Passengers'}',
+                                ),
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: _buildInfoTile(
+                                  icon: Icons.account_balance_wallet,
+                                  label: 'Payment',
+                                  value: '${_formatPaymentMethod(paymentMethod)} • ${_formatStatusLabel(paymentStatus)}',
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 20),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: canCancel ? const Color(0xFFD64545) : const Color(0xFF0066CC),
+                                foregroundColor: Colors.white,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: _isCancelling
+                                  ? null
+                                  : canCancel
+                                      ? _cancelBooking
+                                    : _closeTrackingScreen,
+                              child: _isCancelling
+                                  ? const SizedBox(
+                                      height: 20,
+                                      width: 20,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                      ),
+                                    )
+                                  : Text(canCancel ? 'Cancel Booking' : 'Close'),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                ),
+                  );
+                },
               ),
             ],
           );
@@ -537,18 +529,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       return value.toInt();
     }
     return int.tryParse(value?.toString() ?? '');
-  }
-
-  String _formatTimestamp(dynamic value) {
-    if (value is Timestamp) {
-      final local = value.toDate().toLocal();
-      final month = local.month.toString().padLeft(2, '0');
-      final day = local.day.toString().padLeft(2, '0');
-      final hour = local.hour.toString().padLeft(2, '0');
-      final minute = local.minute.toString().padLeft(2, '0');
-      return '${local.year}-$month-$day $hour:$minute';
-    }
-    return 'Unavailable';
   }
 
   String _formatPaymentMethod(String paymentMethod) {

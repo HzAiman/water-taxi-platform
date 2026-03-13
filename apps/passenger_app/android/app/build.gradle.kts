@@ -17,6 +17,10 @@ if (localPropertiesFile.exists()) {
 }
 val mapsApiKey: String = localProperties.getProperty("MAPS_API_KEY", "")
 
+check(mapsApiKey.isNotBlank()) {
+    "MAPS_API_KEY is missing. Add MAPS_API_KEY=<your-android-maps-key> to android/local.properties before running the app."
+}
+
 android {
     namespace = "com.example.passenger_app"
     compileSdk = flutter.compileSdkVersion
