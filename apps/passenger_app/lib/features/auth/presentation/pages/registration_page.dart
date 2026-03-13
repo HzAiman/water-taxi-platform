@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:passenger_app/main_screen.dart';
-import 'package:passenger_app/widgets/top_alert.dart';
+import 'package:passenger_app/core/widgets/top_alert.dart';
+import 'package:passenger_app/routes/main_screen.dart';
 
 class RegistrationPage extends StatefulWidget {
   final String phoneNumber;

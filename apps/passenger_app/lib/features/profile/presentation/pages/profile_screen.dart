@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
-import 'package:passenger_app/phone_login_page.dart';
-import 'package:passenger_app/widgets/top_alert.dart';
+import 'package:passenger_app/core/widgets/top_alert.dart';
+import 'package:passenger_app/features/auth/presentation/pages/phone_login_page.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -603,8 +603,22 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
   }
 }
 
-class _BookingHistoryRoutePage extends StatelessWidget {
+enum _BookingHistoryFilter {
+  all,
+  active,
+  completed,
+  cancelled,
+}
+
+class _BookingHistoryRoutePage extends StatefulWidget {
   const _BookingHistoryRoutePage();
+
+  @override
+  State<_BookingHistoryRoutePage> createState() => _BookingHistoryRoutePageState();
+}
+
+class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
+  _BookingHistoryFilter _selectedFilter = _BookingHistoryFilter.all;
 
   @override
   Widget build(BuildContext context) {
@@ -621,8 +635,7 @@ class _BookingHistoryRoutePage extends StatelessWidget {
               stream: FirebaseFirestore.instance
                   .collection('bookings')
                   .where('userId', isEqualTo: currentUser.uid)
-                  .limit(10)
-                  .snapshots(),
+                .snapshots(includeMetadataChanges: true),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return _buildHistoryState(
@@ -653,20 +666,102 @@ class _BookingHistoryRoutePage extends StatelessWidget {
                   });
 
                 if (docs.isEmpty) {
-                  return _buildHistoryState(
+                  return _BookingHistoryRoutePageState._buildHistoryState(
                     icon: Icons.directions_boat,
                     title: 'No bookings yet',
                     message: 'Your completed and upcoming water taxi bookings will appear here.',
                   );
                 }
 
+                final filteredDocs = docs.where((doc) {
+                  final status = (doc.data()['status'] ?? '').toString().toLowerCase();
+                  switch (_selectedFilter) {
+                    case _BookingHistoryFilter.active:
+                      return _isActiveStatus(status);
+                    case _BookingHistoryFilter.completed:
+                      return status == 'completed';
+                    case _BookingHistoryFilter.cancelled:
+                      return status == 'cancelled';
+                    case _BookingHistoryFilter.all:
+                      return true;
+                  }
+                }).toList();
+
                 return ListView(
                   padding: const EdgeInsets.all(24),
-                  children: docs.map((doc) => _buildBookingCard(doc.data())).toList(),
+                  children: [
+                    _buildFilterChips(),
+                    const SizedBox(height: 16),
+                    if (filteredDocs.isEmpty)
+                      _buildHistoryState(
+                        icon: Icons.filter_list,
+                        title: 'No ${_filterLabel(_selectedFilter).toLowerCase()} bookings',
+                        message: 'Try a different filter to see other bookings.',
+                      )
+                    else
+                      ...filteredDocs.map((doc) => _buildBookingCard(doc.data())),
+                  ],
                 );
               },
             ),
     );
+  }
+
+  Widget _buildFilterChips() {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: _BookingHistoryFilter.values.map((filter) {
+          final isSelected = _selectedFilter == filter;
+          return Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              label: Text(_filterLabel(filter)),
+              selected: isSelected,
+              showCheckmark: false,
+              onSelected: (_) => setState(() => _selectedFilter = filter),
+              selectedColor: const Color(0xFF0066CC).withValues(alpha: 0.15),
+              backgroundColor: Colors.white,
+              side: BorderSide(
+                color: isSelected ? const Color(0xFF0066CC) : const Color(0xFFDDE5F0),
+              ),
+              labelStyle: TextStyle(
+                color: isSelected ? const Color(0xFF0066CC) : const Color(0xFF555555),
+                fontWeight: FontWeight.w600,
+                fontSize: 12,
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  static bool _isActiveStatus(String status) {
+    switch (status) {
+      case 'pending':
+      case 'confirmed':
+      case 'accepted':
+      case 'on_the_way':
+      case 'in_progress':
+      case 'ongoing':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  static String _filterLabel(_BookingHistoryFilter filter) {
+    switch (filter) {
+      case _BookingHistoryFilter.all:
+        return 'All';
+      case _BookingHistoryFilter.active:
+        return 'Active';
+      case _BookingHistoryFilter.completed:
+        return 'Completed';
+      case _BookingHistoryFilter.cancelled:
+        return 'Cancelled';
+    }
   }
 
   static Widget _buildHistoryState({

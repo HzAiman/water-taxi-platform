@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
-import 'package:passenger_app/payment_screen.dart';
-import 'package:passenger_app/jetty_location_screen.dart';
-import 'package:passenger_app/widgets/top_alert.dart';
+import 'package:passenger_app/core/widgets/top_alert.dart';
+import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
+import 'package:passenger_app/features/home/presentation/pages/jetty_location_screen.dart';
+import 'package:passenger_app/features/home/presentation/pages/payment_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -139,7 +140,25 @@ class _HomeScreenState extends State<HomeScreen> {
     return snapshot.docs.isNotEmpty;
   }
 
+  Future<bool> _hasActiveBookingForUser(String userId) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('bookings')
+        .where('userId', isEqualTo: userId)
+        .get();
+
+    return snapshot.docs.any((doc) {
+      final status = (doc.data()['status'] ?? '').toString().toLowerCase();
+      return _isActiveBookingStatus(status);
+    });
+  }
+
   Future<void> _bookNow() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      _showBookingError('Please sign in to continue.');
+      return;
+    }
+
     if (_selectedOrigin == null || _selectedDestination == null) {
       _showBookingError('Please select both pick-up and drop-off locations.');
       return;
@@ -152,6 +171,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
     if (!_hasValidPassengerCount) {
       _showBookingError('Please select at least one passenger.');
+      return;
+    }
+
+    final hasActiveBooking = await _hasActiveBookingForUser(currentUser.uid);
+    if (!mounted) {
+      return;
+    }
+    if (hasActiveBooking) {
+      _showBookingError('You already have an active booking. Please view your current booking status first.');
       return;
     }
 
@@ -266,6 +294,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _buildActiveBookingCard(),
+                    const SizedBox(height: 20),
                     // Origin Selection
                     const Text(
                       "Pick-up Location",
@@ -574,30 +604,63 @@ class _HomeScreenState extends State<HomeScreen> {
                     const SizedBox(height: 24),
 
                     // Book Now Button
-                    SizedBox(
-                      width: double.infinity,
-                      height: 54,
-                      child: ElevatedButton(
-                        onPressed: (_canBookNow && !_isCheckingFare)
-                            ? _bookNow
-                            : null,
-                        child: _isCheckingFare
-                            ? const SizedBox(
-                                height: 22,
-                                width: 22,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                                ),
-                              )
-                            : const Text(
-                                "Book Water Taxi",
+                    StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+                      stream: FirebaseAuth.instance.currentUser == null
+                          ? null
+                          : FirebaseFirestore.instance
+                              .collection('bookings')
+                              .where('userId', isEqualTo: FirebaseAuth.instance.currentUser!.uid)
+                              .snapshots(includeMetadataChanges: true),
+                      builder: (context, snapshot) {
+                        final hasActiveBooking = snapshot.hasData
+                            ? snapshot.data!.docs.any((doc) {
+                                final status = (doc.data()['status'] ?? '').toString().toLowerCase();
+                                return _isActiveBookingStatus(status);
+                              })
+                            : false;
+
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: ElevatedButton(
+                                onPressed: (_canBookNow && !_isCheckingFare && !hasActiveBooking)
+                                    ? _bookNow
+                                    : null,
+                                child: _isCheckingFare
+                                    ? const SizedBox(
+                                        height: 22,
+                                        width: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                        ),
+                                      )
+                                    : const Text(
+                                        "Book Water Taxi",
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                            if (hasActiveBooking) ...[
+                              const SizedBox(height: 8),
+                              const Text(
+                                'You have an active booking. Open View Booking Status above to continue.',
                                 style: TextStyle(
-                                  fontSize: 16,
+                                  color: Color(0xFF8A5A00),
+                                  fontSize: 12,
                                   fontWeight: FontWeight.w600,
                                 ),
                               ),
-                      ),
+                            ],
+                          ],
+                        );
+                      },
                     ),
                     if (_isCheckingFare) ...[
                       const SizedBox(height: 10),
@@ -618,5 +681,189 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       ),
     );
+  }
+
+  Widget _buildActiveBookingCard() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    if (currentUser == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('bookings')
+          .where('userId', isEqualTo: currentUser.uid)
+          .snapshots(includeMetadataChanges: true),
+      builder: (context, snapshot) {
+        if (snapshot.hasError || !snapshot.hasData) {
+          return const SizedBox.shrink();
+        }
+
+        final activeDocs = snapshot.data!.docs.where((doc) {
+          final status = (doc.data()['status'] ?? '').toString().toLowerCase();
+          return _isActiveBookingStatus(status);
+        }).toList()
+          ..sort((a, b) {
+            final aTimestamp = a.data()['createdAt'];
+            final bTimestamp = b.data()['createdAt'];
+            if (aTimestamp is Timestamp && bTimestamp is Timestamp) {
+              return bTimestamp.compareTo(aTimestamp);
+            }
+            if (bTimestamp is Timestamp) return 1;
+            if (aTimestamp is Timestamp) return -1;
+            return 0;
+          });
+
+        if (activeDocs.isEmpty) {
+          return const SizedBox.shrink();
+        }
+
+        final bookingDoc = activeDocs.first;
+        final booking = bookingDoc.data();
+        final bookingId = (booking['bookingId'] ?? bookingDoc.id).toString();
+        final origin = (booking['origin'] ?? 'Unknown origin').toString();
+        final destination = (booking['destination'] ?? 'Unknown destination').toString();
+        final passengerCount = _toInt(booking['passengerCount']) ?? 1;
+        final status = (booking['status'] ?? 'pending').toString();
+        final statusColor = _statusColor(status);
+
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF0F7FF),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(color: const Color(0xFFBFD7F5)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.receipt_long, color: Color(0xFF0066CC), size: 20),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Current Booking',
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1A1A),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      _formatStatusLabel(status),
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: statusColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '$origin -> $destination',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF2A2A2A),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Booking ID: $bookingId | Passengers: $passengerCount',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF666666),
+                ),
+              ),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => BookingTrackingScreen(
+                          bookingId: bookingDoc.id,
+                          origin: origin,
+                          destination: destination,
+                          passengerCount: passengerCount,
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.directions_boat, size: 18),
+                  label: const Text('View Booking Status'),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  static bool _isActiveBookingStatus(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+      case 'confirmed':
+      case 'accepted':
+      case 'on_the_way':
+      case 'in_progress':
+      case 'ongoing':
+        return true;
+      default:
+        return false;
+    }
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  static String _formatStatusLabel(String status) {
+    return status
+        .split(RegExp(r'[_\s-]+'))
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+  }
+
+  static Color _statusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'confirmed':
+      case 'accepted':
+        return const Color(0xFF0066CC);
+      case 'completed':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      case 'on_the_way':
+      case 'in_progress':
+      case 'ongoing':
+        return Colors.teal;
+      default:
+        return const Color(0xFF666666);
+    }
   }
 }

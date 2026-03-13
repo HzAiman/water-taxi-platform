@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:passenger_app/home_screen.dart';
-import 'package:passenger_app/profile_screen.dart';
+import 'package:passenger_app/features/home/presentation/pages/home_screen.dart';
+import 'package:passenger_app/features/profile/presentation/pages/profile_screen.dart';
 
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});

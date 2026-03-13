@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:passenger_app/booking_tracking_screen.dart';
-import 'package:passenger_app/widgets/top_alert.dart';
+import 'package:passenger_app/core/widgets/top_alert.dart';
+import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
 
 class PaymentScreen extends StatefulWidget {
   final String origin;

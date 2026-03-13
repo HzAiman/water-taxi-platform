@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:passenger_app/widgets/top_alert.dart';
+import 'package:passenger_app/core/widgets/top_alert.dart';
 
 class BookingTrackingScreen extends StatefulWidget {
   final String bookingId;

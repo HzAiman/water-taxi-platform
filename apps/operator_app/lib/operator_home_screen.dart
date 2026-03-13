@@ -17,6 +17,7 @@ class OperatorHomeScreen extends StatefulWidget {
 class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   bool _isOnline = false;
   bool _isToggling = false;
+  bool _isUpdatingBooking = false;
   bool _hasLocationPermission = false;
   bool _mapReady = false;
   late GoogleMapController _mapController;
@@ -189,6 +190,258 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     } finally {
       if (mounted) setState(() => _isToggling = false);
     }
+  }
+
+  Future<void> _updateBookingStatus({
+    required String bookingId,
+    required String status,
+    String? driverId,
+  }) async {
+    if (_isUpdatingBooking) {
+      return;
+    }
+
+    setState(() => _isUpdatingBooking = true);
+    try {
+      await FirebaseFirestore.instance.collection('bookings').doc(bookingId).update({
+        'status': status,
+        'driverId': driverId,
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Booking status updated to ${_formatStatusLabel(status)}.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to update booking: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingBooking = false);
+      }
+    }
+  }
+
+  Widget _buildBookingActionCard(String userId) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('bookings')
+          .snapshots(includeMetadataChanges: true),
+      builder: (context, bookingSnapshot) {
+        if (bookingSnapshot.hasError) {
+          return _buildInfoCard(
+            icon: Icons.error_outline,
+            iconColor: Colors.red,
+            title: 'Unable to load bookings',
+            subtitle: 'Please check your connection and try again.',
+          );
+        }
+
+        final docs = bookingSnapshot.data?.docs ?? const [];
+        final pendingDocs = docs.where((doc) {
+          final data = doc.data();
+          final status = (data['status'] ?? '').toString().toLowerCase();
+          final driverId = data['driverId'];
+          return status == 'pending' && (driverId == null || driverId.toString().isEmpty);
+        }).toList();
+
+        final activeAssignedDocs = docs.where((doc) {
+          final data = doc.data();
+          final status = (data['status'] ?? '').toString().toLowerCase();
+          final driverId = (data['driverId'] ?? '').toString();
+          return driverId == userId && (status == 'accepted' || status == 'on_the_way');
+        }).toList();
+
+        pendingDocs.sort((a, b) {
+          final aTs = a.data()['createdAt'];
+          final bTs = b.data()['createdAt'];
+          if (aTs is Timestamp && bTs is Timestamp) {
+            return aTs.compareTo(bTs);
+          }
+          return 0;
+        });
+
+        activeAssignedDocs.sort((a, b) {
+          final aTs = a.data()['updatedAt'];
+          final bTs = b.data()['updatedAt'];
+          if (aTs is Timestamp && bTs is Timestamp) {
+            return bTs.compareTo(aTs);
+          }
+          return 0;
+        });
+
+        if (activeAssignedDocs.isNotEmpty) {
+          final bookingDoc = activeAssignedDocs.first;
+          final booking = bookingDoc.data();
+          final status = (booking['status'] ?? 'accepted').toString();
+          final routeLabel =
+              '${(booking['origin'] ?? 'Unknown').toString()} -> ${(booking['destination'] ?? 'Unknown').toString()}';
+          final passengerCount = _toInt(booking['passengerCount']) ?? 1;
+
+          final actionLabel = status.toLowerCase() == 'accepted' ? 'Start Trip' : 'Complete Trip';
+          final nextStatus = status.toLowerCase() == 'accepted' ? 'on_the_way' : 'completed';
+          final actionColor = status.toLowerCase() == 'accepted' ? const Color(0xFF0066CC) : Colors.green;
+
+          return _buildInfoCard(
+            icon: status.toLowerCase() == 'accepted' ? Icons.directions_boat : Icons.route,
+            iconColor: actionColor,
+            title: 'Current Booking: ${_formatStatusLabel(status)}',
+            subtitle: '$routeLabel\nPassengers: $passengerCount',
+            actionLabel: actionLabel,
+            actionColor: actionColor,
+            onAction: _isUpdatingBooking
+                ? null
+                : () => _updateBookingStatus(
+                      bookingId: bookingDoc.id,
+                      status: nextStatus,
+                      driverId: userId,
+                    ),
+          );
+        }
+
+        if (pendingDocs.isNotEmpty) {
+          final bookingDoc = pendingDocs.first;
+          final booking = bookingDoc.data();
+          final routeLabel =
+              '${(booking['origin'] ?? 'Unknown').toString()} -> ${(booking['destination'] ?? 'Unknown').toString()}';
+          final passengerCount = _toInt(booking['passengerCount']) ?? 1;
+
+          return _buildInfoCard(
+            icon: Icons.notifications_active,
+            iconColor: Colors.orange,
+            title: 'New Pending Booking',
+            subtitle: '$routeLabel\nPassengers: $passengerCount',
+            actionLabel: 'Accept Booking',
+            actionColor: const Color(0xFF0066CC),
+            onAction: _isUpdatingBooking
+                ? null
+                : () => _updateBookingStatus(
+                      bookingId: bookingDoc.id,
+                      status: 'accepted',
+                      driverId: userId,
+                    ),
+          );
+        }
+
+        return _buildInfoCard(
+          icon: Icons.hourglass_top,
+          iconColor: Colors.orange,
+          title: 'Waiting for booking',
+          subtitle: 'You are online. Waiting for passengers...',
+        );
+      },
+    );
+  }
+
+  Widget _buildInfoCard({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String subtitle,
+    String? actionLabel,
+    Color actionColor = const Color(0xFF0066CC),
+    VoidCallback? onAction,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, color: iconColor, size: 28),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[800],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey[600],
+            ),
+          ),
+          if (actionLabel != null) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: onAction,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: actionColor,
+                  foregroundColor: Colors.white,
+                ),
+                child: _isUpdatingBooking
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : Text(actionLabel),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  static int? _toInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  static String _formatStatusLabel(String status) {
+    return status
+        .split(RegExp(r'[_\s-]+'))
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
   }
 
   @override
@@ -365,51 +618,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                                 ],
                                 if (_isOnline) ...[
                                   const SizedBox(height: 16),
-                                  Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.all(16),
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(12),
-                                      boxShadow: [
-                                        BoxShadow(
-                                          color: Colors.black.withValues(alpha: 0.1),
-                                          blurRadius: 10,
-                                          offset: const Offset(0, 4),
-                                        ),
-                                      ],
-                                    ),
-                                    child: Row(
-                                      children: [
-                                        const Icon(Icons.hourglass_top, color: Colors.orange, size: 28),
-                                        const SizedBox(width: 12),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            mainAxisSize: MainAxisSize.min,
-                                            children: [
-                                              Text(
-                                                'Waiting for booking',
-                                                style: TextStyle(
-                                                  fontSize: 16,
-                                                  fontWeight: FontWeight.bold,
-                                                  color: Colors.grey[800],
-                                                ),
-                                              ),
-                                              const SizedBox(height: 4),
-                                              Text(
-                                                'You are online. Waiting for passengers...',
-                                                style: TextStyle(
-                                                  fontSize: 14,
-                                                  color: Colors.grey[600],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
+                                  _buildBookingActionCard(user.uid),
                                 ],
                               ],
                             ),
