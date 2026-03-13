@@ -1,7 +1,8 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'operator_profile_setup_page.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:operator_app/core/widgets/top_alert.dart';
+import 'package:operator_app/features/auth/presentation/pages/operator_profile_setup_page.dart';
 
 class OperatorLoginPage extends StatefulWidget {
   const OperatorLoginPage({super.key});
@@ -34,20 +35,16 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
     });
 
     try {
-      // Sign in with email and password
-      final UserCredential userCredential = await FirebaseAuth.instance
-          .signInWithEmailAndPassword(
+      final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
-      // Verify that this user is an operator in Firestore
       final operatorDocRef = FirebaseFirestore.instance
           .collection('operators')
           .doc(userCredential.user!.uid);
       final operatorDoc = await operatorDocRef.get();
 
-      // First-time login: no operator profile yet. Send to setup page.
       if (!operatorDoc.exists) {
         if (mounted) {
           Navigator.of(context).pushReplacement(
@@ -61,9 +58,6 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
         }
         return;
       }
-
-      // Login successful - AuthWrapper will handle navigation
-      
     } on FirebaseAuthException catch (e) {
       String message;
       switch (e.code) {
@@ -87,21 +81,11 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(message),
-            backgroundColor: Colors.red,
-          ),
-        );
+        showTopError(context, message: message, title: 'Login failed');
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('An error occurred: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        showTopError(context, message: 'An error occurred: ${e.toString()}', title: 'Login failed');
       }
     } finally {
       if (mounted) {
@@ -116,7 +100,7 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Melaka Water Taxi"),
+        title: const Text('Melaka Water Taxi'),
         centerTitle: true,
       ),
       body: SingleChildScrollView(
@@ -128,8 +112,6 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 const SizedBox(height: 20),
-                
-                // Welcome Icon with gradient background
                 Center(
                   child: Container(
                     width: 120,
@@ -153,29 +135,25 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
                   ),
                 ),
                 const SizedBox(height: 40),
-                
-                // Welcome Text
                 Text(
-                  "Operator Login",
+                  'Operator Login',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1A1A1A),
-                    fontSize: 28,
-                  ),
+                        fontWeight: FontWeight.bold,
+                        color: const Color(0xFF1A1A1A),
+                        fontSize: 28,
+                      ),
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  "Access your operator dashboard",
+                  'Access your operator dashboard',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                    color: Colors.grey[600],
-                    fontSize: 16,
-                  ),
+                        color: Colors.grey[600],
+                        fontSize: 16,
+                      ),
                 ),
                 const SizedBox(height: 40),
-                
-                // Email Field
                 TextFormField(
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
@@ -198,8 +176,6 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
                   },
                 ),
                 const SizedBox(height: 16),
-                
-                // Password Field
                 TextFormField(
                   controller: _passwordController,
                   obscureText: _obscurePassword,
@@ -210,9 +186,7 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
                     prefixIcon: const Icon(Icons.lock_outlined),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscurePassword
-                            ? Icons.visibility_outlined
-                            : Icons.visibility_off_outlined,
+                        _obscurePassword ? Icons.visibility_outlined : Icons.visibility_off_outlined,
                       ),
                       onPressed: () {
                         setState(() {
@@ -233,8 +207,6 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
                   },
                 ),
                 const SizedBox(height: 32),
-                
-                // Login Button
                 SizedBox(
                   width: double.infinity,
                   height: 54,
@@ -253,7 +225,7 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
                       : ElevatedButton(
                           onPressed: _login,
                           child: const Text(
-                            "Login",
+                            'Login',
                             style: TextStyle(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -262,8 +234,6 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
                         ),
                 ),
                 const SizedBox(height: 24),
-                
-                // Info Text
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -271,7 +241,7 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
-                    "Only registered operators can access this portal",
+                    'Only registered operators can access this portal',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       fontSize: 13,

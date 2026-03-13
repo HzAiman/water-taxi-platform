@@ -1,11 +1,14 @@
 import 'dart:async';
 
-import 'package:flutter/material.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:permission_handler/permission_handler.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:operator_app/core/widgets/top_alert.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class OperatorHomeScreen extends StatefulWidget {
   const OperatorHomeScreen({super.key});
@@ -15,23 +18,68 @@ class OperatorHomeScreen extends StatefulWidget {
 }
 
 class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
+  static const MethodChannel _mapsConfigChannel = MethodChannel('operator_app/maps_config');
+
   bool _isOnline = false;
   bool _isToggling = false;
   bool _isUpdatingBooking = false;
   bool _hasLocationPermission = false;
+  bool _hasShownWelcomeAlert = false;
+  bool _hasCheckedMapsConfig = false;
   bool _mapReady = false;
   late GoogleMapController _mapController;
   CameraPosition _initialCameraPosition = const CameraPosition(
-    target: LatLng(3.1390, 101.6869), // fallback to KL
+    target: LatLng(3.1390, 101.6869),
     zoom: 12,
   );
-
-  int _offlineNotificationKey = 0;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _hasShownWelcomeAlert) {
+        return;
+      }
+      final operatorLabel = FirebaseAuth.instance.currentUser?.email ?? 'Operator';
+      showTopWelcomeCard(context, operatorLabel: operatorLabel);
+      _hasShownWelcomeAlert = true;
+      _checkMapsConfiguration();
+    });
     _bootstrapLocation();
+  }
+
+  Future<void> _checkMapsConfiguration() async {
+    if (!mounted || _hasCheckedMapsConfig) {
+      return;
+    }
+    _hasCheckedMapsConfig = true;
+
+    try {
+      final result = await _mapsConfigChannel.invokeMapMethod<String, dynamic>('getMapsConfigStatus');
+      if (!mounted || result == null) {
+        return;
+      }
+
+      final injected = result['injected'] == true;
+      if (!injected) {
+        showTopError(
+          context,
+          title: 'Google Maps key not injected',
+          message:
+              'MAPS_API_KEY is not resolved from Android manifest. Check android/local.properties and API key restrictions.',
+        );
+        return;
+      }
+
+      if (kDebugMode) {
+        final preview = (result['preview'] ?? '').toString();
+        debugPrint('Operator Maps API key injected: $preview');
+      }
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('Maps config check failed: $e');
+      }
+    }
   }
 
   Future<void> _bootstrapLocation() async {
@@ -48,47 +96,33 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         );
       });
 
-      // If map is already ready, move camera immediately
       if (_mapReady) {
         _mapController.animateCamera(
-          CameraUpdate.newLatLngZoom(
-            LatLng(pos.latitude, pos.longitude),
-            16,
-          ),
+          CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16),
         );
       }
     } catch (e) {
-      // Keep fallback position; surface a gentle notice
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Unable to get current location: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Unable to get current location: $e', title: 'Location error');
     }
   }
 
   Future<bool> _ensureLocationPermission() async {
-    // Ensure location services are enabled
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Location services are off. Enable them to show your position.'),
-            action: SnackBarAction(
-              label: 'Open Settings',
-              onPressed: Geolocator.openLocationSettings,
-            ),
-          ),
+        showTopInfo(
+          context,
+          title: 'Location services off',
+          message: 'Enable location services to show your position.',
+          actionLabel: 'Open Settings',
+          onAction: Geolocator.openLocationSettings,
         );
       }
       setState(() => _hasLocationPermission = false);
       return false;
     }
 
-    // Check and request permission
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
@@ -96,14 +130,12 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
     if (permission == LocationPermission.deniedForever) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Location permission denied forever. Enable it in Settings.'),
-            action: SnackBarAction(
-              label: 'Open Settings',
-              onPressed: openAppSettings,
-            ),
-          ),
+        showTopInfo(
+          context,
+          title: 'Permission required',
+          message: 'Location permission was denied permanently. Enable it in Settings.',
+          actionLabel: 'Open Settings',
+          onAction: openAppSettings,
         );
       }
       setState(() => _hasLocationPermission = false);
@@ -117,13 +149,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   Future<void> _centerOnUser() async {
     if (!_mapReady) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Map is still loading.')),
-      );
+      showTopInfo(context, message: 'Map is still loading.', title: 'Please wait');
       return;
     }
 
-    // Ensure permission before requesting location
     final granted = await _ensureLocationPermission();
     if (!granted) return;
 
@@ -135,12 +164,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Unable to get location: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Unable to get location: $e', title: 'Location error');
     }
   }
 
@@ -150,42 +174,39 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
     final nextStatus = !_isOnline;
 
-    // Optimistic UI update for faster feedback
     setState(() {
       _isToggling = true;
       _isOnline = nextStatus;
-      if (!nextStatus) {
-        _offlineNotificationKey++;
-      }
     });
 
     try {
-      await FirebaseFirestore.instance
-          .collection('operators')
-          .doc(user.uid)
-          .set({
+      await FirebaseFirestore.instance.collection('operators').doc(user.uid).set({
         'isOnline': nextStatus,
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true)).timeout(const Duration(seconds: 6));
+
+      if (!mounted) {
+        return;
+      }
+
+      if (!nextStatus) {
+        showTopOfflineCard(context);
+      } else {
+        showTopInfo(
+          context,
+          title: 'You are online',
+          message: 'Waiting for passengers and new bookings.',
+        );
+      }
     } on TimeoutException {
       if (mounted) {
-        setState(() => _isOnline = !nextStatus); // revert
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Updating status timed out. Check your network.'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        setState(() => _isOnline = !nextStatus);
+        showTopError(context, message: 'Updating status timed out. Check your network.', title: 'Status update failed');
       }
     } catch (e) {
       if (mounted) {
-        setState(() => _isOnline = !nextStatus); // revert
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update status: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        setState(() => _isOnline = !nextStatus);
+        showTopError(context, message: 'Failed to update status: $e', title: 'Status update failed');
       }
     } finally {
       if (mounted) setState(() => _isToggling = false);
@@ -213,23 +234,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Booking status updated to ${_formatStatusLabel(status)}.'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      showTopSuccess(context, message: 'Booking status updated to ${_formatStatusLabel(status)}.');
     } catch (e) {
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update booking: $e'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Failed to update booking: $e', title: 'Booking update failed');
     } finally {
       if (mounted) {
         setState(() => _isUpdatingBooking = false);
@@ -239,9 +250,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   Widget _buildBookingActionCard(String userId) {
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-      stream: FirebaseFirestore.instance
-          .collection('bookings')
-          .snapshots(includeMetadataChanges: true),
+      stream: FirebaseFirestore.instance.collection('bookings').snapshots(includeMetadataChanges: true),
       builder: (context, bookingSnapshot) {
         if (bookingSnapshot.hasError) {
           return _buildInfoCard(
@@ -472,13 +481,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                     },
                   ),
                 ),
-
                 Positioned.fill(
                   child: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-                    stream: FirebaseFirestore.instance
-                        .collection('operators')
-                        .doc(user.uid)
-                        .snapshots(),
+                    stream: FirebaseFirestore.instance.collection('operators').doc(user.uid).snapshots(),
                     builder: (context, snapshot) {
                       final data = snapshot.data?.data();
                       if (data != null && data['isOnline'] is bool && !_isToggling) {
@@ -490,8 +495,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
                       return Stack(
                         children: [
-                          if (loadingSnapshot)
-                            const Center(child: CircularProgressIndicator()),
+                          if (loadingSnapshot) const Center(child: CircularProgressIndicator()),
                           Positioned(
                             top: 16,
                             left: 16,
@@ -499,125 +503,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                             child: Column(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                TweenAnimationBuilder<double>(
-                                  tween: Tween(begin: 1.0, end: 0.0),
-                                  duration: const Duration(seconds: 6),
-                                  curve: Curves.easeInExpo,
-                                  builder: (context, value, child) {
-                                    if (value <= 0.01) return const SizedBox.shrink();
-                                    return Opacity(
-                                      opacity: value > 0.2 ? 1.0 : value * 5,
-                                      child: Container(
-                                        padding: const EdgeInsets.all(16),
-                                        decoration: BoxDecoration(
-                                          color: Colors.white,
-                                          borderRadius: BorderRadius.circular(12),
-                                          boxShadow: [
-                                            BoxShadow(
-                                              color: Colors.black.withValues(alpha: 0.1),
-                                              blurRadius: 10,
-                                              offset: const Offset(0, 4),
-                                            ),
-                                          ],
-                                        ),
-                                        child: Row(
-                                          children: [
-                                            const Icon(Icons.verified_user, color: Color(0xFF0066CC), size: 28),
-                                            const SizedBox(width: 12),
-                                            Expanded(
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                mainAxisSize: MainAxisSize.min,
-                                                children: [
-                                                  Text(
-                                                    'Welcome back, Operator!',
-                                                    style: TextStyle(
-                                                      fontSize: 16,
-                                                      fontWeight: FontWeight.bold,
-                                                      color: Colors.grey[800],
-                                                    ),
-                                                  ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    user.email ?? 'Operator',
-                                                    style: TextStyle(
-                                                      fontSize: 14,
-                                                      color: Colors.grey[600],
-                                                    ),
-                                                    maxLines: 1,
-                                                    overflow: TextOverflow.ellipsis,
-                                                  ),
-                                                ],
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                    );
-                                  },
-                                ),
-                                if (!_isOnline && _offlineNotificationKey > 0) ...[
-                                  const SizedBox(height: 16),
-                                  TweenAnimationBuilder<double>(
-                                    key: ValueKey('offline_$_offlineNotificationKey'),
-                                    tween: Tween(begin: 1.0, end: 0.0),
-                                    duration: const Duration(seconds: 4),
-                                    curve: Curves.easeInExpo,
-                                    builder: (context, value, child) {
-                                      if (value <= 0.01) return const SizedBox.shrink();
-                                      return Opacity(
-                                        opacity: value > 0.2 ? 1.0 : value * 5,
-                                        child: Container(
-                                          width: double.infinity,
-                                          padding: const EdgeInsets.all(16),
-                                          decoration: BoxDecoration(
-                                            color: Colors.white,
-                                            borderRadius: BorderRadius.circular(12),
-                                            boxShadow: [
-                                              BoxShadow(
-                                                color: Colors.black.withValues(alpha: 0.1),
-                                                blurRadius: 10,
-                                                offset: const Offset(0, 4),
-                                              ),
-                                            ],
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              const Icon(Icons.cloud_off, color: Colors.grey, size: 28),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Column(
-                                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                                  mainAxisSize: MainAxisSize.min,
-                                                  children: [
-                                                    Text(
-                                                      'You are now offline',
-                                                      style: TextStyle(
-                                                        fontSize: 16,
-                                                        fontWeight: FontWeight.bold,
-                                                        color: Colors.grey[800],
-                                                      ),
-                                                    ),
-                                                    const SizedBox(height: 4),
-                                                    Text(
-                                                      'You will not receive new bookings.',
-                                                      style: TextStyle(
-                                                        fontSize: 14,
-                                                        color: Colors.grey[600],
-                                                      ),
-                                                    ),
-                                                  ],
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                ],
                                 if (_isOnline) ...[
-                                  const SizedBox(height: 16),
                                   _buildBookingActionCard(user.uid),
                                 ],
                               ],
@@ -631,12 +517,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                               child: ElevatedButton.icon(
                                 onPressed: (_isToggling || loadingSnapshot) ? null : _toggleStatus,
                                 style: ElevatedButton.styleFrom(
-                                  backgroundColor:
-                                      _isOnline ? Colors.red : const Color(0xFF0066CC),
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 24,
-                                    vertical: 12,
-                                  ),
+                                  backgroundColor: _isOnline ? Colors.red : const Color(0xFF0066CC),
+                                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
                                   elevation: 4,
                                   shape: RoundedRectangleBorder(
                                     borderRadius: BorderRadius.circular(12),

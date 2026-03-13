@@ -1,5 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
+import 'package:operator_app/core/widgets/top_alert.dart';
 
 class OperatorProfileSetupPage extends StatefulWidget {
   const OperatorProfileSetupPage({super.key, required this.uid, required this.email});
@@ -29,27 +30,16 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
 
     setState(() => _isSaving = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('operators')
-          .doc(widget.uid)
-          .set({
+      await FirebaseFirestore.instance.collection('operators').doc(widget.uid).set({
         'name': _nameController.text.trim(),
         'operatorId': _idController.text.trim(),
         'email': widget.email,
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       }, SetOptions(merge: true));
-
-      // No need to navigate - StreamBuilder in AuthWrapper will auto-detect the new profile
-      // and rebuild to show OperatorMainScreen
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to save profile: ${e.toString()}'),
-            backgroundColor: Colors.red,
-          ),
-        );
+        showTopError(context, message: 'Failed to save profile: ${e.toString()}', title: 'Profile setup failed');
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -112,7 +102,6 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
                       ),
                 ),
                 const SizedBox(height: 32),
-
                 TextFormField(
                   controller: _nameController,
                   enabled: !_isSaving,
@@ -129,7 +118,6 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
                   },
                 ),
                 const SizedBox(height: 16),
-
                 TextFormField(
                   controller: _idController,
                   enabled: !_isSaving,
@@ -146,7 +134,6 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
                   },
                 ),
                 const SizedBox(height: 16),
-
                 TextFormField(
                   enabled: false,
                   initialValue: widget.email,
@@ -156,7 +143,6 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
                   ),
                 ),
                 const SizedBox(height: 32),
-
                 SizedBox(
                   height: 54,
                   child: ElevatedButton(

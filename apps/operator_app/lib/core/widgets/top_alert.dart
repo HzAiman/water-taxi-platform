@@ -89,6 +89,35 @@ void showTopInfo(
   );
 }
 
+void showTopWelcomeCard(
+  BuildContext context, {
+  required String operatorLabel,
+  Duration duration = const Duration(seconds: 6),
+}) {
+  showTopAlert(
+    context,
+    title: 'Welcome back, Operator!',
+    message: operatorLabel,
+    iconColor: const Color(0xFF0066CC),
+    icon: Icons.verified_user,
+    duration: duration,
+  );
+}
+
+void showTopOfflineCard(
+  BuildContext context, {
+  Duration duration = const Duration(seconds: 4),
+}) {
+  showTopAlert(
+    context,
+    title: 'You are now offline',
+    message: 'You will not receive new bookings.',
+    iconColor: Colors.grey,
+    icon: Icons.cloud_off,
+    duration: duration,
+  );
+}
+
 class _TopAlertOverlay extends StatefulWidget {
   const _TopAlertOverlay({
     required this.message,
@@ -130,7 +159,6 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
         _visible = true;
       });
     });
-
     _timer = Timer(widget.duration, _dismiss);
   }
 
@@ -183,7 +211,7 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                     BoxShadow(
                       color: Colors.black.withValues(alpha: 0.1),
                       blurRadius: 10,
-                      offset: Offset(0, 4),
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),

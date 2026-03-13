@@ -1,15 +1,15 @@
 import 'package:flutter/material.dart';
-import 'operator_home_screen.dart';
-import 'operator_profile_page.dart';
+import 'package:operator_app/features/home/presentation/pages/operator_home_screen.dart';
+import 'package:operator_app/features/profile/presentation/pages/operator_profile_page.dart';
 
-class OperatorMainScreen extends StatefulWidget {
-  const OperatorMainScreen({super.key});
+class MainScreen extends StatefulWidget {
+  const MainScreen({super.key});
 
   @override
-  State<OperatorMainScreen> createState() => _OperatorMainScreenState();
+  State<MainScreen> createState() => _MainScreenState();
 }
 
-class _OperatorMainScreenState extends State<OperatorMainScreen> {
+class _MainScreenState extends State<MainScreen> {
   int _selectedIndex = 0;
 
   final List<Widget> _screens = const [

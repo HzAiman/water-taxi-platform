@@ -22,13 +22,25 @@ A Flutter Android app for ride-sharing operators to log in, complete their profi
 
 ```
 lib/
-├── main.dart                          # App entry point & AuthWrapper
-├── operator_login_page.dart          # Login screen
-├── operator_profile_setup_page.dart  # Profile setup for new operators
-├── operator_home_screen.dart         # Home screen with map + status toggle
-├── operator_profile_page.dart        # Profile editing screen
-├── operator_main_screen.dart         # Main shell with bottom navbar
-└── firebase_options.dart             # Firebase configuration
+├── app.dart                           # App shell and auth/profile routing
+├── main.dart                          # Firebase bootstrap
+├── firebase_options.dart              # Firebase configuration
+├── core/
+│   ├── constants/
+│   │   └── app_constants.dart         # App-level constants
+│   └── theme/
+│       └── app_theme.dart             # Shared app theme
+├── features/
+│   ├── auth/presentation/pages/
+│   │   ├── operator_login_page.dart
+│   │   └── operator_profile_setup_page.dart
+│   ├── home/presentation/pages/
+│   │   └── operator_home_screen.dart
+│   └── profile/presentation/pages/
+│       └── operator_profile_page.dart
+└── routes/
+    ├── app_routes.dart                # Route constants
+    └── main_screen.dart               # Main shell with bottom navbar
 ```
 
 ## Getting Started (Android)
@@ -110,6 +122,7 @@ Handles authentication state and routing logic:
 Main dashboard with:
 - Online/offline status toggle (optimistic update + Firestore sync)
 - Google Map with current location, custom recenter button
+- Pending booking pickup, accept/start/complete actions
 - Permission handling and error snackbars
 
 ### OperatorProfilePage
