@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:passenger_app/widgets/top_alert.dart';
 
 class BookingTrackingScreen extends StatefulWidget {
   final String bookingId;
@@ -71,25 +72,15 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Booking cancelled successfully.'),
-          backgroundColor: Color(0xFF0066CC),
-        ),
-      );
-
+      showTopSuccess(context, message: 'Booking cancelled successfully.');
+      await Future.delayed(const Duration(milliseconds: 900));
       _closeTrackingScreen();
     } catch (e) {
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to cancel booking: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Failed to cancel booking: ${e.toString()}');
     } finally {
       if (mounted) {
         setState(() {
@@ -108,29 +99,29 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         elevation: 0,
       ),
       body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('bookings')
-            .doc(widget.bookingId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return _buildMessageState(
-              title: 'Unable to load booking',
-              message: 'Please check your connection and try again.',
-            );
-          }
+              stream: FirebaseFirestore.instance
+                  .collection('bookings')
+                  .doc(widget.bookingId)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return _buildMessageState(
+                    title: 'Unable to load booking',
+                    message: 'Please check your connection and try again.',
+                  );
+                }
 
-          if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
+                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
 
-          final bookingDoc = snapshot.data;
-          if (bookingDoc == null || !bookingDoc.exists) {
-            return _buildMessageState(
-              title: 'Booking not found',
-              message: 'This booking may have been deleted or is unavailable.',
-            );
-          }
+                final bookingDoc = snapshot.data;
+                if (bookingDoc == null || !bookingDoc.exists) {
+                  return _buildMessageState(
+                    title: 'Booking not found',
+                    message: 'This booking may have been deleted or is unavailable.',
+                  );
+                }
 
           final booking = bookingDoc.data() ?? <String, dynamic>{};
           final currentOrigin = (booking['origin'] ?? widget.origin).toString();
@@ -152,24 +143,24 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           );
           final polylines = _buildPolylines(originPoint, destinationPoint);
 
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: GoogleMap(
-                  initialCameraPosition: _cameraPositionFor(originPoint, destinationPoint),
-                  markers: markers,
-                  polylines: polylines,
-                  myLocationEnabled: false,
-                  myLocationButtonEnabled: false,
-                  compassEnabled: true,
-                  zoomControlsEnabled: false,
-                  mapToolbarEnabled: false,
-                ),
-              ),
-              DraggableScrollableSheet(
+                return Stack(
+                  children: [
+                    Positioned.fill(
+                      child: GoogleMap(
+                        initialCameraPosition: _cameraPositionFor(originPoint, destinationPoint),
+                        markers: markers,
+                        polylines: polylines,
+                        myLocationEnabled: false,
+                        myLocationButtonEnabled: false,
+                        compassEnabled: true,
+                        zoomControlsEnabled: false,
+                        mapToolbarEnabled: false,
+                      ),
+                    ),
+                    DraggableScrollableSheet(
                 initialChildSize: 0.30,
                 minChildSize: 0.22,
-                maxChildSize: 0.66,
+                maxChildSize: 0.68,
                 snap: true,
                 builder: (context, scrollController) {
                   return Container(
@@ -332,11 +323,11 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                     ),
                   );
                 },
-              ),
-            ],
-          );
-        },
-      ),
+                    ),
+                  ],
+                );
+              },
+            ),
     );
   }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:passenger_app/main_screen.dart';
+import 'package:passenger_app/widgets/top_alert.dart';
 
 class RegistrationPage extends StatefulWidget {
   final String phoneNumber;
@@ -44,24 +45,12 @@ class _RegistrationPageState extends State<RegistrationPage> {
 
   void _showErrorSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-        duration: const Duration(seconds: 3),
-      ),
-    );
+    showTopError(context, message: message, duration: const Duration(seconds: 3));
   }
 
   void _showSuccessSnackBar(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.green,
-        duration: const Duration(seconds: 2),
-      ),
-    );
+    showTopSuccess(context, message: message, duration: const Duration(seconds: 2));
   }
 
   Future<void> _completeRegistration() async {

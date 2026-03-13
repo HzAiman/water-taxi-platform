@@ -4,6 +4,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:passenger_app/payment_screen.dart';
 import 'package:passenger_app/jetty_location_screen.dart';
+import 'package:passenger_app/widgets/top_alert.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -95,12 +96,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _showBookingError(String message) {
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: Colors.red,
-      ),
-    );
+    showTopError(context, message: message);
   }
 
   void _handleOriginSelected(String selectedOrigin) {

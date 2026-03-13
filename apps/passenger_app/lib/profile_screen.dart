@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/services.dart';
 import 'package:passenger_app/phone_login_page.dart';
+import 'package:passenger_app/widgets/top_alert.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -341,23 +342,13 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
         _isEditing = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Profile updated successfully'),
-          backgroundColor: Color(0xFF0066CC),
-        ),
-      );
+      showTopSuccess(context, message: 'Profile updated successfully');
     } catch (e) {
       if (!mounted) {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update profile: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Failed to update profile: ${e.toString()}');
     } finally {
       if (mounted) {
         setState(() {
@@ -419,12 +410,7 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error deleting account: ${e.toString()}'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Error deleting account: ${e.toString()}');
     } finally {
       if (mounted) {
         setState(() {

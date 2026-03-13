@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:passenger_app/main_screen.dart';
 import 'package:passenger_app/registration_page.dart';
+import 'package:passenger_app/widgets/top_alert.dart';
 import 'dart:async';
 
 // Common country codes
@@ -37,9 +38,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
     final phoneNumber = _phoneController.text.trim();
     if (phoneNumber.isEmpty) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a phone number")),
-      );
+      showTopError(context, message: 'Please enter a phone number');
       return;
     }
 
@@ -57,9 +56,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
       verificationFailed: (FirebaseAuthException e) {
         if (!mounted) return;
         setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.message}")),
-        );
+        showTopError(context, message: 'Error: ${e.message}');
       },
       codeSent: (String verificationId, int? resendToken) {
         if (!mounted) return;
@@ -297,9 +294,7 @@ class _OTPScreenState extends State<OTPScreen> {
     final otpCode = _otpController.text.trim();
     if (otpCode.isEmpty || otpCode.length != 6) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text("Please enter a valid 6-digit code")),
-      );
+      showTopError(context, message: 'Please enter a valid 6-digit code');
       return;
     }
 
@@ -318,9 +313,7 @@ class _OTPScreenState extends State<OTPScreen> {
       User? currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser == null) {
         setState(() => _isVerifying = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("Authentication error")),
-        );
+        showTopError(context, message: 'Authentication error');
         return;
       }
 
@@ -352,9 +345,7 @@ class _OTPScreenState extends State<OTPScreen> {
       if (!mounted) return;
       
       setState(() => _isVerifying = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text("Invalid Code. Please try again. Error: ${e.toString()}")),
-      );
+      showTopError(context, message: 'Invalid code. Please try again. Error: ${e.toString()}');
     }
   }
 
@@ -370,9 +361,7 @@ class _OTPScreenState extends State<OTPScreen> {
       verificationFailed: (FirebaseAuthException e) {
         if (!mounted) return;
         setState(() => _isVerifying = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error: ${e.message}")),
-        );
+        showTopError(context, message: 'Error: ${e.message}');
       },
       codeSent: (String newVerificationId, int? newResendToken) {
         if (!mounted) return;
@@ -383,9 +372,7 @@ class _OTPScreenState extends State<OTPScreen> {
           _otpController.clear();
         });
         _startTimer();
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text("OTP code sent again")),
-        );
+        showTopSuccess(context, message: 'OTP code sent again');
       },
       codeAutoRetrievalTimeout: (String verificationId) {},
       timeout: const Duration(seconds: 60),

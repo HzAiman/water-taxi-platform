@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:passenger_app/booking_tracking_screen.dart';
+import 'package:passenger_app/widgets/top_alert.dart';
 
 class PaymentScreen extends StatefulWidget {
   final String origin;
@@ -100,22 +101,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   Future<void> _processPayment() async {
     if (_selectedPaymentMethod == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please select a payment method'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Please select a payment method');
       return;
     }
 
     if (_fareDetails == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Fare details are unavailable. Please try again.'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      showTopError(context, message: 'Fare details are unavailable. Please try again.');
       return;
     }
 
@@ -206,11 +197,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
         _isProcessing = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to create booking: ${e.toString().replaceFirst('Exception: ', '')}'),
-          backgroundColor: Colors.red,
-        ),
+      showTopError(
+        context,
+        message: 'Failed to create booking: ${e.toString().replaceFirst('Exception: ', '')}',
       );
     }
   }
