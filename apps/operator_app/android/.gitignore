@@ -1,0 +1,23 @@
+# Gradle and Android build files
+gradle-wrapper.jar
+/.gradle
+/captures/
+/gradlew
+/gradlew.bat
+/local.properties
+GeneratedPluginRegistrant.java
+.cxx/
+build/
+
+# Firebase configuration (Hidden globally)
+**/google-services.json
+**/GoogleService-Info.plist
+**/firebase_options.dart
+
+# Local environment variables
+.env
+*.env
+
+# Keystore files (Extremely Important!)
+*.keystore
+*.jks
