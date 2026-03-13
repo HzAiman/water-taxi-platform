@@ -51,6 +51,299 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
+  Widget _buildBookingHistorySection() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      return const SizedBox.shrink();
+    }
+
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('bookings')
+          .where('userId', isEqualTo: currentUser.uid)
+          .limit(10)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return _buildHistoryState(
+            icon: Icons.receipt_long,
+            title: 'Unable to load bookings',
+            message: 'Please check your connection and try again.',
+          );
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFDDE5F0)),
+            ),
+            child: const Center(child: CircularProgressIndicator()),
+          );
+        }
+
+        final docs = [...(snapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])]
+          ..sort((a, b) {
+            final aTimestamp = a.data()['createdAt'];
+            final bTimestamp = b.data()['createdAt'];
+            if (aTimestamp is Timestamp && bTimestamp is Timestamp) {
+              return bTimestamp.compareTo(aTimestamp);
+            }
+            if (bTimestamp is Timestamp) {
+              return 1;
+            }
+            if (aTimestamp is Timestamp) {
+              return -1;
+            }
+            return 0;
+          });
+        if (docs.isEmpty) {
+          return _buildHistoryState(
+            icon: Icons.directions_boat,
+            title: 'No bookings yet',
+            message: 'Your completed and upcoming water taxi bookings will appear here.',
+          );
+        }
+
+        return Column(
+          children: docs.map((doc) => _buildBookingCard(doc.data())).toList(),
+        );
+      },
+    );
+  }
+
+  Widget _buildHistoryState({
+    required IconData icon,
+    required String title,
+    required String message,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDDE5F0)),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, size: 36, color: const Color(0xFF0066CC)),
+          const SizedBox(height: 12),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1A1A1A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              fontSize: 13,
+              color: Color(0xFF666666),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildBookingCard(Map<String, dynamic> booking) {
+    final bookingId = (booking['bookingId'] ?? '').toString();
+    final origin = (booking['origin'] ?? 'Unknown origin').toString();
+    final destination = (booking['destination'] ?? 'Unknown destination').toString();
+    final totalFare = _toDouble(booking['totalFare'] ?? booking['fare']);
+    final passengerCount = _toInt(booking['passengerCount']);
+    final paymentMethod = _formatPaymentMethod((booking['paymentMethod'] ?? 'unknown').toString());
+    final status = (booking['status'] ?? 'pending').toString();
+    final statusColor = _statusColor(status);
+    final createdAt = _formatTimestamp(booking['createdAt']);
+
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFDDE5F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  bookingId.isEmpty ? 'Booking' : bookingId,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A1A1A),
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  _formatStatusLabel(status),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildHistoryRow(Icons.location_on, 'Route', '$origin -> $destination'),
+          const SizedBox(height: 8),
+          _buildHistoryRow(Icons.people, 'Passengers', passengerCount == null ? 'Unavailable' : '$passengerCount'),
+          const SizedBox(height: 8),
+          _buildHistoryRow(Icons.account_balance_wallet, 'Payment', paymentMethod),
+          const SizedBox(height: 8),
+          _buildHistoryRow(Icons.schedule, 'Booked At', createdAt),
+          const SizedBox(height: 12),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Total Fare',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF666666),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              Text(
+                totalFare == null ? 'Unavailable' : 'RM ${totalFare.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF0066CC),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHistoryRow(IconData icon, String label, String value) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 18, color: const Color(0xFF0066CC)),
+        const SizedBox(width: 10),
+        Expanded(
+          child: RichText(
+            text: TextSpan(
+              style: const TextStyle(fontSize: 13, color: Color(0xFF1A1A1A)),
+              children: [
+                TextSpan(
+                  text: '$label: ',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF666666),
+                  ),
+                ),
+                TextSpan(text: value),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  int? _toInt(dynamic value) {
+    if (value is int) {
+      return value;
+    }
+    if (value is num) {
+      return value.toInt();
+    }
+    return int.tryParse(value?.toString() ?? '');
+  }
+
+  double? _toDouble(dynamic value) {
+    if (value is double) {
+      return value;
+    }
+    if (value is num) {
+      return value.toDouble();
+    }
+    return double.tryParse(value?.toString() ?? '');
+  }
+
+  String _formatTimestamp(dynamic value) {
+    if (value is Timestamp) {
+      final local = value.toDate().toLocal();
+      final month = local.month.toString().padLeft(2, '0');
+      final day = local.day.toString().padLeft(2, '0');
+      final hour = local.hour.toString().padLeft(2, '0');
+      final minute = local.minute.toString().padLeft(2, '0');
+      return '${local.year}-$month-$day $hour:$minute';
+    }
+    return 'Unavailable';
+  }
+
+  String _formatPaymentMethod(String paymentMethod) {
+    switch (paymentMethod) {
+      case 'credit_card':
+        return 'Card';
+      case 'e_wallet':
+        return 'E-Wallet';
+      case 'online_banking':
+        return 'Online Banking';
+      default:
+        return _formatStatusLabel(paymentMethod);
+    }
+  }
+
+  String _formatStatusLabel(String status) {
+    return status
+        .split(RegExp(r'[_\s-]+'))
+        .where((part) => part.isNotEmpty)
+        .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
+        .join(' ');
+  }
+
+  Color _statusColor(String status) {
+    switch (status.toLowerCase()) {
+      case 'pending':
+        return Colors.orange;
+      case 'confirmed':
+      case 'accepted':
+        return const Color(0xFF0066CC);
+      case 'completed':
+        return Colors.green;
+      case 'cancelled':
+        return Colors.red;
+      case 'on_the_way':
+      case 'in_progress':
+      case 'ongoing':
+        return Colors.teal;
+      default:
+        return const Color(0xFF666666);
+    }
+  }
+
   Future<void> _saveUserData() async {
     if (_formKey.currentState == null || !_formKey.currentState!.validate()) {
       return;
@@ -405,6 +698,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ),
+                    const SizedBox(height: 32),
+
+                    const Text(
+                      "Booking History",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF1A1A1A),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    _buildBookingHistorySection(),
                     const SizedBox(height: 32),
 
                     // Edit / Save / Cancel Buttons

@@ -22,6 +22,16 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _locations = [];
   bool _isLoadingLocations = true;
   String? _locationError;
+  bool _isCheckingFare = false;
+
+  bool get _hasValidPassengerCount => (_adultCount + _childCount) > 0;
+
+  bool get _isRouteReady =>
+      _selectedOrigin != null &&
+      _selectedDestination != null &&
+      _selectedOrigin != _selectedDestination;
+
+  bool get _canBookNow => _isRouteReady && _hasValidPassengerCount;
 
   @override
   void initState() {
@@ -78,6 +88,116 @@ class _HomeScreenState extends State<HomeScreen> {
         setState(() {
           _locationError = 'Failed to load jetties';
           _isLoadingLocations = false;
+        });
+      }
+    }
+  }
+
+  void _showBookingError(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        backgroundColor: Colors.red,
+      ),
+    );
+  }
+
+  void _handleOriginSelected(String selectedOrigin) {
+    final destinationWasReset = _selectedDestination == selectedOrigin;
+
+    setState(() {
+      _selectedOrigin = selectedOrigin;
+      if (destinationWasReset) {
+        _selectedDestination = null;
+      }
+    });
+
+    if (destinationWasReset) {
+      _showBookingError('Drop-off location was reset. Please choose a different destination.');
+    }
+  }
+
+  void _handleDestinationSelected(String selectedDestination) {
+    if (_selectedOrigin != null && _selectedOrigin == selectedDestination) {
+      _showBookingError('Pick-up and drop-off locations must be different.');
+      return;
+    }
+
+    setState(() {
+      _selectedDestination = selectedDestination;
+    });
+  }
+
+  Future<bool> _hasFareForRoute({
+    required String origin,
+    required String destination,
+  }) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('fares')
+        .where('origin', isEqualTo: origin)
+        .where('destination', isEqualTo: destination)
+        .limit(1)
+        .get();
+
+    return snapshot.docs.isNotEmpty;
+  }
+
+  Future<void> _bookNow() async {
+    if (_selectedOrigin == null || _selectedDestination == null) {
+      _showBookingError('Please select both pick-up and drop-off locations.');
+      return;
+    }
+
+    if (_selectedOrigin == _selectedDestination) {
+      _showBookingError('Pick-up and drop-off locations cannot be the same.');
+      return;
+    }
+
+    if (!_hasValidPassengerCount) {
+      _showBookingError('Please select at least one passenger.');
+      return;
+    }
+
+    setState(() {
+      _isCheckingFare = true;
+    });
+
+    try {
+      final hasFare = await _hasFareForRoute(
+        origin: _selectedOrigin!,
+        destination: _selectedDestination!,
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (!hasFare) {
+        _showBookingError('No fare is available for this route yet. Please select another route.');
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => PaymentScreen(
+            origin: _selectedOrigin!,
+            destination: _selectedDestination!,
+            adultCount: _adultCount,
+            childCount: _childCount,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      _showBookingError('Unable to verify fare for this route. Please try again.');
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isCheckingFare = false;
         });
       }
     }
@@ -219,9 +339,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                       );
                                       if (result != null && mounted) {
-                                        setState(() {
-                                          _selectedOrigin = result;
-                                        });
+                                        _handleOriginSelected(result);
                                       }
                                     }
                                   },
@@ -298,14 +416,34 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                       );
                                       if (result != null && mounted) {
-                                        setState(() {
-                                          _selectedDestination = result;
-                                        });
+                                        _handleDestinationSelected(result);
                                       }
                                     }
                                   },
                                 ),
                     ),
+                    if (_selectedOrigin != null &&
+                        _selectedDestination != null &&
+                        _selectedOrigin == _selectedDestination) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withValues(alpha: 0.08),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.withValues(alpha: 0.25)),
+                        ),
+                        child: const Text(
+                          'Pick-up and drop-off locations must be different.',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ],
                     const SizedBox(height: 20),
 
                     // Number of Passengers
@@ -444,30 +582,38 @@ class _HomeScreenState extends State<HomeScreen> {
                       width: double.infinity,
                       height: 54,
                       child: ElevatedButton(
-                        onPressed: (_selectedOrigin != null && _selectedDestination != null && (_adultCount > 0 || _childCount > 0))
-                            ? () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) => PaymentScreen(
-                                      origin: _selectedOrigin!,
-                                      destination: _selectedDestination!,
-                                      adultCount: _adultCount,
-                                      childCount: _childCount,
-                                    ),
-                                  ),
-                                );
-                              }
+                        onPressed: (_canBookNow && !_isCheckingFare)
+                            ? _bookNow
                             : null,
-                        child: const Text(
-                          "Book Water Taxi",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                        child: _isCheckingFare
+                            ? const SizedBox(
+                                height: 22,
+                                width: 22,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                ),
+                              )
+                            : const Text(
+                                "Book Water Taxi",
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
                       ),
                     ),
+                    if (_isCheckingFare) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        'Checking fare availability for this route...',
+                        style: TextStyle(
+                          color: Colors.grey[600],
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),

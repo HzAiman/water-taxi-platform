@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:passenger_app/booking_tracking_screen.dart';
 
@@ -83,6 +84,20 @@ class _PaymentScreenState extends State<PaymentScreen> {
     }
   }
 
+  Future<Map<String, dynamic>> _loadJettyByName(String jettyName) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('jetties')
+        .where('name', isEqualTo: jettyName)
+        .limit(1)
+        .get();
+
+    if (snapshot.docs.isEmpty) {
+      throw Exception('Jetty not found: $jettyName');
+    }
+
+    return snapshot.docs.first.data();
+  }
+
   Future<void> _processPayment() async {
     if (_selectedPaymentMethod == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -94,30 +109,110 @@ class _PaymentScreenState extends State<PaymentScreen> {
       return;
     }
 
+    if (_fareDetails == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Fare details are unavailable. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
     setState(() {
       _isProcessing = true;
     });
 
-    // Simulate payment processing
-    await Future.delayed(const Duration(seconds: 2));
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser == null) {
+        throw Exception('User not authenticated');
+      }
 
-    if (!mounted) return;
+      final userDocFuture = FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .get();
+      final originJettyFuture = _loadJettyByName(widget.origin);
+      final destinationJettyFuture = _loadJettyByName(widget.destination);
 
-    setState(() {
-      _isProcessing = false;
-    });
+      final results = await Future.wait<dynamic>([
+        userDocFuture,
+        originJettyFuture,
+        destinationJettyFuture,
+      ]);
 
-    // Navigate to booking tracking screen
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (context) => BookingTrackingScreen(
-          origin: widget.origin,
-          destination: widget.destination,
-          passengerCount: widget.adultCount + widget.childCount,
+      final userDoc = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+      final originJetty = results[1] as Map<String, dynamic>;
+      final destinationJetty = results[2] as Map<String, dynamic>;
+      final bookingRef = FirebaseFirestore.instance.collection('bookings').doc();
+      final userData = userDoc.data();
+      final bookingId = bookingRef.id;
+      final passengerCount = widget.adultCount + widget.childCount;
+
+      await bookingRef.set({
+        'bookingId': bookingId,
+        'userId': currentUser.uid,
+        'userName': (userData?['name'] ?? 'Passenger').toString(),
+        'userPhone': (userData?['phoneNumber'] ?? currentUser.phoneNumber ?? '').toString(),
+        'origin': widget.origin,
+        'destination': widget.destination,
+        'originCoords': GeoPoint(
+          (originJetty['lat'] as num).toDouble(),
+          (originJetty['lng'] as num).toDouble(),
         ),
-      ),
-      (route) => route.isFirst,
-    );
+        'destinationCoords': GeoPoint(
+          (destinationJetty['lat'] as num).toDouble(),
+          (destinationJetty['lng'] as num).toDouble(),
+        ),
+        'adultCount': widget.adultCount,
+        'childCount': widget.childCount,
+        'passengerCount': passengerCount,
+        'adultFare': _fareDetails!['adultPerPerson'],
+        'childFare': _fareDetails!['childPerPerson'],
+        'adultSubtotal': _fareDetails!['adultTotal'],
+        'childSubtotal': _fareDetails!['childTotal'],
+        'fare': _fareDetails!['total'],
+        'totalFare': _fareDetails!['total'],
+        'paymentMethod': _selectedPaymentMethod,
+        'paymentStatus': 'paid',
+        'status': 'pending',
+        'driverId': null,
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      setState(() {
+        _isProcessing = false;
+      });
+
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(
+          builder: (context) => BookingTrackingScreen(
+            bookingId: bookingId,
+            origin: widget.origin,
+            destination: widget.destination,
+            passengerCount: passengerCount,
+          ),
+        ),
+        (route) => route.isFirst,
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _isProcessing = false;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to create booking: ${e.toString().replaceFirst('Exception: ', '')}'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override

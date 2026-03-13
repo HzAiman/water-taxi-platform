@@ -267,12 +267,16 @@ class _OTPScreenState extends State<OTPScreen> {
   final TextEditingController _otpController = TextEditingController();
   bool _isVerifying = false;
   late Timer _timer;
+  late String _currentVerificationId;
+  int? _currentResendToken;
   int _secondsRemaining = 60;
   bool _canResend = false;
 
   @override
   void initState() {
     super.initState();
+    _currentVerificationId = widget.verificationId;
+    _currentResendToken = widget.resendToken;
     _startTimer();
   }
 
@@ -302,7 +306,7 @@ class _OTPScreenState extends State<OTPScreen> {
     setState(() => _isVerifying = true);
     try {
       AuthCredential credential = PhoneAuthProvider.credential(
-        verificationId: widget.verificationId,
+        verificationId: _currentVerificationId,
         smsCode: otpCode,
       );
       
@@ -359,6 +363,7 @@ class _OTPScreenState extends State<OTPScreen> {
     
     await FirebaseAuth.instance.verifyPhoneNumber(
       phoneNumber: widget.phoneNumber,
+      forceResendingToken: _currentResendToken,
       verificationCompleted: (PhoneAuthCredential credential) async {
         await FirebaseAuth.instance.signInWithCredential(credential);
       },
@@ -373,6 +378,8 @@ class _OTPScreenState extends State<OTPScreen> {
         if (!mounted) return;
         setState(() {
           _isVerifying = false;
+          _currentVerificationId = newVerificationId;
+          _currentResendToken = newResendToken;
           _otpController.clear();
         });
         _startTimer();
