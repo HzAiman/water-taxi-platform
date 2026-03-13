@@ -1,164 +1,181 @@
 # Operator App
 
-A Flutter Android app for ride-sharing operators to log in, complete their profile, toggle availability, and view their current location on a map.
+`operator_app` is the operator-facing Flutter app for handling the supply side of the water taxi platform. It manages operator authentication, profile bootstrap, online availability, current-location map behavior, and booking lifecycle transitions.
 
-## Features
+## Current Capabilities
 
-- **Authentication**: Email/password via Firebase Auth
-- **Profile Management**: Edit name and operator ID; email is read-only
-- **Availability**: One-tap online/offline toggle with optimistic updates
-- **Navigation**: Bottom nav (Home, Profile)
-- **Maps**: Shows current location, custom recenter button
-- **Realtime**: Firestore-backed profile and status
+### Authentication and profile
+- Firebase email/password sign-in.
+- Operator profile bootstrap in Firestore under `operators/{uid}`.
+- Profile edit flow for operator name and operator ID.
 
-## Tech Stack
+### Operations dashboard
+- Online/offline toggle synced to Firestore.
+- Google Map with current-location bootstrap and recenter behavior.
+- Booking action flow for:
+  - `pending -> accepted`
+  - `accepted -> on_the_way`
+  - `on_the_way -> completed`
+- Shared top-card notifications for welcome, info, success, offline, and error states.
 
-- **Frontend**: Flutter
-- **Backend**: Firebase (Auth, Firestore)
-- **State**: Stateful widgets
-- **Maps/Location**: google_maps_flutter, geolocator, permission_handler
+### Operator workflow status
+- Shows active assigned booking when one exists.
+- Falls back to the pending booking queue when the operator has no active booking.
+- Reacts to Firestore updates in real time.
 
-## Project Structure
+## Architecture
+
+The app now mirrors the passenger app structure.
 
 ```
 lib/
-├── app.dart                           # App shell and auth/profile routing
-├── main.dart                          # Firebase bootstrap
-├── firebase_options.dart              # Firebase configuration
+├── app.dart
+├── main.dart
+├── firebase_options.dart
 ├── core/
 │   ├── constants/
-│   │   └── app_constants.dart         # App-level constants
-│   └── theme/
-│       └── app_theme.dart             # Shared app theme
+│   ├── theme/
+│   └── widgets/
 ├── features/
 │   ├── auth/presentation/pages/
-│   │   ├── operator_login_page.dart
-│   │   └── operator_profile_setup_page.dart
 │   ├── home/presentation/pages/
-│   │   └── operator_home_screen.dart
 │   └── profile/presentation/pages/
-│       └── operator_profile_page.dart
 └── routes/
-    ├── app_routes.dart                # Route constants
-    └── main_screen.dart               # Main shell with bottom navbar
+    ├── app_routes.dart
+    └── main_screen.dart
 ```
 
-## Getting Started (Android)
+Key screens:
 
-### Prerequisites
-- Flutter SDK 3.x
-- Firebase project with Auth + Firestore enabled
-- Android device/emulator with Google Play services and location enabled
+- `features/auth/presentation/pages/operator_login_page.dart`
+- `features/auth/presentation/pages/operator_profile_setup_page.dart`
+- `features/home/presentation/pages/operator_home_screen.dart`
+- `features/profile/presentation/pages/operator_profile_page.dart`
 
-### Setup
-1) Clone
-```bash
-git clone <repository-url>
-cd operator_app
+## Firestore Data Expectations
+
+### Operators collection
+
+```text
+operators/{uid}
+name
+operatorId
+email
+isOnline
+createdAt
+updatedAt
 ```
 
-2) Dependencies
+### Bookings collection usage
+
+This app reads shared booking documents created by the passenger app and currently depends on:
+
+```text
+status
+driverId
+origin
+destination
+passengerCount
+fare or totalFare
+createdAt
+updatedAt
+```
+
+## Requirements
+
+- Flutter SDK with Dart SDK `^3.8.1`.
+- Firebase project configured for operator auth and Firestore.
+- Android Maps API key and valid package/SHA restrictions.
+- Device or emulator with location services enabled for map features.
+
+Packages used in this app include:
+
+- `firebase_core`
+- `firebase_auth`
+- `cloud_firestore`
+- `google_maps_flutter`
+- `geolocator`
+- `permission_handler`
+
+## Setup
+
+### 1. Install dependencies
+
 ```bash
 flutter pub get
 ```
 
-3) Firebase config (Android)
-- Download `google-services.json` from Firebase Console and place it at `android/app/google-services.json`.
-- Ensure your Firebase Android app uses the correct package name and SHA-1/256 fingerprints.
+### 2. Configure Firebase
 
-4) Google Maps API key (Android)
-- In `android/local.properties`, set:
+Required backend pieces:
+
+- Email/password Authentication enabled.
+- Firestore collection for `operators`.
+- Native Firebase config files for the target platform.
+
+This app shares the same Firebase project as `passenger_app`. The current Firestore rules and indexes are stored and deployed from `../passenger_app/`:
+
+- `../passenger_app/firestore.rules`
+- `../passenger_app/firestore.indexes.json`
+- `../passenger_app/firebase.json`
+
+That means operator booking permissions currently come from the shared rules defined there, not from a separate operator-specific Firestore config file.
+
+The current rules already allow operators to:
+
+- read bookings
+- accept an unclaimed pending booking
+- start a trip on their assigned booking
+- complete a trip on their assigned booking
+
+To deploy the shared Firestore config used by this app:
+
+```bash
+cd ../passenger_app
+firebase deploy --only firestore:rules,firestore:indexes
 ```
+
+### 3. Configure Google Maps on Android
+
+Set `MAPS_API_KEY` in `android/local.properties`:
+
+```properties
 MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
 ```
-- The manifest reads this via `${MAPS_API_KEY}`.
 
-5) Run
+The Android build injects this key into the manifest. If map tiles do not load, verify:
+
+- the key exists in `android/local.properties`
+- the Android package name matches the API key restrictions
+- the SHA fingerprints used by the running build are registered in Google Cloud and Firebase
+
+### 4. Run the app
+
 ```bash
 flutter run
 ```
 
-## App Flow
+## Development Notes
 
-1. **Login**: Operators enter email and password
-2. **Profile Setup**: New operators are prompted to enter name and operator ID
-3. **Home Screen**: Map centers on current location; toggle online/offline
-4. **Profile Screen**: View/edit name & operator ID, logout
+- `app.dart` routes signed-out users to login, new users to profile setup, and ready operators to the main shell.
+- `operator_home_screen.dart` contains the current booking queue and lifecycle actions.
+- A small Android method channel is present to help diagnose whether the Maps API key was injected into the manifest at runtime.
+- Shared in-app notification cards live in `core/widgets/top_alert.dart`.
 
-## Firestore Database Structure
+## Useful Commands
 
-### Collections
-
-**operators/**
-```
-{
-    uid: string (document ID)
-    name: string
-    operatorId: string
-    email: string
-    isOnline: boolean
-    createdAt: timestamp
-    updatedAt: timestamp
-}
+```bash
+flutter analyze
+flutter test
 ```
 
-## Authentication Flow
+## Known Gaps
 
-1. User enters credentials on login page
-2. Firebase authenticates the user
-3. App checks if operator profile exists in Firestore
-4. If profile missing → redirect to profile setup page
-5. If profile exists → show home screen
+This app still needs dispatch hardening before it is production-ready. Open work includes:
 
-## Key Components
+- explicit reject flow
+- atomic booking claim logic to avoid multi-operator races
+- queue UX improvements and richer booking cards
+- end-to-end lifecycle tests with the passenger app
 
-### AuthWrapper
-Handles authentication state and routing logic:
-- Checks Firebase auth state
-- Verifies operator profile in Firestore
-- Routes to appropriate screen based on auth status and profile completion
-
-### OperatorHomeScreen
-Main dashboard with:
-- Online/offline status toggle (optimistic update + Firestore sync)
-- Google Map with current location, custom recenter button
-- Pending booking pickup, accept/start/complete actions
-- Permission handling and error snackbars
-
-### OperatorProfilePage
-Profile management with:
-- Edit name and operator ID
-- Read-only email display
-- Save changes and logout
-
-### OperatorMainScreen
-Navigation shell with bottom navigation (Home, Profile)
-
-## Dependencies
-
-Key packages used:
-- `firebase_core`, `firebase_auth`, `cloud_firestore`
-- `google_maps_flutter`, `geolocator`, `permission_handler`
-- `flutter`
-
-## Error Handling
-
-- Network errors display user-friendly snackbar messages
-- Loading states show circular progress indicators
-- Form validation prevents invalid data submission
-- Mounted checks prevent UI updates after widget disposal
-
-## Future Enhancements
-
-- Ride request handling
-- Route display and navigation
-- History and analytics
-- Ratings and payments
-
-## Support
-
-For issues or questions, please create an issue in the repository.
-
-## License
-
-This project is licensed under the MIT License - see LICENSE file for details.
+The current task tracker is in `TODO.md`.

@@ -1,231 +1,201 @@
-# Melaka Water Taxi - Passenger App
+# Passenger App
 
-A Flutter mobile application for passengers to book water taxi services in Melaka, Malaysia. This app provides an easy-to-use interface for booking rides between various jetties along the Melaka River and tracking your bookings in real-time.
+`passenger_app` is the customer-facing Flutter app for creating and tracking water taxi bookings. It handles phone authentication, passenger registration, route selection, fare validation, booking creation, live booking tracking, and profile/history management.
 
-## Features
+## Current Capabilities
 
 ### Authentication
-- **Phone Number Authentication**: Secure login using Firebase phone authentication with OTP verification
-- **Persistent Sessions**: Users stay logged in across app sessions
-- **User Registration**: New users complete their profile with name and email
+- Firebase phone number sign-in with OTP verification.
+- Registration flow for first-time users.
+- Session-based routing through the auth wrapper.
 
-### Booking Management
-- **Ride Booking**: Select origin and destination from predefined jetties
-- **Passenger Count Selection**: Book for 1-10 passengers
-- **Fare Calculation**: Automatic fare calculation
-- **Real-time Tracking**: Track your booking status with live updates
-- **Google Maps Integration**: View your pickup location on an interactive map
+### Booking flow
+- Select pick-up and drop-off jetties from Firestore.
+- Choose adult and child passenger counts.
+- Validate route and fare availability before payment.
+- Prevent duplicate bookings when the user already has an active booking.
+- Create booking documents in Firestore during the payment flow.
 
-### User Profile
-- **View Profile**: Display user information (name, email, phone number)
-- **Edit Profile**: Update personal information
-- **Booking History**: View all past bookings with details
-- **Logout**: Secure sign out functionality
+### Tracking and recovery
+- Reopen the active booking directly from the home screen.
+- Stream booking status updates from Firestore in real time.
+- Support passenger cancellation for active bookings.
+- Show booking history with live updates and filters.
 
-### Payment
-- **Payment Information Entry**: Collect cardholder name and card number
-- **Order Summary**: Review booking details before confirmation
-- **Booking Confirmation**: Generate unique booking IDs
-- **Firebase Storage**: All bookings saved to Firestore database
+### Profile
+- View and update account details.
+- Access booking history from the profile area.
+- Sign out from the app.
 
-## Tech Stack
+## Architecture
 
-- **Framework**: Flutter 3.8.1
-- **Language**: Dart
-- **Backend**: Firebase
-  - Firebase Authentication (Phone Auth)
-  - Cloud Firestore (Database)
-  - Firebase Core
-- **Maps**: Google Maps Flutter
-- **UI**: Material Design 3
-
-## Project Structure
+The app was reorganized from a flat `lib/` layout into feature-based modules.
 
 ```
 lib/
-├── main.dart                      # App entry point with theme & auth routing
-├── phone_login_page.dart          # Phone authentication screen
-├── registration_page.dart         # New user registration
-├── main_screen.dart               # Bottom navigation (Home/Profile tabs)
-├── home_screen.dart               # Ride booking interface
-├── payment_screen.dart            # Payment information entry
-├── booking_tracking_screen.dart   # Real-time booking tracking
-├── profile_screen.dart            # User profile & booking history
-└── firebase_options.dart          # Firebase configuration
+├── app.dart
+├── main.dart
+├── firebase_options.dart
+├── core/
+│   ├── constants/
+│   ├── theme/
+│   ├── utils/
+│   └── widgets/
+├── features/
+│   ├── auth/presentation/pages/
+│   ├── home/presentation/pages/
+│   └── profile/presentation/pages/
+├── routes/
+│   ├── app_routes.dart
+│   └── main_screen.dart
+└── services/
+    └── firebase/
 ```
 
-## Prerequisites
+Key screens:
 
-- Flutter SDK (>= 3.8.1)
-- Dart SDK (>= 3.8.1)
-- Firebase project with:
-  - Authentication enabled (Phone provider)
-  - Cloud Firestore database
-  - Google Maps API key
-- Android Studio / VS Code
-- Android SDK / Xcode (for iOS)
+- `features/auth/presentation/pages/phone_login_page.dart`
+- `features/auth/presentation/pages/registration_page.dart`
+- `features/home/presentation/pages/home_screen.dart`
+- `features/home/presentation/pages/payment_screen.dart`
+- `features/home/presentation/pages/booking_tracking_screen.dart`
+- `features/profile/presentation/pages/profile_screen.dart`
 
-## Installation
+## Booking Data Model
 
-### 1. Clone the Repository
-```bash
-git clone https://github.com/xen9ne98/passenger_app.git
-cd passenger_app
+The payment flow currently writes booking documents with fields used by both apps, including:
+
+```text
+bookingId
+userId
+userName
+userPhone
+origin
+destination
+originCoords
+destinationCoords
+adultCount
+childCount
+passengerCount
+adultFare
+childFare
+adultSubtotal
+childSubtotal
+fare
+totalFare
+paymentMethod
+paymentStatus
+status
+driverId
+createdAt
+updatedAt
 ```
 
-### 2. Install Dependencies
+Current lifecycle states already handled in the passenger UI:
+
+```text
+pending
+accepted
+on_the_way
+completed
+cancelled
+```
+
+## Requirements
+
+- Flutter SDK with Dart SDK `^3.8.1`.
+- Firebase project configured for this app.
+- Google Maps API key for the target platform.
+
+Firebase services used:
+
+- Firebase Core
+- Firebase Authentication
+- Cloud Firestore
+- Firebase Storage
+
+Additional packages used:
+
+- `google_maps_flutter`
+- `geolocator`
+
+## Setup
+
+### 1. Install dependencies
+
 ```bash
 flutter pub get
 ```
 
-### 3. Firebase Setup
+### 2. Configure Firebase
 
-#### a. Create a Firebase Project
-1. Go to [Firebase Console](https://console.firebase.google.com/)
-2. Create a new project or use an existing one
-3. Enable **Phone Authentication** in Authentication settings
-4. Create a **Cloud Firestore** database in test mode
+Required backend pieces:
 
-#### b. Configure Firebase for Flutter
-```bash
-# Install FlutterFire CLI
-dart pub global activate flutterfire_cli
+- Phone Authentication enabled.
+- Firestore collections for `users`, `bookings`, `fares`, and `jetties`.
+- Valid generated `firebase_options.dart` and native Firebase config files.
 
-# Configure Firebase
-flutterfire configure
-```
+This app also contains the current Firestore backend config files used by the workspace:
 
-#### c. Add google-services.json (Android)
-- Download `google-services.json` from Firebase Console
-- Place it in `android/app/google-services.json`
+- `firestore.rules`
+- `firestore.indexes.json`
+- `firebase.json`
 
-#### d. Add GoogleService-Info.plist (iOS)
-- Download `GoogleService-Info.plist` from Firebase Console
-- Place it in `ios/Runner/GoogleService-Info.plist`
-
-### 4. Google Maps Setup
-
-#### Android Configuration
-1. Get a Google Maps API key from [Google Cloud Console](https://console.cloud.google.com/)
-2. Add to `android/app/src/main/AndroidManifest.xml`:
-```xml
-<application>
-    <meta-data
-        android:name="com.google.android.geo.API_KEY"
-        android:value="YOUR_API_KEY_HERE"/>
-</application>
-```
-
-#### iOS Configuration
-1. Add to `ios/Runner/AppDelegate.swift`:
-```swift
-import GoogleMaps
-
-GMSServices.provideAPIKey("YOUR_API_KEY_HERE")
-```
-
-### 5. Run the App
+If you need to push the current rules and indexes to Firebase, run:
 
 ```bash
-# For Android
+firebase deploy --only firestore:rules,firestore:indexes
+```
+
+The existing rules currently cover:
+
+- owner-only access for `users/{uid}`
+- owner-only create and update for `operators/{uid}`
+- signed-in read access for `jetties` and `fares`
+- passenger booking creation restricted to the signed-in user with `status == pending`
+- passenger cancellation for active bookings
+- operator status transitions for `pending -> accepted -> on_the_way -> completed`
+
+The current index file includes the fare lookup index used by route pricing queries. Additional booking-history and operator-queue indexes are still pending.
+
+### 3. Configure Google Maps
+
+For Android, set `MAPS_API_KEY` in `android/local.properties`:
+
+```properties
+MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
+```
+
+Make sure the key restrictions match the Android package and SHA fingerprints used by your build.
+
+### 4. Run the app
+
+```bash
 flutter run
-
-# For iOS
-flutter run -d ios
-
-# For web
-flutter run -d chrome
 ```
 
-## Firestore Database Structure
+## Development Notes
 
-### Users Collection
-```
-users/{userId}
-├── name: string
-├── email: string
-├── phoneNumber: string
-└── createdAt: timestamp
-```
+- `main.dart` initializes Firebase and enables Firestore offline persistence.
+- `app.dart` routes authenticated users to the main shell and unauthenticated users to phone login.
+- Home screen booking is gated by route validity, passenger count, fare existence, and active-booking checks.
+- Top-of-screen in-app notifications are centralized in `core/widgets/top_alert.dart`.
+- Firestore rules in this folder are shared backend infrastructure for both apps at the moment.
 
-### Bookings Collection
-```
-bookings/{bookingId}
-├── userId: string
-├── userName: string
-├── userPhone: string
-├── origin: string
-├── destination: string
-├── originCoords: GeoPoint
-├── destinationCoords: GeoPoint
-├── passengerCount: number
-├── fare: number
-├── cardholderName: string
-├── cardNumber: string
-├── status: string (pending/confirmed/completed/cancelled)
-├── createdAt: timestamp
-└── driverId: string (optional)
-```
+## Useful Commands
 
-## Configuration
-
-### App Theme
-The app uses a custom blue theme defined in `main.dart`:
-- Primary Color: `#0066CC`
-- Background: `#F8FBFF`
-- Material Design 3
-
-### Authentication Flow
-1. User enters phone number
-2. Receives OTP via SMS
-3. Verifies OTP
-4. New users complete registration
-5. Existing users go directly to home screen
-
-## Building for Production
-
-### Android APK
 ```bash
-flutter build apk --release
+flutter analyze
+flutter test
 ```
 
-### Android App Bundle
-```bash
-flutter build appbundle --release
-```
+## Known Gaps
 
-### iOS
-```bash
-flutter build ios --release
-```
+This app is not production-ready yet. Remaining work includes:
 
-## Troubleshooting
+- payment reliability and idempotency hardening
+- final handling for operator rejection or reassignment
+- stricter Firestore rules and indexes
+- broader widget and integration test coverage
 
-### Firebase Initialization Error
-- Ensure `WidgetsFlutterBinding.ensureInitialized()` is called before Firebase initialization
-- Run `flutterfire configure` to regenerate configuration
-
-### Google Maps Not Showing
-- Verify API key is correctly configured
-- Enable Maps SDK for Android/iOS in Google Cloud Console
-- Check billing is enabled for Google Cloud project
-
-### Phone Authentication Issues
-- Ensure Phone Authentication is enabled in Firebase Console
-- For testing, add test phone numbers in Firebase Console
-- Check SHA-1 certificate is added in Firebase project settings (Android)
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Acknowledgments
-
-- Flutter team for the amazing framework
-- Firebase for backend services
-- Google Maps Platform for mapping services
-- Material Design for UI/UX guidelines
-
----
-
-**Note**: This is a demonstration project for educational purposes. Ensure proper security measures and compliance with local regulations before deploying to production.
+The live task tracker is in `TODO.md`.

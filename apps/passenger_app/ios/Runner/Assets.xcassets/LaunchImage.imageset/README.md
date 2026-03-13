@@ -1,5 +1,7 @@
-# Launch Screen Assets
+# Passenger App Launch Screen Assets
 
-You can customize the launch screen with your own desired assets by replacing the image files in this directory.
+This directory contains the iOS launch image assets used by `passenger_app`.
 
-You can also do it by opening your Flutter project's Xcode project with `open ios/Runner.xcworkspace`, selecting `Runner/Assets.xcassets` in the Project Navigator and dropping in the desired images.
+To customize the launch screen, replace the image files in this folder or update them from Xcode by opening `ios/Runner.xcworkspace` and editing `Runner/Assets.xcassets`.
+
+Keep the asset names and expected sizes aligned with the existing Xcode asset catalog entries.
