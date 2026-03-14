@@ -95,6 +95,13 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /operator_presence/{operatorUid} {
+      allow read: if isOperator();
+      allow create, update: if isOwner(operatorUid)
+        && request.resource.data.keys().hasOnly(['isOnline', 'updatedAt']);
+      allow delete: if false;
+    }
+
     match /jetties/{jettyId} {
       allow read: if isSignedIn();
       allow write: if false;

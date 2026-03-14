@@ -67,6 +67,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final op = await _operatorRepo.getOperator(operatorId);
     if (op != null) {
       _isOnline = op.isOnline;
+      await _operatorRepo.syncPresence(operatorId, isOnline: op.isOnline);
       notifyListeners();
     }
 

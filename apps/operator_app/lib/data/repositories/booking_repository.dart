@@ -294,8 +294,8 @@ class BookingRepository {
 
   Future<Set<String>> _loadOnlineOperatorIds() async {
     final snap = await _db
-        .collection(FirestoreCollections.operators)
-        .where(OperatorFields.isOnline, isEqualTo: true)
+        .collection(FirestoreCollections.operatorPresence)
+        .where(OperatorPresenceFields.isOnline, isEqualTo: true)
         .get();
     return snap.docs.map((d) => d.id).toSet();
   }

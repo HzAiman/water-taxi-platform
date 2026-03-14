@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
+import 'package:operator_app/features/profile/presentation/pages/operator_presence_debug_page.dart';
 
 class OperatorProfilePage extends StatefulWidget {
   const OperatorProfilePage({super.key});
@@ -93,6 +94,19 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => const _OperatorAccountManagementRoutePage(),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildMenuButton(
+          icon: Icons.bug_report_outlined,
+          title: 'Presence Debug',
+          subtitle: 'Inspect operator_presence sync and online state',
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => const OperatorPresenceDebugPage(),
               ),
             );
           },

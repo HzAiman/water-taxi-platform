@@ -48,6 +48,12 @@ abstract final class OperatorFields {
   static const String updatedAt = 'updatedAt';
 }
 
+/// Field name constants for the `operator_presence` Firestore collection.
+abstract final class OperatorPresenceFields {
+  static const String isOnline = 'isOnline';
+  static const String updatedAt = 'updatedAt';
+}
+
 /// Field name constants for the `jetties` Firestore collection.
 abstract final class JettyFields {
   static const String jettyId = 'jettyId';

@@ -32,14 +32,23 @@ class OperatorRepository {
 
   /// Creates or merges an operator document.
   Future<void> createOperator(OperatorModel op) async {
-    await _db
-        .collection(FirestoreCollections.operators)
-        .doc(op.uid)
-        .set({
+    final batch = _db.batch();
+    final operatorRef = _db.collection(FirestoreCollections.operators).doc(op.uid);
+    final presenceRef = _db
+        .collection(FirestoreCollections.operatorPresence)
+        .doc(op.uid);
+
+    batch.set(operatorRef, {
       ...op.toMap(),
       OperatorFields.createdAt: FieldValue.serverTimestamp(),
       OperatorFields.updatedAt: FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
+    batch.set(presenceRef, {
+      OperatorPresenceFields.isOnline: op.isOnline,
+      OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
   }
 
   /// Updates operator profile fields.
@@ -62,13 +71,33 @@ class OperatorRepository {
 
   /// Sets the operator's online status.
   Future<void> setOnlineStatus(String uid, {required bool isOnline}) async {
-    await _db
-        .collection(FirestoreCollections.operators)
-        .doc(uid)
-        .update({
+    final batch = _db.batch();
+    final operatorRef = _db.collection(FirestoreCollections.operators).doc(uid);
+    final presenceRef = _db
+        .collection(FirestoreCollections.operatorPresence)
+        .doc(uid);
+
+    batch.update(operatorRef, {
       OperatorFields.isOnline: isOnline,
       OperatorFields.updatedAt: FieldValue.serverTimestamp(),
     });
+    batch.set(presenceRef, {
+      OperatorPresenceFields.isOnline: isOnline,
+      OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+  }
+
+  /// Mirrors the current online flag into the presence collection.
+  Future<void> syncPresence(String uid, {required bool isOnline}) async {
+    await _db
+        .collection(FirestoreCollections.operatorPresence)
+        .doc(uid)
+        .set({
+      OperatorPresenceFields.isOnline: isOnline,
+      OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
   }
 
   static OperatorModel _fromDoc(String uid, Map<String, dynamic> data) {
