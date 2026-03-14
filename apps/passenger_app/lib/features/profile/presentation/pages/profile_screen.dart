@@ -138,12 +138,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-
   Future<void> _loadUserData() async {
     User? currentUser = FirebaseAuth.instance.currentUser;
     if (currentUser != null) {
       _phoneNumber = currentUser.phoneNumber ?? '';
-      
+
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(currentUser.uid)
@@ -162,7 +161,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
   }
 
-
   Future<void> _logout(BuildContext context) async {
     final shouldLogout = await showDialog<bool>(
       context: context,
@@ -177,9 +175,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             TextButton(
               onPressed: () => Navigator.pop(context, true),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.red,
-              ),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: const Text("Logout"),
             ),
           ],
@@ -210,47 +206,47 @@ class _ProfileScreenState extends State<ProfileScreen> {
         body: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-              SafeArea(
-                top: false,
-                child: Container(
-                  width: double.infinity,
-                  padding: EdgeInsets.fromLTRB(24, topInset + 24, 24, 24),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        const Color(0xFF0066CC),
-                        const Color(0xFF0066CC).withValues(alpha: 0.8),
-                      ],
-                    ),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        _nameController.text.isNotEmpty ? _nameController.text : 'Passenger',
-                        style: const TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _phoneNumber,
-                        style: const TextStyle(
-                          fontSize: 14,
-                          color: Colors.white70,
-                        ),
-                      ),
+            SafeArea(
+              top: false,
+              child: Container(
+                width: double.infinity,
+                padding: EdgeInsets.fromLTRB(24, topInset + 24, 24, 24),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      const Color(0xFF0066CC),
+                      const Color(0xFF0066CC).withValues(alpha: 0.8),
                     ],
                   ),
                 ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      _nameController.text.isNotEmpty
+                          ? _nameController.text
+                          : 'Passenger',
+                      style: const TextStyle(
+                        fontSize: 24,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      _phoneNumber,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        color: Colors.white70,
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              Expanded(
-                child: _buildMainProfileMenu(),
-              ),
+            ),
+            Expanded(child: _buildMainProfileMenu()),
           ],
         ),
       ),
@@ -269,10 +265,12 @@ class _AccountManagementRoutePage extends StatefulWidget {
   const _AccountManagementRoutePage();
 
   @override
-  State<_AccountManagementRoutePage> createState() => _AccountManagementRoutePageState();
+  State<_AccountManagementRoutePage> createState() =>
+      _AccountManagementRoutePageState();
 }
 
-class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage> {
+class _AccountManagementRoutePageState
+    extends State<_AccountManagementRoutePage> {
   final _formKey = GlobalKey<FormState>();
   late TextEditingController _nameController;
   late TextEditingController _emailController;
@@ -296,7 +294,10 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
     }
 
     _phoneNumber = currentUser.phoneNumber ?? '';
-    final userDoc = await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).get();
+    final userDoc = await FirebaseFirestore.instance
+        .collection('users')
+        .doc(currentUser.uid)
+        .get();
 
     if (!mounted) {
       return;
@@ -304,7 +305,8 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
 
     setState(() {
       _nameController.text = userDoc.data()?['name'] ?? '';
-      _emailController.text = userDoc.data()?['email'] ?? currentUser.email ?? '';
+      _emailController.text =
+          userDoc.data()?['email'] ?? currentUser.email ?? '';
       _phoneController.text = _phoneNumber;
     });
   }
@@ -324,11 +326,14 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
         throw Exception('User not authenticated');
       }
 
-      await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).update({
-        'name': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'updatedAt': DateTime.now(),
-      });
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .update({
+            'name': _nameController.text.trim(),
+            'email': _emailController.text.trim(),
+            'updatedAt': DateTime.now(),
+          });
 
       if (_emailController.text.trim() != currentUser.email) {
         await currentUser.verifyBeforeUpdateEmail(_emailController.text.trim());
@@ -348,7 +353,10 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
         return;
       }
 
-      showTopError(context, message: 'Failed to update profile: ${e.toString()}');
+      showTopError(
+        context,
+        message: 'Failed to update profile: ${e.toString()}',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -364,7 +372,9 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
       builder: (context) {
         return AlertDialog(
           title: const Text('Delete Account'),
-          content: const Text('This action cannot be undone. All your data will be permanently deleted. Are you sure?'),
+          content: const Text(
+            'This action cannot be undone. All your data will be permanently deleted. Are you sure?',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
@@ -394,7 +404,10 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
         throw Exception('User not authenticated');
       }
 
-      await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).delete();
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .delete();
       await currentUser.delete();
 
       if (!mounted) {
@@ -437,7 +450,11 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
               children: [
                 const Text(
                   'Full Name',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1A1A)),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A1A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -457,7 +474,11 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
                 const SizedBox(height: 20),
                 const Text(
                   'Email Address',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1A1A)),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A1A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -482,7 +503,11 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
                 const SizedBox(height: 20),
                 const Text(
                   'Phone Number',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1A1A)),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A1A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -496,10 +521,7 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
                 const SizedBox(height: 6),
                 const Text(
                   'Phone number is managed by your login account and cannot be changed here.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF666666),
-                  ),
+                  style: TextStyle(fontSize: 12, color: Color(0xFF666666)),
                 ),
                 const SizedBox(height: 28),
                 if (!_isEditing)
@@ -514,7 +536,10 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
                       },
                       child: const Text(
                         'Edit Profile',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   )
@@ -532,12 +557,17 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
                                   width: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
                                   ),
                                 )
                               : const Text(
                                   'Save Changes',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                         ),
                       ),
@@ -556,7 +586,11 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
                                 },
                           child: const Text(
                             'Cancel',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF0066CC)),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0066CC),
+                            ),
                           ),
                         ),
                       ),
@@ -577,12 +611,18 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
                             width: 20,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.red,
+                              ),
                             ),
                           )
                         : const Text(
                             'Delete Account',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Colors.red),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Colors.red,
+                            ),
                           ),
                   ),
                 ),
@@ -603,18 +643,14 @@ class _AccountManagementRoutePageState extends State<_AccountManagementRoutePage
   }
 }
 
-enum _BookingHistoryFilter {
-  all,
-  active,
-  completed,
-  cancelled,
-}
+enum _BookingHistoryFilter { all, active, completed, cancelled }
 
 class _BookingHistoryRoutePage extends StatefulWidget {
   const _BookingHistoryRoutePage();
 
   @override
-  State<_BookingHistoryRoutePage> createState() => _BookingHistoryRoutePageState();
+  State<_BookingHistoryRoutePage> createState() =>
+      _BookingHistoryRoutePageState();
 }
 
 class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
@@ -625,17 +661,14 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     final currentUser = FirebaseAuth.instance.currentUser;
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Booking History'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: const Text('Booking History'), centerTitle: true),
       body: currentUser == null
           ? const Center(child: Text('Please sign in to view your bookings.'))
           : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
               stream: FirebaseFirestore.instance
                   .collection('bookings')
                   .where('userId', isEqualTo: currentUser.uid)
-                .snapshots(includeMetadataChanges: true),
+                  .snapshots(includeMetadataChanges: true),
               builder: (context, snapshot) {
                 if (snapshot.hasError) {
                   return _buildHistoryState(
@@ -645,43 +678,52 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                   );
                 }
 
-                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData) {
+                if (snapshot.connectionState == ConnectionState.waiting &&
+                    !snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
                 }
 
-                final docs = [...(snapshot.data?.docs ?? const <QueryDocumentSnapshot<Map<String, dynamic>>>[])]
-                  ..sort((a, b) {
-                    final aTimestamp = a.data()['createdAt'];
-                    final bTimestamp = b.data()['createdAt'];
-                    if (aTimestamp is Timestamp && bTimestamp is Timestamp) {
-                      return bTimestamp.compareTo(aTimestamp);
-                    }
-                    if (bTimestamp is Timestamp) {
-                      return 1;
-                    }
-                    if (aTimestamp is Timestamp) {
-                      return -1;
-                    }
-                    return 0;
-                  });
+                final docs =
+                    [
+                      ...(snapshot.data?.docs ??
+                          const <
+                            QueryDocumentSnapshot<Map<String, dynamic>>
+                          >[]),
+                    ]..sort((a, b) {
+                      final aTimestamp = a.data()['createdAt'];
+                      final bTimestamp = b.data()['createdAt'];
+                      if (aTimestamp is Timestamp && bTimestamp is Timestamp) {
+                        return bTimestamp.compareTo(aTimestamp);
+                      }
+                      if (bTimestamp is Timestamp) {
+                        return 1;
+                      }
+                      if (aTimestamp is Timestamp) {
+                        return -1;
+                      }
+                      return 0;
+                    });
 
                 if (docs.isEmpty) {
                   return _BookingHistoryRoutePageState._buildHistoryState(
                     icon: Icons.directions_boat,
                     title: 'No bookings yet',
-                    message: 'Your completed and upcoming water taxi bookings will appear here.',
+                    message:
+                        'Your completed and upcoming water taxi bookings will appear here.',
                   );
                 }
 
                 final filteredDocs = docs.where((doc) {
-                  final status = (doc.data()['status'] ?? '').toString().toLowerCase();
+                  final status = (doc.data()['status'] ?? '')
+                      .toString()
+                      .toLowerCase();
                   switch (_selectedFilter) {
                     case _BookingHistoryFilter.active:
                       return _isActiveStatus(status);
                     case _BookingHistoryFilter.completed:
                       return status == 'completed';
                     case _BookingHistoryFilter.cancelled:
-                      return status == 'cancelled';
+                      return status == 'cancelled' || status == 'rejected';
                     case _BookingHistoryFilter.all:
                       return true;
                   }
@@ -695,11 +737,15 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                     if (filteredDocs.isEmpty)
                       _buildHistoryState(
                         icon: Icons.filter_list,
-                        title: 'No ${_filterLabel(_selectedFilter).toLowerCase()} bookings',
-                        message: 'Try a different filter to see other bookings.',
+                        title:
+                            'No ${_filterLabel(_selectedFilter).toLowerCase()} bookings',
+                        message:
+                            'Try a different filter to see other bookings.',
                       )
                     else
-                      ...filteredDocs.map((doc) => _buildBookingCard(doc.data())),
+                      ...filteredDocs.map(
+                        (doc) => _buildBookingCard(doc.data()),
+                      ),
                   ],
                 );
               },
@@ -723,10 +769,14 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
               selectedColor: const Color(0xFF0066CC).withValues(alpha: 0.15),
               backgroundColor: Colors.white,
               side: BorderSide(
-                color: isSelected ? const Color(0xFF0066CC) : const Color(0xFFDDE5F0),
+                color: isSelected
+                    ? const Color(0xFF0066CC)
+                    : const Color(0xFFDDE5F0),
               ),
               labelStyle: TextStyle(
-                color: isSelected ? const Color(0xFF0066CC) : const Color(0xFF555555),
+                color: isSelected
+                    ? const Color(0xFF0066CC)
+                    : const Color(0xFF555555),
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
               ),
@@ -787,7 +837,11 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
               const SizedBox(height: 12),
               Text(
                 title,
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A1A1A)),
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF1A1A1A),
+                ),
               ),
               const SizedBox(height: 8),
               Text(
@@ -805,10 +859,13 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
   static Widget _buildBookingCard(Map<String, dynamic> booking) {
     final bookingId = (booking['bookingId'] ?? '').toString();
     final origin = (booking['origin'] ?? 'Unknown origin').toString();
-    final destination = (booking['destination'] ?? 'Unknown destination').toString();
+    final destination = (booking['destination'] ?? 'Unknown destination')
+        .toString();
     final totalFare = _toDouble(booking['totalFare'] ?? booking['fare']);
     final passengerCount = _toInt(booking['passengerCount']);
-    final paymentMethod = _formatPaymentMethod((booking['paymentMethod'] ?? 'unknown').toString());
+    final paymentMethod = _formatPaymentMethod(
+      (booking['paymentMethod'] ?? 'unknown').toString(),
+    );
     final status = (booking['status'] ?? 'pending').toString();
     final statusColor = _statusColor(status);
     final createdAt = _formatTimestamp(booking['createdAt']);
@@ -830,30 +887,53 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
               Expanded(
                 child: Text(
                   bookingId.isEmpty ? 'Booking' : bookingId,
-                  style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Color(0xFF1A1A1A)),
+                  style: const TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A1A1A),
+                  ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 decoration: BoxDecoration(
                   color: statusColor.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   _formatStatusLabel(status),
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: statusColor),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: statusColor,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 12),
-          _buildHistoryRow(Icons.location_on, 'Route', '$origin -> $destination'),
+          _buildHistoryRow(
+            Icons.location_on,
+            'Route',
+            '$origin -> $destination',
+          ),
           const SizedBox(height: 8),
-          _buildHistoryRow(Icons.people, 'Passengers', passengerCount == null ? 'Unavailable' : '$passengerCount'),
+          _buildHistoryRow(
+            Icons.people,
+            'Passengers',
+            passengerCount == null ? 'Unavailable' : '$passengerCount',
+          ),
           const SizedBox(height: 8),
-          _buildHistoryRow(Icons.account_balance_wallet, 'Payment', paymentMethod),
+          _buildHistoryRow(
+            Icons.account_balance_wallet,
+            'Payment',
+            paymentMethod,
+          ),
           const SizedBox(height: 8),
           _buildHistoryRow(Icons.schedule, 'Booked At', createdAt),
           const SizedBox(height: 12),
@@ -862,11 +942,21 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
             children: [
               const Text(
                 'Total Fare',
-                style: TextStyle(fontSize: 13, color: Color(0xFF666666), fontWeight: FontWeight.w600),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF666666),
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               Text(
-                totalFare == null ? 'Unavailable' : 'RM ${totalFare.toStringAsFixed(2)}',
-                style: const TextStyle(fontSize: 15, color: Color(0xFF0066CC), fontWeight: FontWeight.w700),
+                totalFare == null
+                    ? 'Unavailable'
+                    : 'RM ${totalFare.toStringAsFixed(2)}',
+                style: const TextStyle(
+                  fontSize: 15,
+                  color: Color(0xFF0066CC),
+                  fontWeight: FontWeight.w700,
+                ),
               ),
             ],
           ),
@@ -888,7 +978,10 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
               children: [
                 TextSpan(
                   text: '$label: ',
-                  style: const TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF666666)),
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF666666),
+                  ),
                 ),
                 TextSpan(text: value),
               ],
@@ -963,6 +1056,8 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
         return Colors.green;
       case 'cancelled':
         return Colors.red;
+      case 'rejected':
+        return Colors.deepOrange;
       case 'on_the_way':
       case 'in_progress':
       case 'ongoing':

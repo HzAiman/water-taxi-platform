@@ -31,6 +31,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   bool _mapReady = false;
   bool _isActiveSectionExpanded = false;
   bool _isQueueSectionExpanded = false;
+  String? _lastCancelledNoticeBookingId;
   late GoogleMapController _mapController;
   CameraPosition _initialCameraPosition = const CameraPosition(
     target: LatLng(3.1390, 101.6869),
@@ -423,44 +424,66 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
     setState(() => _isUpdatingBooking = true);
     try {
-      await FirebaseFirestore.instance.runTransaction((transaction) async {
-        final bookingRef = FirebaseFirestore.instance
-            .collection('bookings')
-            .doc(bookingId);
-        final snapshot = await transaction.get(bookingRef);
+      final onlineOperatorIds = await _loadOnlineOperatorIds();
 
-        if (!snapshot.exists) {
-          throw StateError('This booking no longer exists.');
-        }
+      final fullyRejected = await FirebaseFirestore.instance
+          .runTransaction<bool>((transaction) async {
+            final bookingRef = FirebaseFirestore.instance
+                .collection('bookings')
+                .doc(bookingId);
+            final snapshot = await transaction.get(bookingRef);
 
-        final data = snapshot.data() as Map<String, dynamic>;
-        final status = (data['status'] ?? '').toString().toLowerCase();
-        final driverId = (data['driverId'] ?? '').toString();
-        final rejectedBy = _asStringList(data['rejectedBy']);
+            if (!snapshot.exists) {
+              throw StateError('This booking no longer exists.');
+            }
 
-        if (status != 'pending' || driverId.isNotEmpty) {
-          throw StateError('Only unassigned pending bookings can be rejected.');
-        }
+            final data = snapshot.data() as Map<String, dynamic>;
+            final status = (data['status'] ?? '').toString().toLowerCase();
+            final driverId = (data['driverId'] ?? '').toString();
+            final rejectedBy = _asStringList(data['rejectedBy']);
 
-        if (rejectedBy.contains(userId)) {
-          throw StateError('You already rejected this booking.');
-        }
+            if (status != 'pending' || driverId.isNotEmpty) {
+              throw StateError(
+                'Only unassigned pending bookings can be rejected.',
+              );
+            }
 
-        transaction.update(bookingRef, {
-          'rejectedBy': FieldValue.arrayUnion([userId]),
-          'updatedAt': FieldValue.serverTimestamp(),
-        });
-      });
+            if (rejectedBy.contains(userId)) {
+              throw StateError('You already rejected this booking.');
+            }
+
+            final updatedRejectedBy = {...rejectedBy, userId};
+            final isFullyRejected =
+                onlineOperatorIds.isNotEmpty &&
+                onlineOperatorIds.every(updatedRejectedBy.contains);
+
+            transaction.update(bookingRef, {
+              'rejectedBy': updatedRejectedBy.toList(),
+              'status': isFullyRejected ? 'rejected' : 'pending',
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+
+            return isFullyRejected;
+          });
 
       if (!mounted) {
         return;
       }
 
-      showTopInfo(
-        context,
-        title: 'Booking rejected',
-        message: 'This booking stays pending and is hidden from your queue.',
-      );
+      if (fullyRejected) {
+        showTopInfo(
+          context,
+          title: 'Booking fully rejected',
+          message:
+              'All online operators declined this request, so the passenger will now see it as rejected.',
+        );
+      } else {
+        showTopInfo(
+          context,
+          title: 'Booking rejected',
+          message: 'This booking stays pending and is hidden from your queue.',
+        );
+      }
     } on StateError catch (e) {
       if (!mounted) {
         return;
@@ -524,6 +547,25 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
           }
           return 0;
         });
+
+        final cancelledDocs =
+            (activeSnapshot.data?.docs ?? const []).where((doc) {
+              final status = (doc.data()['status'] ?? '')
+                  .toString()
+                  .toLowerCase();
+              return status == 'cancelled';
+            }).toList()..sort((a, b) {
+              final aTs = a.data()['updatedAt'];
+              final bTs = b.data()['updatedAt'];
+              if (aTs is Timestamp && bTs is Timestamp) {
+                return bTs.compareTo(aTs);
+              }
+              return 0;
+            });
+
+        _notifyPassengerCancellationIfNeeded(
+          cancelledDocs.isNotEmpty ? cancelledDocs.first : null,
+        );
 
         final activeDoc = activeDocs.isNotEmpty ? activeDocs.first : null;
 
@@ -933,6 +975,39 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     final hour = dt.hour.toString().padLeft(2, '0');
     final minute = dt.minute.toString().padLeft(2, '0');
     return '$day/$month/${dt.year} $hour:$minute';
+  }
+
+  Future<Set<String>> _loadOnlineOperatorIds() async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('operators')
+        .where('isOnline', isEqualTo: true)
+        .get();
+    return snapshot.docs.map((doc) => doc.id).toSet();
+  }
+
+  void _notifyPassengerCancellationIfNeeded(
+    DocumentSnapshot<Map<String, dynamic>>? cancelledDoc,
+  ) {
+    if (cancelledDoc == null || !mounted) {
+      return;
+    }
+
+    if (_lastCancelledNoticeBookingId == cancelledDoc.id) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _lastCancelledNoticeBookingId == cancelledDoc.id) {
+        return;
+      }
+
+      _lastCancelledNoticeBookingId = cancelledDoc.id;
+      showTopInfo(
+        context,
+        title: 'Booking cancelled by passenger',
+        message: 'Booking ${cancelledDoc.id} is no longer active.',
+      );
+    });
   }
 
   static String _describeStreamError(Object? error) {
