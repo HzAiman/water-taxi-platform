@@ -132,6 +132,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
         bookingId: bookingId,
         operatorId: operatorId,
       ),
+      actionName: 'accept_booking',
+      bookingId: bookingId,
     );
   }
 
@@ -143,6 +145,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
         bookingId: bookingId,
         operatorId: operatorId,
       ),
+      actionName: 'reject_booking',
+      bookingId: bookingId,
     );
   }
 
@@ -154,6 +158,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
         bookingId: bookingId,
         operatorId: operatorId,
       ),
+      actionName: 'release_booking',
+      bookingId: bookingId,
     );
   }
 
@@ -165,6 +171,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
         bookingId: bookingId,
         operatorId: operatorId,
       ),
+      actionName: 'start_trip',
+      bookingId: bookingId,
     );
   }
 
@@ -176,6 +184,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
         bookingId: bookingId,
         operatorId: operatorId,
       ),
+      actionName: 'complete_trip',
+      bookingId: bookingId,
     );
   }
 
@@ -232,8 +242,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
   }
 
   Future<OperationResult> _withBusy(
-    Future<OperationResult> Function() action,
-  ) async {
+    Future<OperationResult> Function() action, {
+    required String actionName,
+    String? bookingId,
+  }) async {
     if (_isUpdatingBooking) {
       return const OperationFailure(
         'Busy',
@@ -244,11 +256,72 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _isUpdatingBooking = true;
     notifyListeners();
     try {
-      return await action();
+      final result = await action();
+      return _normaliseAndLog(
+        result,
+        actionName: actionName,
+        bookingId: bookingId,
+      );
     } finally {
       _isUpdatingBooking = false;
       notifyListeners();
     }
+  }
+
+  OperationResult _normaliseAndLog(
+    OperationResult result, {
+    required String actionName,
+    String? bookingId,
+  }) {
+    if (result case OperationFailure(:final title, :final message, :final isInfo)) {
+      if (_isPermissionDenied(message)) {
+        final friendly = OperationFailure(
+          'Permission denied',
+          'You no longer have permission to perform this action. Refresh, then sign in again if needed.',
+          isInfo: false,
+        );
+        _logFailure(
+          actionName,
+          friendly,
+          bookingId: bookingId,
+          rawTitle: title,
+          rawMessage: message,
+        );
+        return friendly;
+      }
+
+      final originalFailure = OperationFailure(
+        title,
+        message,
+        isInfo: isInfo,
+      );
+
+      _logFailure(
+        actionName,
+        originalFailure,
+        bookingId: bookingId,
+      );
+      return originalFailure;
+    }
+    return result;
+  }
+
+  bool _isPermissionDenied(String message) {
+    final text = message.toLowerCase();
+    return text.contains('permission-denied') ||
+        text.contains('insufficient permissions');
+  }
+
+  void _logFailure(
+    String actionName,
+    OperationFailure failure, {
+    String? bookingId,
+    String? rawTitle,
+    String? rawMessage,
+  }) {
+    debugPrint(
+      '[operator_action_failure] action=$actionName operatorId=${_operatorId ?? 'unknown'} bookingId=${bookingId ?? 'n/a'} title=${failure.title} message=${failure.message} rawTitle=${rawTitle ?? '-'} rawMessage=${rawMessage ?? '-'}',
+    );
   }
 
   static const OperationResult _notInitialised = OperationFailure(

@@ -97,8 +97,19 @@ service cloud.firestore {
 
     match /operator_presence/{operatorUid} {
       allow read: if isOperator();
-      allow create, update: if isOwner(operatorUid)
+      allow create: if isOwner(operatorUid)
         && request.resource.data.keys().hasOnly(['isOnline', 'updatedAt']);
+      allow update: if (
+          isOwner(operatorUid)
+          && request.resource.data.keys().hasOnly(['isOnline', 'updatedAt'])
+        ) || (
+          isOperator()
+          && request.resource.data.keys().hasOnly(['isOnline', 'updatedAt'])
+          && request.resource.data.isOnline == false
+          && resource.data.isOnline == true
+          && resource.data.updatedAt is timestamp
+          && request.time > resource.data.updatedAt + duration.value(10, 'm')
+        );
       allow delete: if false;
     }
 

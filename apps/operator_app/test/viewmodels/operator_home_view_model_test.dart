@@ -153,6 +153,29 @@ void main() {
       expect(bookingRepo.lastRejectedBookingId, isNull);
     });
 
+    test('permission-denied failures are normalized to user-friendly message', () async {
+      final bookingRepo = FakeOperatorBookingRepository()
+        ..rejectResult = const OperationFailure(
+          'Reject failed',
+          'Could not reject booking: [cloud_firestore/permission-denied] The caller does not have permission to execute the specified operation',
+        );
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: FakeOperatorRepository(),
+      );
+
+      await viewModel.initialize('operator-1');
+      final result = await viewModel.rejectBooking('booking-2');
+
+      expect(result, isA<OperationFailure>());
+      final failure = result as OperationFailure;
+      expect(failure.title, 'Permission denied');
+      expect(
+        failure.message,
+        contains('You no longer have permission to perform this action'),
+      );
+    });
+
     test('toggleOnlineStatus reverts state on timeout', () async {
       final bookingRepo = FakeOperatorBookingRepository();
       final operatorRepo = FakeOperatorRepository(
@@ -276,6 +299,14 @@ class FakeOperatorBookingRepository extends BookingRepository {
   String? lastAcceptedBookingId;
   String? lastAcceptedOperatorId;
   String? lastRejectedBookingId;
+    OperationResult acceptResult =
+      const OperationSuccess('Booking accepted successfully.');
+    OperationResult rejectResult = const OperationSuccess('Booking rejected.');
+    OperationResult releaseResult = const OperationSuccess('Booking released.');
+    OperationResult startResult =
+      const OperationSuccess('Trip started successfully.');
+    OperationResult completeResult =
+      const OperationSuccess('Trip completed successfully.');
   Completer<OperationResult>? acceptCompleter;
 
   @override
@@ -304,7 +335,7 @@ class FakeOperatorBookingRepository extends BookingRepository {
     if (acceptCompleter != null) {
       return acceptCompleter!.future;
     }
-    return const OperationSuccess('Booking accepted successfully.');
+    return acceptResult;
   }
 
   @override
@@ -313,7 +344,7 @@ class FakeOperatorBookingRepository extends BookingRepository {
     required String operatorId,
   }) async {
     lastRejectedBookingId = bookingId;
-    return const OperationSuccess('Booking rejected.');
+    return rejectResult;
   }
 
   @override
@@ -321,7 +352,7 @@ class FakeOperatorBookingRepository extends BookingRepository {
     required String bookingId,
     required String operatorId,
   }) async {
-    return const OperationSuccess('Booking released.');
+    return releaseResult;
   }
 
   @override
@@ -329,7 +360,7 @@ class FakeOperatorBookingRepository extends BookingRepository {
     required String bookingId,
     required String operatorId,
   }) async {
-    return const OperationSuccess('Trip started successfully.');
+    return startResult;
   }
 
   @override
@@ -337,7 +368,7 @@ class FakeOperatorBookingRepository extends BookingRepository {
     required String bookingId,
     required String operatorId,
   }) async {
-    return const OperationSuccess('Trip completed successfully.');
+    return completeResult;
   }
 
   void emitActive(List<BookingModel> bookings) {

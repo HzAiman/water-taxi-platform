@@ -55,30 +55,29 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 - [x] Add retry handling for failed status updates
 
 ### P2: Passenger-Operator Sync Validation
-- [ ] Validate passenger tracking updates immediately for each operator action
-- [ ] Validate passenger booking history reflects final statuses correctly
-- [ ] Validate cancellation edge cases while operator is en-route
+- [x] Validate passenger tracking updates immediately for each operator action
+- [x] Validate passenger booking history reflects final statuses correctly
+- [x] Validate cancellation edge cases while operator is en-route
 
 ### P3: Testing + Quality
 - [x] Add unit tests for status transition guards
 - [x] Add widget tests for operator home queue and action buttons
-- [ ] Add integration test for full lifecycle:
-  - [ ] passenger books
-  - [ ] operator accepts
-  - [ ] operator starts trip
-  - [ ] operator completes
-  - [ ] passenger sees final state
+- [x] Add integration test for full lifecycle:
+  - [x] passenger books
+  - [x] operator accepts
+  - [x] operator starts trip
+  - [x] operator completes
+  - [x] passenger sees final state
 - [x] Replace placeholder default test patterns
 
 ### P3: Observability + Ops
-- [ ] Add structured logs for booking transition failures
-- [ ] Add user-friendly error messages for rules/permission failures
-- [ ] Add optional admin/debug screen for active booking diagnostics (dev only)
+- [x] Add structured logs for booking transition failures
+- [x] Add user-friendly error messages for rules/permission failures
+- [x] Add optional admin/debug screen for active booking diagnostics (dev only)
 
 ## Suggested Next Delivery Order
 
-1. Build integration tests for cross-app lifecycle verification.
-2. Expand passenger/operator sync validation coverage and cancellation edge cases.
-3. Add structured observability for transition failures.
-4. Add optional diagnostics/admin tooling for operations debugging.
-5. Re-run end-to-end reliability validation under concurrent dispatch load.
+1. Re-run end-to-end reliability validation under concurrent dispatch load.
+2. Add production-safe admin operations path (server-authorized cleanup instead of client debug actions).
+3. Add release diagnostics policy (what telemetry is kept, where it is surfaced, and who can access it).
+4. Backfill additional integration scenarios for dispatch contention and intermittent network failures.

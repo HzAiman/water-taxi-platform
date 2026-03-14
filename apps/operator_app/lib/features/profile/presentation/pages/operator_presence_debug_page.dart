@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -19,7 +20,10 @@ class OperatorPresenceDebugPage extends StatefulWidget {
 }
 
 class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
+  static const Duration _staleThreshold = Duration(minutes: 10);
+
   bool _isSyncing = false;
+  bool _isMarkingStale = false;
 
   FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
 
@@ -59,8 +63,64 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
     }
   }
 
+  Future<void> _markStaleOffline(
+    List<QueryDocumentSnapshot<Map<String, dynamic>>> staleOnlineDocs,
+  ) async {
+    if (_isMarkingStale) return;
+    setState(() => _isMarkingStale = true);
+
+    try {
+      if (staleOnlineDocs.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('No stale online presence docs found.')),
+        );
+        return;
+      }
+
+      final batch = _db.batch();
+      for (final doc in staleOnlineDocs) {
+        batch.update(doc.reference, {
+          OperatorPresenceFields.isOnline: false,
+          OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Marked ${staleOnlineDocs.length} stale operator(s) offline.',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Mark stale offline failed: $e'),
+          backgroundColor: const Color(0xFF8A1C1C),
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isMarkingStale = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (!kDebugMode) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Presence Debug')),
+        body: const Center(
+          child: Text('Presence Debug is available in debug builds only.'),
+        ),
+      );
+    }
+
     final operatorId =
         widget.currentOperatorId ?? FirebaseAuth.instance.currentUser?.uid;
 
@@ -102,11 +162,20 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                 final updatedAt = _asDateTime(
                   doc.data()[OperatorPresenceFields.updatedAt],
                 );
-                if (updatedAt == null) return true;
-                return DateTime.now().difference(updatedAt) >
-                    const Duration(minutes: 10);
+                return _isStale(updatedAt);
               })
               .length;
+          final staleOnlineDocs = docs
+              .where((doc) {
+                if (doc.data()[OperatorPresenceFields.isOnline] != true) {
+                  return false;
+                }
+                final updatedAt = _asDateTime(
+                  doc.data()[OperatorPresenceFields.updatedAt],
+                );
+                return _isStale(updatedAt);
+              })
+              .toList();
 
           return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
             stream: _db
@@ -229,6 +298,71 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                       ],
                     ),
                   ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isMarkingStale
+                          ? null
+                          : () => _markStaleOffline(staleOnlineDocs),
+                      icon: _isMarkingStale
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.cleaning_services_outlined),
+                      label: Text(
+                        _isMarkingStale
+                            ? 'Marking Stale Offline...'
+                            : 'Mark Stale Offline',
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  _SectionCard(
+                    title: 'Dry Run Preview',
+                    child: staleOnlineDocs.isEmpty
+                        ? const Text('No stale online operators to mark offline.')
+                        : Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Will mark offline (${staleOnlineDocs.length}):',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF1A1A1A),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Wrap(
+                                spacing: 8,
+                                runSpacing: 8,
+                                children: [
+                                  for (final doc in staleOnlineDocs)
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 6,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFFFF4E5),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Text(
+                                        doc.id,
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF8A5200),
+                                        ),
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ],
+                          ),
+                  ),
                   const SizedBox(height: 16),
                   _SectionCard(
                     title: 'Presence Documents',
@@ -247,9 +381,7 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                                     final updatedAt = _asDateTime(
                                       doc.data()[OperatorPresenceFields.updatedAt],
                                     );
-                                    if (updatedAt == null) return true;
-                                    return DateTime.now().difference(updatedAt) >
-                                        const Duration(minutes: 10);
+                                    return _isStale(updatedAt);
                                   })(),
                                   isCurrentOperator: doc.id == operatorId,
                                 ),
@@ -278,6 +410,11 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
     return null;
+  }
+
+  static bool _isStale(DateTime? value) {
+    if (value == null) return true;
+    return DateTime.now().difference(value) > _staleThreshold;
   }
 
   static String _formatTimestamp(DateTime? value) {

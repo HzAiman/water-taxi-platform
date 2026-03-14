@@ -44,13 +44,22 @@ void main() {
 
     expect(find.text('Presence Summary'), findsOneWidget);
     expect(find.text('Current Operator'), findsOneWidget);
-    expect(find.text('Presence Documents'), findsOneWidget);
-    expect(find.text('operator-2'), findsOneWidget);
-    expect(find.text('ONLINE'), findsOneWidget);
-    expect(find.text('OFFLINE'), findsOneWidget);
-    expect(find.text('operator-1 (current)'), findsOneWidget);
     expect(find.text('Presence sync looks consistent for this operator.'), findsOneWidget);
     expect(find.text('Sync My Presence Now'), findsOneWidget);
+
+    await tester.scrollUntilVisible(
+      find.text('Presence Documents'),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Presence Documents'), findsOneWidget);
+    expect(find.text('operator-2'), findsWidgets);
+    expect(find.text('ONLINE'), findsOneWidget);
+    expect(find.text('OFFLINE'), findsOneWidget);
+    expect(find.text('Mark Stale Offline'), findsOneWidget);
+    expect(find.text('operator-1 (current)'), findsOneWidget);
     expect(find.text('STALE (>10 min)'), findsOneWidget);
   });
 
@@ -95,5 +104,68 @@ void main() {
 
     expect(presenceSnap.data()?[OperatorPresenceFields.isOnline], isTrue);
     expect(find.textContaining('Presence synced to online'), findsOneWidget);
+  });
+
+  testWidgets('mark stale offline updates stale online presence docs', (
+    tester,
+  ) async {
+    final firestore = FakeFirebaseFirestore();
+
+    await firestore.collection(FirestoreCollections.operators).doc('operator-1').set({
+      OperatorFields.operatorId: 'OP-1',
+      OperatorFields.name: 'Captain Aiman',
+      OperatorFields.email: 'captain@example.com',
+      OperatorFields.isOnline: true,
+    });
+    await firestore
+        .collection(FirestoreCollections.operatorPresence)
+        .doc('operator-1')
+        .set({
+      OperatorPresenceFields.isOnline: true,
+      OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime.now()),
+    });
+    await firestore
+        .collection(FirestoreCollections.operatorPresence)
+        .doc('operator-2')
+        .set({
+      OperatorPresenceFields.isOnline: true,
+      OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime(2020, 1, 1, 0, 0)),
+    });
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: OperatorPresenceDebugPage(
+          firestore: firestore,
+          currentOperatorId: 'operator-1',
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('Mark Stale Offline'),
+      150,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Will mark offline (1):'), findsOneWidget);
+    expect(find.text('operator-2'), findsWidgets);
+
+    await tester.tap(find.text('Mark Stale Offline'));
+    await tester.pumpAndSettle();
+
+    final op1 = await firestore
+        .collection(FirestoreCollections.operatorPresence)
+        .doc('operator-1')
+        .get();
+    final op2 = await firestore
+        .collection(FirestoreCollections.operatorPresence)
+        .doc('operator-2')
+        .get();
+
+    expect(op1.data()?[OperatorPresenceFields.isOnline], isTrue);
+    expect(op2.data()?[OperatorPresenceFields.isOnline], isFalse);
+    expect(find.textContaining('Marked 1 stale operator(s) offline.'), findsOneWidget);
   });
 }

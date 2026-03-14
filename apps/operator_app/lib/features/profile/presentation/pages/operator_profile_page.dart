@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
@@ -98,19 +99,21 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
             );
           },
         ),
-        const SizedBox(height: 16),
-        _buildMenuButton(
-          icon: Icons.bug_report_outlined,
-          title: 'Presence Debug',
-          subtitle: 'Inspect operator_presence sync and online state',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const OperatorPresenceDebugPage(),
-              ),
-            );
-          },
-        ),
+        if (kDebugMode) ...[
+          const SizedBox(height: 16),
+          _buildMenuButton(
+            icon: Icons.bug_report_outlined,
+            title: 'Presence Debug',
+            subtitle: 'Inspect operator_presence sync and online state',
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const OperatorPresenceDebugPage(),
+                ),
+              );
+            },
+          ),
+        ],
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
