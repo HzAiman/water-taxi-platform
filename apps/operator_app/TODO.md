@@ -76,6 +76,19 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 - [x] Add user-friendly error messages for rules/permission failures
 - [x] Add optional admin/debug screen for active booking diagnostics (dev only)
 
+### P3: Notification Delivery (Cross-App)
+- [x] Foreground in-app notifications for operator booking events
+- [x] Background local notifications when app is minimized
+- [x] Persistent online-status reminder notification (cleared on go-offline)
+- [x] FCM token registration in operator app (`operator_devices`)
+- [x] Firestore-triggered backend push dispatch for incoming bookings and status changes
+- [x] Add notification tap deep-link navigation to booking home tab
+
+### P3: Production Readiness
+- [ ] Verify Android release config and signing settings
+- [ ] Verify iOS Firebase + Google Maps setup on physical device
+- [x] Update README to reflect actual architecture and current feature behavior
+
 ## Suggested Next Delivery Order
 
 1. Re-run end-to-end reliability validation under concurrent dispatch load.

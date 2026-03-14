@@ -25,6 +25,13 @@ The app is now refactored to repository + view model layers with Provider, and u
 - Support passenger cancellation for active bookings.
 - Show booking history with live updates and filters.
 
+### Notifications
+- FCM token is registered at sign-in to `user_devices/{uid}` in Firestore.
+- Cloud Functions push an FCM message to the passenger whenever the booking status changes.
+- `PassengerNotificationCoordinator` streams booking status events and delivers local OS notifications when the app is in the background.
+- Foreground booking events are shown as in-app alert cards via `LocalNotificationService`.
+- Tapping an OS notification or FCM message navigates directly to the booking tracking screen for the relevant booking (deep-link tap navigation).
+
 ### Profile
 - View and update account details.
 - Access booking history from the profile area.
@@ -52,8 +59,13 @@ lib/
 │   ├── app_routes.dart
 │   └── main_screen.dart
 └── services/
-    └── firebase/
+    ├── firebase/
+    └── notifications/
+        ├── local_notification_service.dart
+        └── passenger_notification_coordinator.dart
 ```
+
+The `functions/` folder at the root of this app contains the Cloud Functions backend that sends FCM push notifications for booking events.
 
 Key screens:
 
@@ -124,10 +136,13 @@ Firebase services used:
 - Firebase Core
 - Firebase Authentication
 - Cloud Firestore
+- Firebase Cloud Messaging (FCM)
 - Firebase Storage
 
 Additional packages used:
 
+- `firebase_messaging`
+- `flutter_local_notifications`
 - `google_maps_flutter`
 - `geolocator`
 - `provider`
@@ -190,11 +205,14 @@ flutter run
 
 ## Development Notes
 
-- `main.dart` initializes Firebase and enables Firestore offline persistence.
+- `main.dart` initializes Firebase, enables Firestore offline persistence, and registers the FCM background message handler.
 - `app.dart` routes authenticated users to the main shell and unauthenticated users to phone login.
 - Home/payment/tracking/profile screens now delegate business logic to view models and repositories.
 - Home screen booking is gated by route validity, passenger count, fare existence, and active-booking checks.
 - Top-of-screen in-app notifications are centralized in `core/widgets/top_alert.dart`.
+- `LocalNotificationService` manages OS-level notifications and exposes a tap handler for deep-link routing.
+- `PassengerNotificationCoordinator` seeds from the current booking snapshot and then diffs subsequent stream events to decide when to fire a notification.
+- `main_screen.dart` handles all four FCM/local tap entry points (app terminated via FCM, app background via FCM, app terminated via local, app background via local) and navigates to the correct booking tracking screen.
 - Firestore rules in this folder are shared backend infrastructure for both apps at the moment.
 
 ## Test Coverage Snapshot
@@ -227,5 +245,6 @@ This app is not production-ready yet. Remaining work includes:
 - richer passenger UX for reject/requeue/assignment delay scenarios
 - stricter Firestore rules and indexes
 - broader widget and integration test coverage (beyond current view model suite)
+- Android and iOS release signing and build config verification
 
 The live task tracker is in `TODO.md`.

@@ -21,6 +21,13 @@ The app is now refactored to a repository + view model architecture with Provide
   - `on_the_way -> completed`
 - Shared top-card notifications for welcome, info, success, offline, and error states.
 
+### Notifications
+- FCM token is registered at sign-in to `operator_devices/{uid}` in Firestore.
+- Cloud Functions push an FCM message to online operators when a new passenger booking is pending.
+- `OperatorNotificationCoordinator` streams booking queue events and delivers local OS notifications when the app is in the background.
+- A persistent reminder notification is shown while the operator is online, cleared when they go offline.
+- Tapping an OS notification or FCM message navigates directly to the booking home tab (deep-link tap navigation).
+
 ### Operator workflow status
 - Shows active assigned booking when one exists.
 - Falls back to the pending booking queue when the operator has no active booking.
@@ -43,9 +50,13 @@ lib/
 │   ├── auth/presentation/pages/
 │   ├── home/presentation/pages/
 │   └── profile/presentation/pages/
-└── routes/
-    ├── app_routes.dart
-    └── main_screen.dart
+├── routes/
+│   ├── app_routes.dart
+│   └── main_screen.dart
+└── services/
+    └── notifications/
+        ├── local_notification_service.dart
+        └── operator_notification_coordinator.dart
 ```
 
 Key screens:
@@ -102,6 +113,8 @@ Packages used in this app include:
 - `firebase_core`
 - `firebase_auth`
 - `cloud_firestore`
+- `firebase_messaging`
+- `flutter_local_notifications`
 - `google_maps_flutter`
 - `geolocator`
 - `permission_handler`
@@ -168,10 +181,14 @@ flutter run
 
 ## Development Notes
 
+- `main.dart` initializes Firebase and registers the FCM background message handler.
 - `app.dart` routes signed-out users to login, new users to profile setup, and ready operators to the main shell.
 - `operator_home_screen.dart` is UI-focused and delegates lifecycle actions/state to `OperatorHomeViewModel`.
 - A small Android method channel is present to help diagnose whether the Maps API key was injected into the manifest at runtime.
 - Shared in-app notification cards live in `core/widgets/top_alert.dart`.
+- `LocalNotificationService` manages OS-level notifications, the persistent online reminder channel, and exposes a tap handler for deep-link routing.
+- `OperatorNotificationCoordinator` seeds from the current booking snapshot and then diffs subsequent stream events to decide when to fire a notification.
+- `main_screen.dart` handles all four FCM/local tap entry points and navigates to the home tab (index 0) for the active booking queue.
 - The home screen includes small test hooks (`testOperatorId`, `testOperatorEmail`, map builder override, runtime-check skip) used by widget tests to avoid platform-view instability.
 
 ## Test Coverage Snapshot
