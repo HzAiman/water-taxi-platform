@@ -68,6 +68,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
   - [x] operator starts trip
   - [x] operator completes
   - [x] passenger sees final state
+- [x] Add dispatch contention integration tests (concurrent accept/reject and cancellation race)
 - [x] Replace placeholder default test patterns
 
 ### P3: Observability + Ops
@@ -81,3 +82,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 2. Add production-safe admin operations path (server-authorized cleanup instead of client debug actions).
 3. Add release diagnostics policy (what telemetry is kept, where it is surfaced, and who can access it).
 4. Backfill additional integration scenarios for dispatch contention and intermittent network failures.
+
+## Progress Notes
+
+- [x] Concurrent dispatch load reliability validation baseline added via integration tests.
