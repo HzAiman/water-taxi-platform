@@ -6,6 +6,7 @@ abstract final class BookingFields {
   static const String userPhone = 'userPhone';
   static const String origin = 'origin';
   static const String destination = 'destination';
+  static const String routeKey = 'routeKey';
   static const String originCoords = 'originCoords';
   static const String destinationCoords = 'destinationCoords';
   static const String adultCount = 'adultCount';

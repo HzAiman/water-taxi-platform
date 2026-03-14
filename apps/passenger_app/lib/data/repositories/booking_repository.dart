@@ -61,6 +61,7 @@ class BookingRepository {
       BookingFields.userPhone: p.userPhone,
       BookingFields.origin: p.origin,
       BookingFields.destination: p.destination,
+      BookingFields.routeKey: _routeKey(p.origin, p.destination),
       BookingFields.originCoords: GeoPoint(p.originLat, p.originLng),
       BookingFields.destinationCoords: GeoPoint(p.destinationLat, p.destinationLng),
       BookingFields.adultCount: p.adultCount,
@@ -168,6 +169,10 @@ class BookingRepository {
   }
 
   // ── Helpers ──────────────────────────────────────────────────────────────
+
+  static String _routeKey(String origin, String destination) {
+    return '${origin.trim().toLowerCase()}__${destination.trim().toLowerCase()}';
+  }
 
   static BookingModel _fromDoc(String id, Map<String, dynamic> data) {
     final origin = data[BookingFields.originCoords] as GeoPoint?;

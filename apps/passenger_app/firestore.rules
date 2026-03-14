@@ -26,6 +26,7 @@ service cloud.firestore {
         'userPhone',
         'origin',
         'destination',
+        'routeKey',
         'originCoords',
         'destinationCoords',
         'adultCount',
@@ -54,6 +55,7 @@ service cloud.firestore {
         'userPhone',
         'origin',
         'destination',
+        'routeKey',
         'originCoords',
         'destinationCoords',
         'adultCount',
@@ -117,8 +119,7 @@ service cloud.firestore {
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.bookingId == resource.data.bookingId
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'cancelledAt'])
-        && resource.data.status != 'cancelled'
-        && resource.data.status != 'completed'
+        && ['pending', 'accepted', 'on_the_way'].hasAny([resource.data.status])
         && request.resource.data.status == 'cancelled'
         && bookingUpdateHasExpectedFields();
 

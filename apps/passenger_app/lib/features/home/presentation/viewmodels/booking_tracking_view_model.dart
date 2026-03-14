@@ -32,6 +32,22 @@ class BookingTrackingViewModel extends ChangeNotifier {
 
   /// Cancels the tracked booking.
   Future<OperationResult> cancelBooking(String bookingId) async {
+    final currentBooking = _booking;
+    if (currentBooking == null) {
+      return const OperationFailure(
+        'Booking unavailable',
+        'Unable to cancel because booking details are not loaded yet.',
+        isInfo: true,
+      );
+    }
+    if (!currentBooking.status.canBeCancelledByPassenger) {
+      return OperationFailure(
+        'Cancellation unavailable',
+        'This booking is already ${currentBooking.status.firestoreValue.replaceAll('_', ' ')} and cannot be cancelled.',
+        isInfo: true,
+      );
+    }
+
     _isCancelling = true;
     notifyListeners();
 

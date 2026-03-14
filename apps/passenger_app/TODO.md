@@ -19,19 +19,19 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 ## Remaining Work
 
 ### P1: Passenger-Operator Lifecycle Integration (Critical)
-- [ ] Finalize passenger behavior for operator-driven status updates
-	- [ ] Ensure UX for `accepted`, `on_the_way`, `completed` is clear and distinct
-	- [ ] Show explicit status timeline messaging in tracking screen
-- [ ] Define and implement passenger-facing handling when operator **rejects** booking
-	- [ ] Decide whether booking remains `pending` or moves to a user-visible rejected/re-queued state
-	- [ ] Add user guidance for what to do next (wait/rebook/cancel)
-- [ ] Align passenger screens with final shared booking state machine contract
+- [x] Finalize passenger behavior for operator-driven status updates
+	- [x] Ensure UX for `accepted`, `on_the_way`, `completed` is clear and distinct
+	- [x] Show explicit status timeline messaging in tracking screen
+- [x] Define and implement passenger-facing handling when operator **rejects** booking
+	- [x] Decide whether booking remains `pending` or moves to a user-visible rejected/re-queued state
+	- [x] Add user guidance for what to do next (wait/rebook/cancel)
+- [x] Align passenger screens with final shared booking state machine contract
 
 ### P1: Firestore Contract + Data Integrity (Critical)
-- [ ] Verify booking schema is fully aligned with operator dispatch fields
-- [ ] Add any missing immutable/derived fields needed for robust history and reconciliation
-- [ ] Confirm all passenger-side writes are compatible with tightened Firestore security rules
-- [ ] Add/verify Firestore indexes for passenger queries (`userId`, `status`, `createdAt`, `updatedAt`)
+- [x] Verify booking schema is fully aligned with operator dispatch fields
+- [x] Add any missing immutable/derived fields needed for robust history and reconciliation
+- [x] Confirm all passenger-side writes are compatible with tightened Firestore security rules
+- [x] Add/verify Firestore indexes for passenger queries (`userId`, `status`, `createdAt`, `updatedAt`)
 
 ### P1: Payment and Booking Commit Reliability
 - [ ] Replace simulated payment completion with real payment integration strategy
@@ -69,8 +69,8 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 
 ## Suggested Next Delivery Order
 
-1. Finalize shared booking state contract with operator reject/dispatch behavior.
-2. Complete passenger UX for all operator-driven status transitions.
-3. Implement payment reliability and idempotent booking commit safeguards.
-4. Expand integration coverage for failure/retry branches.
-5. Harden cancellation policy enforcement for terminal bookings.
+1. Implement payment reliability and idempotent booking commit safeguards.
+2. Expand integration coverage for failure/retry branches.
+3. Complete release hardening for Android/iOS production builds.
+4. Harden account lifecycle handling (reauth + retention policy).
+5. Improve recovery UX for delayed assignment and transient network failures.

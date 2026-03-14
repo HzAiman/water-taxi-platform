@@ -186,6 +186,26 @@ void main() {
       expect(bookingRepo.cancelledBookingId, 'booking-1');
       expect(viewModel.isCancelling, isFalse);
     });
+
+    test('cancelBooking returns info failure for completed booking', () async {
+      final bookingRepo = FakeBookingRepository();
+      final viewModel = BookingTrackingViewModel(bookingRepo: bookingRepo);
+
+      viewModel.startTracking('booking-1');
+      bookingRepo.emitTrackedBooking(
+        _sampleBooking(status: BookingStatus.completed),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final result = await viewModel.cancelBooking('booking-1');
+
+      expect(result, isA<OperationFailure>());
+      final failure = result as OperationFailure;
+      expect(failure.title, 'Cancellation unavailable');
+      expect(failure.isInfo, isTrue);
+      expect(bookingRepo.cancelledBookingId, isNull);
+      expect(viewModel.isCancelling, isFalse);
+    });
   });
 
   group('ProfileViewModel', () {

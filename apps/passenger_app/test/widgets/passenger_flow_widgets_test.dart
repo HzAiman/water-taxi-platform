@@ -109,6 +109,11 @@ void main() {
         find.text('An operator has accepted your booking.'),
         findsOneWidget,
       );
+      expect(find.text('Booking Progress'), findsOneWidget);
+      expect(find.text('Request Sent'), findsOneWidget);
+      expect(find.text('Operator Assigned'), findsOneWidget);
+      expect(find.text('Trip In Progress'), findsOneWidget);
+      expect(find.text('Trip Completed'), findsOneWidget);
     });
 
     testWidgets('renders completed status with close action', (tester) async {
@@ -141,9 +146,48 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Trip Completed'), findsOneWidget);
+      expect(find.text('Trip Completed'), findsAtLeastNWidgets(1));
       expect(
         find.text('This booking has been completed successfully.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('renders rejected status with rebook guidance', (tester) async {
+      final bookingRepo = _FakeBookingRepository();
+      final vm = BookingTrackingViewModel(bookingRepo: bookingRepo);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<BookingTrackingViewModel>.value(
+          value: vm,
+          child: MaterialApp(
+            home: BookingTrackingScreen(
+              bookingId: 'booking-3',
+              origin: 'Jetty A',
+              destination: 'Jetty B',
+              passengerCount: 1,
+              mapBuilder: ({
+                required initialCameraPosition,
+                required markers,
+                required polylines,
+              }) {
+                return const SizedBox(key: ValueKey('mock-tracking-map'));
+              },
+            ),
+          ),
+        ),
+      );
+
+      bookingRepo.emitTrackedBooking(
+        _sampleBooking(id: 'booking-3', status: BookingStatus.rejected),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Booking Rejected'), findsOneWidget);
+      expect(
+        find.text(
+          'All available operators declined this request. Please create a new booking when an operator becomes available.',
+        ),
         findsOneWidget,
       );
     });

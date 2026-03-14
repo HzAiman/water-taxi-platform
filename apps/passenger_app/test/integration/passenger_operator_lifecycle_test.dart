@@ -140,7 +140,7 @@ void main() {
     );
   }
 
-  test('integration: completed booking cancellation currently succeeds (regression guard)', () async {
+  test('integration: completed booking cannot be cancelled by passenger', () async {
     final setup = await _createSetup();
     final firestore = setup.firestore;
     final trackingVm = setup.trackingVm;
@@ -159,8 +159,8 @@ void main() {
     await Future<void>.delayed(Duration.zero);
 
     final result = await trackingVm.cancelBooking(bookingId);
-    expect(result, isA<OperationSuccess>());
-    expect((result as OperationSuccess).message, 'Booking cancelled successfully.');
+    expect(result, isA<OperationFailure>());
+    expect((result as OperationFailure).title, 'Cancellation unavailable');
 
     final snap = await firestore
         .collection(FirestoreCollections.bookings)
@@ -168,9 +168,7 @@ void main() {
         .get();
     expect(
       snap.data()?[BookingFields.status],
-      BookingStatus.cancelled.firestoreValue,
-      reason:
-          'Current repository allows cancellation without status guard; this test captures existing behavior for regression detection.',
+      BookingStatus.completed.firestoreValue,
     );
 
     setup.profileVm.stopBookingHistoryStream();

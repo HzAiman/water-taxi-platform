@@ -124,6 +124,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     final status = booking.status;
     final statusTheme = _statusThemeFor(status);
     final canCancel = status.canBeCancelledByPassenger;
+    final isRejected = status == BookingStatus.rejected;
     final paymentMethod = booking.paymentMethod;
     final paymentStatus = booking.paymentStatus;
 
@@ -238,6 +239,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                           color: Color(0xFF666666),
                         ),
                       ),
+                      const SizedBox(height: 14),
+                      _buildStatusTimeline(status),
                       const SizedBox(height: 16),
                       Row(
                         children: [
@@ -314,6 +317,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                           ),
                         ],
                       ),
+                      const SizedBox(height: 12),
+                      _buildStateGuidance(status),
                       const SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
@@ -344,7 +349,13 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                                     ),
                                   ),
                                 )
-                              : Text(canCancel ? 'Cancel Booking' : 'Close'),
+                              : Text(
+                                  canCancel
+                                      ? 'Cancel Booking'
+                                      : isRejected
+                                      ? 'Book Again'
+                                      : 'Close',
+                                ),
                         ),
                       ),
                     ],
@@ -514,6 +525,136 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     };
   }
 
+  Widget _buildStatusTimeline(BookingStatus status) {
+    final steps = [
+      _TimelineStep('Request Sent'),
+      _TimelineStep('Operator Assigned'),
+      _TimelineStep('Trip In Progress'),
+      _TimelineStep('Trip Completed'),
+    ];
+
+    final currentIndex = _timelineIndex(status);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FBFF),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDDE5F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Booking Progress',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF1A1A1A),
+            ),
+          ),
+          const SizedBox(height: 10),
+          ...List.generate(steps.length, (i) {
+            final step = steps[i];
+            final reached = currentIndex >= i;
+            final isCurrent = currentIndex == i;
+            final isLast = i == steps.length - 1;
+
+            return Padding(
+              padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    margin: const EdgeInsets.only(top: 2),
+                    width: 12,
+                    height: 12,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: reached
+                          ? const Color(0xFF0066CC)
+                          : const Color(0xFFD2DCEB),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      step.label,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                        color: reached
+                            ? const Color(0xFF1A1A1A)
+                            : const Color(0xFF8A97A8),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildStateGuidance(BookingStatus status) {
+    final guidance = _guidanceText(status);
+    if (guidance == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7E6),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFE1B0)),
+      ),
+      child: Text(
+        guidance,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Color(0xFF8A5A00),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+
+  int _timelineIndex(BookingStatus status) {
+    switch (status) {
+      case BookingStatus.pending:
+        return 0;
+      case BookingStatus.accepted:
+        return 1;
+      case BookingStatus.onTheWay:
+        return 2;
+      case BookingStatus.completed:
+        return 3;
+      case BookingStatus.cancelled:
+      case BookingStatus.rejected:
+      case BookingStatus.unknown:
+        return 0;
+    }
+  }
+
+  String? _guidanceText(BookingStatus status) {
+    switch (status) {
+      case BookingStatus.pending:
+        return 'Looking for an available operator. You may keep waiting or cancel if your plans changed.';
+      case BookingStatus.rejected:
+        return 'No operator accepted this request. Tap Book Again to return and create a new booking.';
+      case BookingStatus.accepted:
+      case BookingStatus.onTheWay:
+      case BookingStatus.completed:
+      case BookingStatus.cancelled:
+      case BookingStatus.unknown:
+        return null;
+    }
+  }
+
   LatLng? _latLngOrNull(double lat, double lng) {
     if (lat == 0 && lng == 0) {
       return null;
@@ -588,4 +729,10 @@ class _BookingStatusTheme {
   final String title;
   final String message;
   final Color color;
+}
+
+class _TimelineStep {
+  const _TimelineStep(this.label);
+
+  final String label;
 }
