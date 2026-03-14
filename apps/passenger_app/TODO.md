@@ -52,6 +52,7 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 - [ ] Ensure profile/account management screens handle partial Firestore data safely
 
 ### P3: Testing + Validation
+- [x] Add view model tests for home/payment/tracking/profile flows
 - [ ] Add widget tests for:
 	- [ ] booking creation guards
 	- [ ] active booking card behavior
@@ -64,12 +65,12 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 ### P3: Production Readiness
 - [ ] Verify Android release config and signing settings
 - [ ] Verify iOS Firebase + Google Maps setup on physical device
-- [ ] Update README to reflect actual architecture and current feature behavior
+- [x] Update README to reflect actual architecture and current feature behavior
 
 ## Suggested Next Delivery Order
 
 1. Finalize shared booking state contract with operator reject/dispatch behavior.
-2. Implement payment reliability and idempotent booking commit safeguards.
-3. Complete passenger UX for all operator-driven status transitions.
-4. Add integration tests for full two-app lifecycle.
-5. Finish production hardening and documentation alignment.
+2. Complete passenger UX for all operator-driven status transitions.
+3. Implement payment reliability and idempotent booking commit safeguards.
+4. Add widget tests for booking card/tracking/history rendering.
+5. Add integration tests for full two-app lifecycle.

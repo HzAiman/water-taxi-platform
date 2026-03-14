@@ -60,15 +60,15 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 - [ ] Validate cancellation edge cases while operator is en-route
 
 ### P3: Testing + Quality
-- [ ] Add unit tests for status transition guards
-- [ ] Add widget tests for operator home queue and action buttons
+- [x] Add unit tests for status transition guards
+- [x] Add widget tests for operator home queue and action buttons
 - [ ] Add integration test for full lifecycle:
   - [ ] passenger books
   - [ ] operator accepts
   - [ ] operator starts trip
   - [ ] operator completes
   - [ ] passenger sees final state
-- [ ] Replace placeholder default test patterns
+- [x] Replace placeholder default test patterns
 
 ### P3: Observability + Ops
 - [ ] Add structured logs for booking transition failures
@@ -77,8 +77,8 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 
 ## Suggested Next Delivery Order
 
-1. Add tests for lifecycle and edge cases.
-2. Add structured observability for transition failures.
-3. Add optional diagnostics/admin tooling for operations debugging.
-4. Re-run end-to-end reliability validation after release-timeout flows.
-5. Expand passenger/operator sync validation coverage.
+1. Build integration tests for cross-app lifecycle verification.
+2. Expand passenger/operator sync validation coverage and cancellation edge cases.
+3. Add structured observability for transition failures.
+4. Add optional diagnostics/admin tooling for operations debugging.
+5. Re-run end-to-end reliability validation under concurrent dispatch load.
