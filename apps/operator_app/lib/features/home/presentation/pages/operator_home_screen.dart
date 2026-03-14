@@ -13,7 +13,23 @@ import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class OperatorHomeScreen extends StatefulWidget {
-  const OperatorHomeScreen({super.key});
+  const OperatorHomeScreen({
+    super.key,
+    this.testOperatorId,
+    this.testOperatorEmail,
+    this.skipRuntimeChecks = false,
+    this.mapBuilder,
+  });
+
+  final String? testOperatorId;
+  final String? testOperatorEmail;
+  final bool skipRuntimeChecks;
+  final Widget Function({
+    required CameraPosition initialCameraPosition,
+    required bool hasLocationPermission,
+    required ValueChanged<GoogleMapController> onMapCreated,
+  })?
+  mapBuilder;
 
   @override
   State<OperatorHomeScreen> createState() => _OperatorHomeScreenState();
@@ -39,6 +55,14 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     zoom: 12,
   );
 
+  String? get _operatorId =>
+      widget.testOperatorId ?? FirebaseAuth.instance.currentUser?.uid;
+
+  String get _operatorLabel =>
+      widget.testOperatorEmail ??
+      FirebaseAuth.instance.currentUser?.email ??
+      'Operator';
+
   @override
   void initState() {
     super.initState();
@@ -49,21 +73,25 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
       }
 
       if (!_hasShownWelcomeAlert) {
-        final operatorLabel =
-            FirebaseAuth.instance.currentUser?.email ?? 'Operator';
-        showTopWelcomeCard(context, operatorLabel: operatorLabel);
+        if (!widget.skipRuntimeChecks) {
+          showTopWelcomeCard(context, operatorLabel: _operatorLabel);
+        }
         _hasShownWelcomeAlert = true;
       }
 
-      _checkMapsConfiguration();
+      if (!widget.skipRuntimeChecks) {
+        _checkMapsConfiguration();
+      }
 
-      final operatorId = FirebaseAuth.instance.currentUser?.uid;
+      final operatorId = _operatorId;
       if (operatorId != null) {
         unawaited(_initializeViewModel(operatorId));
       }
     });
 
-    unawaited(_bootstrapLocation());
+    if (!widget.skipRuntimeChecks) {
+      unawaited(_bootstrapLocation());
+    }
   }
 
   Future<void> _initializeViewModel(String operatorId) async {
@@ -677,30 +705,39 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
+    final operatorId = _operatorId;
     final viewModel = context.watch<OperatorHomeViewModel>();
     final isLoading = _isInitializingViewModel;
 
     return Scaffold(
       appBar: AppBar(toolbarHeight: 0, elevation: 0),
-      body: user == null
+      body: operatorId == null
           ? const Center(child: Text('Not signed in'))
           : Stack(
               children: [
                 Positioned.fill(
-                  child: GoogleMap(
-                    key: const ValueKey('operator-map'),
-                    initialCameraPosition: _initialCameraPosition,
-                    myLocationEnabled: _hasLocationPermission,
-                    myLocationButtonEnabled: false,
-                    compassEnabled: true,
-                    zoomControlsEnabled: false,
-                    mapToolbarEnabled: false,
-                    onMapCreated: (GoogleMapController controller) {
-                      _mapController = controller;
-                      _mapReady = true;
-                    },
-                  ),
+                  child:
+                      widget.mapBuilder?.call(
+                        initialCameraPosition: _initialCameraPosition,
+                        hasLocationPermission: _hasLocationPermission,
+                        onMapCreated: (GoogleMapController controller) {
+                          _mapController = controller;
+                          _mapReady = true;
+                        },
+                      ) ??
+                      GoogleMap(
+                        key: const ValueKey('operator-map'),
+                        initialCameraPosition: _initialCameraPosition,
+                        myLocationEnabled: _hasLocationPermission,
+                        myLocationButtonEnabled: false,
+                        compassEnabled: true,
+                        zoomControlsEnabled: false,
+                        mapToolbarEnabled: false,
+                        onMapCreated: (GoogleMapController controller) {
+                          _mapController = controller;
+                          _mapReady = true;
+                        },
+                      ),
                 ),
                 Positioned.fill(
                   child: Stack(
@@ -715,7 +752,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             if (viewModel.isOnline) ...[
-                              _buildBookingActionCard(user.uid, viewModel),
+                              _buildBookingActionCard(operatorId, viewModel),
                             ] else ...[
                               _buildInfoCard(
                                 icon: Icons.power_settings_new,
