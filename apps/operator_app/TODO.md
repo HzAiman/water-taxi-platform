@@ -49,10 +49,10 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
   - [x] no active trip
 
 ### P2: Reliability + Recovery
-- [ ] Handle stale bookings where assigned operator goes offline/disconnects
-- [ ] Add timeout/release strategy for unstarted accepted bookings
-- [ ] Add pull-to-refresh fallback if stream stalls
-- [ ] Add retry handling for failed status updates
+- [x] Handle stale bookings where assigned operator goes offline/disconnects
+- [x] Add timeout/release strategy for unstarted accepted bookings
+- [x] Add pull-to-refresh fallback if stream stalls
+- [x] Add retry handling for failed status updates
 
 ### P2: Passenger-Operator Sync Validation
 - [ ] Validate passenger tracking updates immediately for each operator action
@@ -77,8 +77,8 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 
 ## Suggested Next Delivery Order
 
-1. Run end-to-end sync validation with passenger flows.
-2. Add timeout/release strategy and retry handling for stale or failed transitions.
-3. Add tests for lifecycle and edge cases.
-4. Add structured observability for transition failures.
-5. Add optional diagnostics/admin tooling for operations debugging.
+1. Add tests for lifecycle and edge cases.
+2. Add structured observability for transition failures.
+3. Add optional diagnostics/admin tooling for operations debugging.
+4. Re-run end-to-end reliability validation after release-timeout flows.
+5. Expand passenger/operator sync validation coverage.

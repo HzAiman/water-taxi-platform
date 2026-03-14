@@ -21,6 +21,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   static const MethodChannel _mapsConfigChannel = MethodChannel(
     'operator_app/maps_config',
   );
+  static const Duration _acceptedBookingStaleThreshold = Duration(minutes: 5);
 
   bool _isOnline = false;
   bool _isToggling = false;
@@ -31,6 +32,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   bool _mapReady = false;
   bool _isActiveSectionExpanded = false;
   bool _isQueueSectionExpanded = false;
+  bool _isRefreshingBookings = false;
+  int _bookingRefreshVersion = 0;
   String? _lastCancelledNoticeBookingId;
   late GoogleMapController _mapController;
   CameraPosition _initialCameraPosition = const CameraPosition(
@@ -219,6 +222,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         );
       }
 
+      int releasedBookingCount = 0;
+      if (!nextStatus) {
+        releasedBookingCount = await _releaseAcceptedBookingsForOffline(
+          user.uid,
+        );
+      }
+
       await operatorRef
           .update({
             'isOnline': nextStatus,
@@ -231,7 +241,16 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
       }
 
       if (!nextStatus) {
-        showTopOfflineCard(context);
+        if (releasedBookingCount > 0) {
+          showTopInfo(
+            context,
+            title: 'You are offline',
+            message:
+                '$releasedBookingCount accepted booking${releasedBookingCount == 1 ? '' : 's'} were released back to the queue.',
+          );
+        } else {
+          showTopOfflineCard(context);
+        }
       } else {
         showTopInfo(
           context,
@@ -304,14 +323,16 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
 
     setState(() => _isUpdatingBooking = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('bookings')
-          .doc(bookingId)
-          .update({
-            'status': status,
-            'driverId': driverId,
-            'updatedAt': FieldValue.serverTimestamp(),
-          });
+      await _runFirestoreWriteWithRetry(() {
+        return FirebaseFirestore.instance
+            .collection('bookings')
+            .doc(bookingId)
+            .update({
+              'status': status,
+              'driverId': driverId,
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+      });
 
       if (!mounted) {
         return;
@@ -330,6 +351,81 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         context,
         message: 'Failed to update booking: $e',
         title: 'Booking update failed',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdatingBooking = false);
+      }
+    }
+  }
+
+  Future<void> _releaseAcceptedBooking({
+    required String bookingId,
+    required String userId,
+  }) async {
+    if (_isUpdatingBooking) {
+      return;
+    }
+
+    setState(() => _isUpdatingBooking = true);
+    try {
+      await _runFirestoreWriteWithRetry(() {
+        return FirebaseFirestore.instance.runTransaction((transaction) async {
+          final bookingRef = FirebaseFirestore.instance
+              .collection('bookings')
+              .doc(bookingId);
+          final snapshot = await transaction.get(bookingRef);
+
+          if (!snapshot.exists) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snapshot.data() as Map<String, dynamic>;
+          final status = (data['status'] ?? '').toString().toLowerCase();
+          final driverId = (data['driverId'] ?? '').toString();
+          final rejectedBy = _asStringList(data['rejectedBy']);
+
+          if (status != 'accepted' || driverId != userId) {
+            throw StateError('Only your accepted booking can be released.');
+          }
+
+          transaction.update(bookingRef, {
+            'status': 'pending',
+            'driverId': null,
+            'rejectedBy': {...rejectedBy, userId}.toList(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          });
+        });
+      });
+
+      if (!mounted) {
+        return;
+      }
+
+      showTopInfo(
+        context,
+        title: 'Booking released',
+        message: 'The accepted booking was released back to the queue.',
+      );
+    } on StateError catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      showTopInfo(
+        context,
+        title: 'Unable to release booking',
+        message: e.message.toString(),
+      );
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      showTopError(
+        context,
+        title: 'Release failed',
+        message: 'Could not release booking: $e',
       );
     } finally {
       if (mounted) {
@@ -509,7 +605,71 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     }
   }
 
+  Future<void> _refreshBookingStreams(String userId) async {
+    if (_isRefreshingBookings) {
+      return;
+    }
+
+    setState(() => _isRefreshingBookings = true);
+
+    try {
+      final activeQuery = FirebaseFirestore.instance
+          .collection('bookings')
+          .where('driverId', isEqualTo: userId)
+          .limit(50);
+
+      final pendingQuery = FirebaseFirestore.instance
+          .collection('bookings')
+          .where('status', isEqualTo: 'pending')
+          .limit(100);
+
+      await Future.wait([
+        activeQuery.get(const GetOptions(source: Source.server)),
+        pendingQuery.get(const GetOptions(source: Source.server)),
+      ]).timeout(const Duration(seconds: 8));
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _bookingRefreshVersion += 1;
+      });
+
+      showTopInfo(
+        context,
+        title: 'Bookings refreshed',
+        message: 'Latest booking data was fetched from Firestore.',
+      );
+    } on TimeoutException {
+      if (!mounted) {
+        return;
+      }
+
+      showTopError(
+        context,
+        title: 'Refresh timed out',
+        message: 'Unable to refresh bookings right now. Please try again.',
+      );
+    } on FirebaseException catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      showTopError(
+        context,
+        title: 'Refresh failed',
+        message: e.message ?? 'Failed to refresh booking data (${e.code}).',
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isRefreshingBookings = false);
+      }
+    }
+  }
+
   Widget _buildBookingActionCard(String userId) {
+    final refreshVersion = _bookingRefreshVersion;
     final activeQuery = FirebaseFirestore.instance
         .collection('bookings')
         .where('driverId', isEqualTo: userId)
@@ -523,6 +683,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         .snapshots(includeMetadataChanges: true);
 
     return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      key: ValueKey('active-bookings-$refreshVersion'),
       stream: activeQuery,
       builder: (context, activeSnapshot) {
         if (activeSnapshot.hasError) {
@@ -570,6 +731,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         final activeDoc = activeDocs.isNotEmpty ? activeDocs.first : null;
 
         return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          key: ValueKey('pending-bookings-$refreshVersion'),
           stream: pendingQuery,
           builder: (context, pendingSnapshot) {
             if (pendingSnapshot.hasError) {
@@ -606,72 +768,79 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
             final pendingCount = pendingDocs.length;
             final activeCount = activeDoc == null ? 0 : 1;
 
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _buildStatsCard(
-                  pendingCount: pendingCount,
-                  activeCount: activeCount,
-                  isQueueExpanded: _isQueueSectionExpanded,
-                  isActiveExpanded: _isActiveSectionExpanded,
-                  onPendingTap: () {
-                    setState(() {
-                      final shouldExpand = !_isQueueSectionExpanded;
-                      _isQueueSectionExpanded = shouldExpand;
-                      _isActiveSectionExpanded = false;
-                    });
-                  },
-                  onActiveTap: () {
-                    setState(() {
-                      final shouldExpand = !_isActiveSectionExpanded;
-                      _isActiveSectionExpanded = shouldExpand;
-                      _isQueueSectionExpanded = false;
-                    });
-                  },
+            return RefreshIndicator(
+              onRefresh: () => _refreshBookingStreams(userId),
+              child: SingleChildScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildStatsCard(
+                      pendingCount: pendingCount,
+                      activeCount: activeCount,
+                      isQueueExpanded: _isQueueSectionExpanded,
+                      isActiveExpanded: _isActiveSectionExpanded,
+                      onPendingTap: () {
+                        setState(() {
+                          final shouldExpand = !_isQueueSectionExpanded;
+                          _isQueueSectionExpanded = shouldExpand;
+                          _isActiveSectionExpanded = false;
+                        });
+                      },
+                      onActiveTap: () {
+                        setState(() {
+                          final shouldExpand = !_isActiveSectionExpanded;
+                          _isActiveSectionExpanded = shouldExpand;
+                          _isQueueSectionExpanded = false;
+                        });
+                      },
+                      isRefreshing: _isRefreshingBookings,
+                    ),
+                    AnimatedCrossFade(
+                      firstChild: const SizedBox.shrink(),
+                      secondChild: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: activeDoc != null
+                            ? _buildActiveBookingCard(activeDoc, userId)
+                            : _buildInfoCard(
+                                icon: Icons.directions_boat_filled_outlined,
+                                iconColor: const Color(0xFF0066CC),
+                                title: 'No active trip',
+                                subtitle:
+                                    'Accept a booking from the queue to start operating.',
+                              ),
+                      ),
+                      crossFadeState: _isActiveSectionExpanded
+                          ? CrossFadeState.showSecond
+                          : CrossFadeState.showFirst,
+                      duration: const Duration(milliseconds: 180),
+                    ),
+                    AnimatedCrossFade(
+                      firstChild: const SizedBox.shrink(),
+                      secondChild: Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: topPendingDoc != null
+                            ? _buildPendingBookingCard(
+                                topPendingDoc,
+                                userId,
+                                pendingCount,
+                              )
+                            : _buildInfoCard(
+                                icon: Icons.hourglass_top,
+                                iconColor: Colors.orange,
+                                title: 'No pending bookings',
+                                subtitle:
+                                    'You are online. Waiting for passengers...',
+                              ),
+                      ),
+                      crossFadeState: _isQueueSectionExpanded
+                          ? CrossFadeState.showSecond
+                          : CrossFadeState.showFirst,
+                      duration: const Duration(milliseconds: 180),
+                    ),
+                  ],
                 ),
-                AnimatedCrossFade(
-                  firstChild: const SizedBox.shrink(),
-                  secondChild: Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: activeDoc != null
-                        ? _buildActiveBookingCard(activeDoc, userId)
-                        : _buildInfoCard(
-                            icon: Icons.directions_boat_filled_outlined,
-                            iconColor: const Color(0xFF0066CC),
-                            title: 'No active trip',
-                            subtitle:
-                                'Accept a booking from the queue to start operating.',
-                          ),
-                  ),
-                  crossFadeState: _isActiveSectionExpanded
-                      ? CrossFadeState.showSecond
-                      : CrossFadeState.showFirst,
-                  duration: const Duration(milliseconds: 180),
-                ),
-                AnimatedCrossFade(
-                  firstChild: const SizedBox.shrink(),
-                  secondChild: Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: topPendingDoc != null
-                        ? _buildPendingBookingCard(
-                            topPendingDoc,
-                            userId,
-                            pendingCount,
-                          )
-                        : _buildInfoCard(
-                            icon: Icons.hourglass_top,
-                            iconColor: Colors.orange,
-                            title: 'No pending bookings',
-                            subtitle:
-                                'You are online. Waiting for passengers...',
-                          ),
-                  ),
-                  crossFadeState: _isQueueSectionExpanded
-                      ? CrossFadeState.showSecond
-                      : CrossFadeState.showFirst,
-                  duration: const Duration(milliseconds: 180),
-                ),
-              ],
+              ),
             );
           },
         );
@@ -686,6 +855,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     required bool isActiveExpanded,
     required VoidCallback onPendingTap,
     required VoidCallback onActiveTap,
+    required bool isRefreshing,
   }) {
     return Container(
       width: double.infinity,
@@ -712,6 +882,14 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
               onTap: onPendingTap,
             ),
           ),
+          if (isRefreshing) ...[
+            const SizedBox(width: 8),
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ],
           Container(width: 1, height: 36, color: Colors.grey[300]),
           Expanded(
             child: _buildStatTile(
@@ -778,25 +956,39 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   ) {
     final booking = bookingDoc.data() ?? <String, dynamic>{};
     final status = (booking['status'] ?? 'accepted').toString().toLowerCase();
+    final isStale = _isAcceptedBookingStale(booking);
     final actionLabel = status == 'accepted' ? 'Start Trip' : 'Complete Trip';
     final nextStatus = status == 'accepted' ? 'on_the_way' : 'completed';
     final actionColor = status == 'accepted'
         ? const Color(0xFF0066CC)
         : Colors.green;
+    final detailText = _buildBookingDetailText(bookingDoc.id, booking);
+    final subtitle = isStale
+        ? '$detailText\n\nThis accepted booking looks stale. Start the trip or release it back to the queue.'
+        : detailText;
 
     return _buildInfoCard(
       icon: status == 'accepted' ? Icons.directions_boat : Icons.route,
       iconColor: actionColor,
       title: 'Current Booking: ${_formatStatusLabel(status)}',
-      subtitle: _buildBookingDetailText(bookingDoc.id, booking),
+      subtitle: subtitle,
       actionLabel: actionLabel,
       actionColor: actionColor,
+      secondaryActionLabel: status == 'accepted' ? 'Release' : null,
+      secondaryActionColor: const Color(0xFFFFF1F1),
+      secondaryActionTextColor: const Color(0xFFB42318),
       onAction: _isUpdatingBooking
           ? null
           : () => _updateBookingStatus(
               bookingId: bookingDoc.id,
               status: nextStatus,
               driverId: userId,
+            ),
+      onSecondaryAction: _isUpdatingBooking || status != 'accepted'
+          ? null
+          : () => _releaseAcceptedBooking(
+              bookingId: bookingDoc.id,
+              userId: userId,
             ),
     );
   }
@@ -983,6 +1175,81 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
         .where('isOnline', isEqualTo: true)
         .get();
     return snapshot.docs.map((doc) => doc.id).toSet();
+  }
+
+  Future<int> _releaseAcceptedBookingsForOffline(String userId) async {
+    final snapshot = await FirebaseFirestore.instance
+        .collection('bookings')
+        .where('driverId', isEqualTo: userId)
+        .limit(50)
+        .get();
+
+    final acceptedDocs = snapshot.docs.where((doc) {
+      final status = (doc.data()['status'] ?? '').toString().toLowerCase();
+      return status == 'accepted';
+    }).toList();
+
+    for (final doc in acceptedDocs) {
+      final data = doc.data();
+      final rejectedBy = _asStringList(data['rejectedBy']);
+      await _runFirestoreWriteWithRetry(() {
+        return FirebaseFirestore.instance
+            .collection('bookings')
+            .doc(doc.id)
+            .update({
+              'status': 'pending',
+              'driverId': null,
+              'rejectedBy': {...rejectedBy, userId}.toList(),
+              'updatedAt': FieldValue.serverTimestamp(),
+            });
+      });
+    }
+
+    return acceptedDocs.length;
+  }
+
+  Future<T> _runFirestoreWriteWithRetry<T>(Future<T> Function() action) async {
+    const maxAttempts = 2;
+    Object? lastError;
+
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await action();
+      } on TimeoutException catch (error) {
+        lastError = error;
+        if (attempt == maxAttempts) {
+          rethrow;
+        }
+      } on FirebaseException catch (error) {
+        lastError = error;
+        final retryable =
+            error.code == 'unavailable' ||
+            error.code == 'aborted' ||
+            error.code == 'deadline-exceeded';
+        if (!retryable || attempt == maxAttempts) {
+          rethrow;
+        }
+      }
+
+      await Future<void>.delayed(const Duration(milliseconds: 450));
+    }
+
+    throw lastError ?? StateError('Firestore write failed.');
+  }
+
+  bool _isAcceptedBookingStale(Map<String, dynamic> booking) {
+    final status = (booking['status'] ?? '').toString().toLowerCase();
+    if (status != 'accepted') {
+      return false;
+    }
+
+    final updatedAt = booking['updatedAt'];
+    if (updatedAt is! Timestamp) {
+      return false;
+    }
+
+    final age = DateTime.now().difference(updatedAt.toDate().toLocal());
+    return age >= _acceptedBookingStaleThreshold;
   }
 
   void _notifyPassengerCancellationIfNeeded(

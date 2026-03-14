@@ -147,6 +147,29 @@ service cloud.firestore {
             && isAssignedOperator()
           )
           || (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'driverId', 'rejectedBy'])
+            && resource.data.status == 'accepted'
+            && request.resource.data.status == 'pending'
+            && isAssignedOperator()
+            && request.resource.data.driverId == null
+            && request.resource.data.keys().hasAny(['rejectedBy'])
+            && request.resource.data.rejectedBy is list
+            && request.resource.data.rejectedBy.hasAny([request.auth.uid])
+            && (
+              (
+                !resource.data.keys().hasAny(['rejectedBy'])
+                && request.resource.data.rejectedBy.size() == 1
+              )
+              || (
+                resource.data.keys().hasAny(['rejectedBy'])
+                && resource.data.rejectedBy is list
+                && !resource.data.rejectedBy.hasAny([request.auth.uid])
+                && request.resource.data.rejectedBy.hasAll(resource.data.rejectedBy)
+                && request.resource.data.rejectedBy.size() == resource.data.rejectedBy.size() + 1
+              )
+            )
+          )
+          || (
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'driverId'])
             &&
             resource.data.status == 'on_the_way'
