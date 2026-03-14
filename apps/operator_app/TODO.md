@@ -18,35 +18,35 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 ## Remaining Work
 
 ### P1: Booking Dispatch + Decision Flow (Critical)
-- [ ] Implement explicit **Reject Booking** action in operator flow
-- [ ] Define reject behavior contract:
-  - [ ] Option A: keep status `pending` and mark operator rejection separately (recommended for multi-operator dispatch)
-  - [ ] Option B: set status `rejected` (only if dispatch model supports reassignment)
-- [ ] Prevent booking race conditions when multiple operators tap Accept simultaneously
-  - [ ] Use transaction/atomic guard to ensure only one operator can claim `pending`
-- [ ] Add clear “My Active Booking” vs “Available Booking Queue” sections
+- [x] Implement explicit **Reject Booking** action in operator flow
+- [x] Define reject behavior contract:
+  - [x] Option A adopted: keep status `pending` and mark operator rejection in `rejectedBy`
+  - [x] Option B not adopted for current dispatch model
+- [x] Prevent booking race conditions when multiple operators tap Accept simultaneously
+  - [x] Use transaction/atomic guard to ensure only one operator can claim `pending`
+- [x] Add clear “My Active Booking” vs “Available Booking Queue” sections
 
 ### P1: Firestore Contract + Rules (Critical)
-- [ ] Finalize shared booking state machine used by both apps:
-  - [ ] `pending -> accepted -> on_the_way -> completed`
-  - [ ] `pending/accepted/on_the_way -> cancelled` (passenger policy)
-  - [ ] `pending -> rejected` (if adopted)
-- [ ] Confirm ownership/permission model for each transition
-- [ ] Extend Firestore rules safely for any new fields used by reject/dispatch flow
-- [ ] Add indexes for production queries used by operator queue (status + driverId + createdAt)
+- [x] Finalize shared booking state machine used by both apps:
+  - [x] `pending -> accepted -> on_the_way -> completed`
+  - [x] `pending/accepted/on_the_way -> cancelled` (passenger policy)
+  - [x] `pending -> rejected` not used; replaced by `pending + rejectedBy[]`
+- [x] Confirm ownership/permission model for each transition
+- [x] Extend Firestore rules safely for any new fields used by reject/dispatch flow
+- [x] Add indexes for production queries used by operator queue (status + driverId + createdAt)
 
 ### P1: Operator Home UX for Operations
-- [ ] Show live queue stats (pending count, active trip count)
-- [ ] Show key booking info in cards:
-  - [ ] Booking ID
-  - [ ] Pickup and destination
-  - [ ] Passenger count
-  - [ ] Fare summary
-  - [ ] Booking created time
-- [ ] Add empty states for:
-  - [ ] online but no pending bookings
-  - [ ] offline state
-  - [ ] no active trip
+- [x] Show live queue stats (pending count, active trip count)
+- [x] Show key booking info in cards:
+  - [x] Booking ID
+  - [x] Pickup and destination
+  - [x] Passenger count
+  - [x] Fare summary
+  - [x] Booking created time
+- [x] Add empty states for:
+  - [x] online but no pending bookings
+  - [x] offline state
+  - [x] no active trip
 
 ### P2: Reliability + Recovery
 - [ ] Handle stale bookings where assigned operator goes offline/disconnects
@@ -77,8 +77,8 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 
 ## Suggested Next Delivery Order
 
-1. Implement reject flow + atomic accept transaction.
-2. Finalize Firestore contract/rules/indexes for dispatch safety.
-3. Upgrade operator home queue UX and statuses.
-4. Run end-to-end sync validation with passenger flows.
-5. Add tests for lifecycle and edge cases.
+1. Run end-to-end sync validation with passenger flows.
+2. Add timeout/release strategy and retry handling for stale or failed transitions.
+3. Add tests for lifecycle and edge cases.
+4. Add structured observability for transition failures.
+5. Add optional diagnostics/admin tooling for operations debugging.

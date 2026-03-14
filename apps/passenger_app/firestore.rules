@@ -69,6 +69,7 @@ service cloud.firestore {
         'paymentStatus',
         'status',
         'driverId',
+        'rejectedBy',
         'createdAt',
         'updatedAt',
         'cancelledAt'
@@ -124,25 +125,57 @@ service cloud.firestore {
       allow update: if isOperator()
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.bookingId == resource.data.bookingId
-        && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'driverId'])
         && (
           (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'driverId'])
+            &&
             resource.data.status == 'pending'
             && request.resource.data.status == 'accepted'
             && request.resource.data.driverId == request.auth.uid
             && resource.data.driverId == null
+            && !(
+              resource.data.keys().hasAny(['rejectedBy'])
+              && resource.data.rejectedBy.hasAny([request.auth.uid])
+            )
           )
           || (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'driverId'])
+            &&
             resource.data.status == 'accepted'
             && request.resource.data.status == 'on_the_way'
             && request.resource.data.driverId == resource.data.driverId
             && isAssignedOperator()
           )
           || (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'driverId'])
+            &&
             resource.data.status == 'on_the_way'
             && request.resource.data.status == 'completed'
             && request.resource.data.driverId == resource.data.driverId
             && isAssignedOperator()
+          )
+          || (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['rejectedBy', 'updatedAt'])
+            && resource.data.status == 'pending'
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.driverId == resource.data.driverId
+            && request.resource.data.driverId == null
+            && request.resource.data.keys().hasAny(['rejectedBy'])
+            && request.resource.data.rejectedBy is list
+            && request.resource.data.rejectedBy.hasAny([request.auth.uid])
+            && (
+              (
+                !resource.data.keys().hasAny(['rejectedBy'])
+                && request.resource.data.rejectedBy.size() == 1
+              )
+              || (
+                resource.data.keys().hasAny(['rejectedBy'])
+                && resource.data.rejectedBy is list
+                && !resource.data.rejectedBy.hasAny([request.auth.uid])
+                && request.resource.data.rejectedBy.hasAll(resource.data.rejectedBy)
+                && request.resource.data.rejectedBy.size() == resource.data.rejectedBy.size() + 1
+              )
+            )
           )
         )
         && bookingUpdateHasExpectedFields();
