@@ -104,6 +104,22 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /user_devices/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['token', 'platform', 'appRole', 'updatedAt'])
+        && request.resource.data.appRole == 'passenger';
+      allow delete: if isOwner(userId);
+    }
+
+    match /operator_devices/{operatorUid} {
+      allow read: if isOwner(operatorUid);
+      allow create, update: if isOwner(operatorUid)
+        && request.resource.data.keys().hasOnly(['token', 'platform', 'appRole', 'updatedAt'])
+        && request.resource.data.appRole == 'operator';
+      allow delete: if isOwner(operatorUid);
+    }
+
     match /jetties/{jettyId} {
       allow read: if isSignedIn();
       allow write: if false;

@@ -1,0 +1,19 @@
+# Node / Cloud Functions
+node_modules/
+**/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cloud Functions build output
+**/functions/lib/
+
+# Firebase emulator exports
+.firebase/
+
+# macOS
+.DS_Store
+
+# Editor
+.vscode/
+*.swp

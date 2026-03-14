@@ -4,6 +4,8 @@ abstract final class FirestoreCollections {
   static const String users = 'users';
   static const String operators = 'operators';
   static const String operatorPresence = 'operator_presence';
+  static const String userDevices = 'user_devices';
+  static const String operatorDevices = 'operator_devices';
   static const String jetties = 'jetties';
   static const String fares = 'fares';
 }

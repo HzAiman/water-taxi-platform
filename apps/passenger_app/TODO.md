@@ -71,6 +71,14 @@ Progress notes:
 - [ ] Verify Android release config and signing settings
 - [ ] Verify iOS Firebase + Google Maps setup on physical device
 - [x] Update README to reflect actual architecture and current feature behavior
+- [x] Update functions/README.md to reflect deployed triggers, region, and payload fields
+
+### P3: Notification Delivery (Cross-App)
+- [x] Foreground in-app notifications for operator/passenger booking events
+- [x] Background local notifications when app is minimized
+- [x] FCM token registration in both apps (`user_devices`, `operator_devices`)
+- [x] Firestore-triggered backend push dispatch for incoming booking and status changes
+- [x] Add notification tap deep-link navigation to booking detail/tracking screen
 
 ## Suggested Next Delivery Order
 

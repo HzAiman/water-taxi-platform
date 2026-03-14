@@ -25,6 +25,8 @@ dependencies:
   shared_preferences: ^2.3.3
   pdf: ^3.11.1
   printing: ^5.13.4
+  flutter_local_notifications: ^19.4.2
+  firebase_messaging: ^15.2.10
   water_taxi_shared:
     path: ../../packages/water_taxi_shared
 

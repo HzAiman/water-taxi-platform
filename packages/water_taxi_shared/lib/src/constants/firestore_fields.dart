@@ -54,6 +54,14 @@ abstract final class OperatorPresenceFields {
   static const String updatedAt = 'updatedAt';
 }
 
+/// Field name constants for device token collections.
+abstract final class DeviceTokenFields {
+  static const String token = 'token';
+  static const String platform = 'platform';
+  static const String appRole = 'appRole';
+  static const String updatedAt = 'updatedAt';
+}
+
 /// Field name constants for the `jetties` Firestore collection.
 abstract final class JettyFields {
   static const String jettyId = 'jettyId';
