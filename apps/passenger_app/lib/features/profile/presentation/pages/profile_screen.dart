@@ -1,9 +1,11 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/features/auth/presentation/pages/phone_login_page.dart';
+import 'package:passenger_app/features/profile/presentation/viewmodels/profile_view_model.dart';
+import 'package:provider/provider.dart';
+import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -13,21 +15,63 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  late TextEditingController _nameController;
-  late TextEditingController _emailController;
-  String _phoneNumber = '';
+  bool _hasInitialized = false;
 
   @override
-  void initState() {
-    super.initState();
-    _nameController = TextEditingController();
-    _emailController = TextEditingController();
-    _loadUserData();
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_hasInitialized) {
+      return;
+    }
+
+    _hasInitialized = true;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid != null) {
+      context.read<ProfileViewModel>().loadProfile(uid);
+    }
+  }
+
+  Future<void> _logout(BuildContext context) async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Logout'),
+          content: const Text('Are you sure you want to logout?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              style: TextButton.styleFrom(foregroundColor: Colors.red),
+              child: const Text('Logout'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldLogout != true || !context.mounted) {
+      return;
+    }
+
+    await FirebaseAuth.instance.signOut();
+
+    if (!context.mounted) {
+      return;
+    }
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
+      (route) => false,
+    );
   }
 
   Widget _buildMainProfileMenu() {
     return ListView(
-      padding: const EdgeInsets.all(24.0),
+      padding: const EdgeInsets.all(24),
       children: [
         _buildMenuButton(
           icon: Icons.manage_accounts,
@@ -138,66 +182,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
-  Future<void> _loadUserData() async {
-    User? currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser != null) {
-      _phoneNumber = currentUser.phoneNumber ?? '';
-
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
-
-      if (userDoc.exists && mounted) {
-        setState(() {
-          _nameController.text = userDoc.data()?['name'] ?? '';
-          _emailController.text = userDoc.data()?['email'] ?? '';
-        });
-      } else if (mounted) {
-        setState(() {
-          _emailController.text = currentUser.email ?? '';
-        });
-      }
-    }
-  }
-
-  Future<void> _logout(BuildContext context) async {
-    final shouldLogout = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          title: const Text("Logout"),
-          content: const Text("Are you sure you want to logout?"),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text("Cancel"),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              style: TextButton.styleFrom(foregroundColor: Colors.red),
-              child: const Text("Logout"),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (shouldLogout == true && context.mounted) {
-      await FirebaseAuth.instance.signOut();
-
-      if (!context.mounted) return;
-
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (context) => const PhoneLoginPage()),
-        (route) => false,
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final double topInset = MediaQuery.of(context).padding.top;
+    final topInset = MediaQuery.of(context).padding.top;
+    final viewModel = context.watch<ProfileViewModel>();
+    final user = viewModel.user;
+    final phoneNumber =
+        FirebaseAuth.instance.currentUser?.phoneNumber ??
+        user?.phoneNumber ??
+        '';
+
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
         statusBarColor: const Color(0xFF0066CC),
@@ -225,9 +219,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      _nameController.text.isNotEmpty
-                          ? _nameController.text
-                          : 'Passenger',
+                      user?.name.isNotEmpty == true ? user!.name : 'Passenger',
                       style: const TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.bold,
@@ -236,7 +228,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      _phoneNumber,
+                      phoneNumber,
                       style: const TextStyle(
                         fontSize: 14,
                         color: Colors.white70,
@@ -246,18 +238,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
             ),
-            Expanded(child: _buildMainProfileMenu()),
+            Expanded(
+              child: viewModel.isLoading && user == null
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildMainProfileMenu(),
+            ),
           ],
         ),
       ),
     );
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    super.dispose();
   }
 }
 
@@ -272,43 +261,65 @@ class _AccountManagementRoutePage extends StatefulWidget {
 class _AccountManagementRoutePageState
     extends State<_AccountManagementRoutePage> {
   final _formKey = GlobalKey<FormState>();
-  late TextEditingController _nameController;
-  late TextEditingController _emailController;
+  late final TextEditingController _nameController;
+  late final TextEditingController _emailController;
   final TextEditingController _phoneController = TextEditingController();
+
   String _phoneNumber = '';
   bool _isEditing = false;
-  bool _isSaving = false;
+  bool _hasLoadedInitialData = false;
 
   @override
   void initState() {
     super.initState();
     _nameController = TextEditingController();
     _emailController = TextEditingController();
-    _loadUserData();
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadUserData();
+    });
   }
 
   Future<void> _loadUserData() async {
     final currentUser = FirebaseAuth.instance.currentUser;
-    if (currentUser == null) {
+    if (currentUser == null || !mounted) {
       return;
     }
 
     _phoneNumber = currentUser.phoneNumber ?? '';
-    final userDoc = await FirebaseFirestore.instance
-        .collection('users')
-        .doc(currentUser.uid)
-        .get();
+    _phoneController.text = _phoneNumber;
 
+    await context.read<ProfileViewModel>().loadProfile(currentUser.uid);
     if (!mounted) {
       return;
     }
 
-    setState(() {
-      _nameController.text = userDoc.data()?['name'] ?? '';
-      _emailController.text =
-          userDoc.data()?['email'] ?? currentUser.email ?? '';
-      _phoneController.text = _phoneNumber;
-    });
+    final user = context.read<ProfileViewModel>().user;
+    if (user != null) {
+      _nameController.text = user.name;
+      _emailController.text = user.email.isNotEmpty
+          ? user.email
+          : currentUser.email ?? '';
+    } else {
+      _emailController.text = currentUser.email ?? '';
+    }
+
+    if (!_hasLoadedInitialData) {
+      setState(() {
+        _hasLoadedInitialData = true;
+      });
+    }
+  }
+
+  void _resetFormFromViewModel() {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final user = context.read<ProfileViewModel>().user;
+
+    _nameController.text = user?.name ?? '';
+    _emailController.text = user?.email.isNotEmpty == true
+        ? user!.email
+        : currentUser?.email ?? '';
+    _phoneController.text = _phoneNumber;
   }
 
   Future<void> _saveUserData() async {
@@ -316,60 +327,72 @@ class _AccountManagementRoutePageState
       return;
     }
 
-    setState(() {
-      _isSaving = true;
-    });
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      showTopError(context, message: 'User not authenticated.');
+      return;
+    }
 
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated');
-      }
+    final nextEmail = _emailController.text.trim();
+    final previousEmail = currentUser.email ?? '';
+    final result = await context.read<ProfileViewModel>().updateProfile(
+      uid: currentUser.uid,
+      name: _nameController.text.trim(),
+      email: nextEmail,
+    );
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .update({
-            'name': _nameController.text.trim(),
-            'email': _emailController.text.trim(),
-            'updatedAt': DateTime.now(),
-          });
+    if (!mounted) {
+      return;
+    }
 
-      if (_emailController.text.trim() != currentUser.email) {
-        await currentUser.verifyBeforeUpdateEmail(_emailController.text.trim());
-      }
+    switch (result) {
+      case OperationSuccess():
+        if (nextEmail.isNotEmpty && nextEmail != previousEmail) {
+          try {
+            await currentUser.verifyBeforeUpdateEmail(nextEmail);
+          } catch (e) {
+            if (!mounted) {
+              return;
+            }
+            showTopInfo(
+              context,
+              title: 'Profile updated',
+              message:
+                  'Profile data was saved, but email verification could not be started: $e',
+            );
+            setState(() {
+              _isEditing = false;
+            });
+            return;
+          }
 
-      if (!mounted) {
-        return;
-      }
+          if (!mounted) {
+            return;
+          }
+        }
 
-      setState(() {
-        _isEditing = false;
-      });
-
-      showTopSuccess(context, message: 'Profile updated successfully');
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-
-      showTopError(
-        context,
-        message: 'Failed to update profile: ${e.toString()}',
-      );
-    } finally {
-      if (mounted) {
         setState(() {
-          _isSaving = false;
+          _isEditing = false;
         });
-      }
+        showTopSuccess(
+          context,
+          message: nextEmail != previousEmail && nextEmail.isNotEmpty
+              ? 'Profile updated. Check your email to confirm the new address.'
+              : 'Profile updated successfully.',
+        );
+      case OperationFailure(:final title, :final message, :final isInfo):
+        if (isInfo) {
+          showTopInfo(context, title: title, message: message);
+        } else {
+          showTopError(context, title: title, message: message);
+        }
     }
   }
 
   Future<void> _deleteAccount() async {
     final shouldDelete = await showDialog<bool>(
       context: context,
-      builder: (context) {
+      builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Delete Account'),
           content: const Text(
@@ -377,11 +400,11 @@ class _AccountManagementRoutePageState
           ),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(context, false),
+              onPressed: () => Navigator.pop(dialogContext, false),
               child: const Text('Cancel'),
             ),
             TextButton(
-              onPressed: () => Navigator.pop(context, true),
+              onPressed: () => Navigator.pop(dialogContext, true),
               style: TextButton.styleFrom(foregroundColor: Colors.red),
               child: const Text('Delete'),
             ),
@@ -394,243 +417,262 @@ class _AccountManagementRoutePageState
       return;
     }
 
-    setState(() {
-      _isSaving = true;
-    });
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      showTopError(context, message: 'User not authenticated.');
+      return;
+    }
 
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        throw Exception('User not authenticated');
-      }
+    final result = await context.read<ProfileViewModel>().deleteAccount(
+      currentUser.uid,
+    );
+    if (!mounted) {
+      return;
+    }
 
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .delete();
-      await currentUser.delete();
+    switch (result) {
+      case OperationSuccess():
+        try {
+          await currentUser.delete();
+        } catch (e) {
+          if (!mounted) {
+            return;
+          }
+          showTopError(context, message: 'Error deleting account: $e');
+          return;
+        }
 
-      if (!mounted) {
-        return;
-      }
+        if (!mounted) {
+          return;
+        }
 
-      Navigator.of(context).pushAndRemoveUntil(
-        MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
-        (route) => false,
-      );
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-
-      showTopError(context, message: 'Error deleting account: ${e.toString()}');
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSaving = false;
-        });
-      }
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
+          (route) => false,
+        );
+      case OperationFailure(:final title, :final message, :final isInfo):
+        if (isInfo) {
+          showTopInfo(context, title: title, message: message);
+        } else {
+          showTopError(context, title: title, message: message);
+        }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final viewModel = context.watch<ProfileViewModel>();
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Account Management'),
         centerTitle: true,
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(24.0),
-        children: [
-          Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      body: !_hasLoadedInitialData && viewModel.isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : ListView(
+              padding: const EdgeInsets.all(24),
               children: [
-                const Text(
-                  'Full Name',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _nameController,
-                  enabled: _isEditing,
-                  decoration: const InputDecoration(
-                    hintText: 'Enter your full name',
-                    prefixIcon: Icon(Icons.person),
-                  ),
-                  validator: (value) {
-                    if (_isEditing && (value == null || value.trim().isEmpty)) {
-                      return 'Name cannot be empty';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Email Address',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _emailController,
-                  enabled: _isEditing,
-                  decoration: const InputDecoration(
-                    hintText: 'Enter your email',
-                    prefixIcon: Icon(Icons.email),
-                  ),
-                  validator: (value) {
-                    if (_isEditing) {
-                      if (value == null || value.trim().isEmpty) {
-                        return 'Email cannot be empty';
-                      }
-                      if (!RegExp(r'^[^@]+@[^@]+\.[^@]+').hasMatch(value)) {
-                        return 'Enter a valid email address';
-                      }
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Phone Number',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _phoneController,
-                  enabled: false,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.phone),
-                    hintText: 'Phone number',
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Phone number is managed by your login account and cannot be changed here.',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF666666)),
-                ),
-                const SizedBox(height: 28),
-                if (!_isEditing)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _isEditing = true;
-                        });
-                      },
-                      child: const Text(
-                        'Edit Profile',
+                Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Full Name',
                         style: TextStyle(
-                          fontSize: 16,
+                          fontSize: 14,
                           fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1A1A),
                         ),
                       ),
-                    ),
-                  )
-                else
-                  Column(
-                    children: [
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _nameController,
+                        enabled: _isEditing,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter your full name',
+                          prefixIcon: Icon(Icons.person),
+                        ),
+                        validator: (value) {
+                          if (_isEditing &&
+                              (value == null || value.trim().isEmpty)) {
+                            return 'Name cannot be empty';
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Email Address',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1A1A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _emailController,
+                        enabled: _isEditing,
+                        decoration: const InputDecoration(
+                          hintText: 'Enter your email',
+                          prefixIcon: Icon(Icons.email),
+                        ),
+                        validator: (value) {
+                          if (_isEditing) {
+                            if (value == null || value.trim().isEmpty) {
+                              return 'Email cannot be empty';
+                            }
+                            if (!RegExp(
+                              r'^[^@]+@[^@]+\.[^@]+',
+                            ).hasMatch(value)) {
+                              return 'Enter a valid email address';
+                            }
+                          }
+                          return null;
+                        },
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Phone Number',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF1A1A1A),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _phoneController,
+                        enabled: false,
+                        decoration: const InputDecoration(
+                          prefixIcon: Icon(Icons.phone),
+                          hintText: 'Phone number',
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Phone number is managed by your login account and cannot be changed here.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF666666),
+                        ),
+                      ),
+                      const SizedBox(height: 28),
+                      if (!_isEditing)
+                        SizedBox(
+                          width: double.infinity,
+                          height: 54,
+                          child: ElevatedButton(
+                            onPressed: () {
+                              setState(() {
+                                _isEditing = true;
+                              });
+                            },
+                            child: const Text(
+                              'Edit Profile',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Column(
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: ElevatedButton(
+                                onPressed: viewModel.isSaving
+                                    ? null
+                                    : _saveUserData,
+                                child: viewModel.isSaving
+                                    ? const SizedBox(
+                                        height: 20,
+                                        width: 20,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          valueColor:
+                                              AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
+                                        ),
+                                      )
+                                    : const Text(
+                                        'Save Changes',
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              height: 54,
+                              child: OutlinedButton(
+                                onPressed: viewModel.isSaving
+                                    ? null
+                                    : () {
+                                        setState(() {
+                                          _isEditing = false;
+                                        });
+                                        _resetFormFromViewModel();
+                                      },
+                                child: const Text(
+                                  'Cancel',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF0066CC),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      const SizedBox(height: 12),
                       SizedBox(
                         width: double.infinity,
                         height: 54,
-                        child: ElevatedButton(
-                          onPressed: _isSaving ? null : _saveUserData,
-                          child: _isSaving
+                        child: OutlinedButton(
+                          onPressed: viewModel.isSaving ? null : _deleteAccount,
+                          style: OutlinedButton.styleFrom(
+                            side: const BorderSide(
+                              color: Colors.red,
+                              width: 1.5,
+                            ),
+                          ),
+                          child: viewModel.isSaving
                               ? const SizedBox(
                                   height: 20,
                                   width: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
                                     valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
+                                      Colors.red,
                                     ),
                                   ),
                                 )
                               : const Text(
-                                  'Save Changes',
+                                  'Delete Account',
                                   style: TextStyle(
                                     fontSize: 16,
                                     fontWeight: FontWeight.w600,
+                                    color: Colors.red,
                                   ),
                                 ),
                         ),
                       ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: OutlinedButton(
-                          onPressed: _isSaving
-                              ? null
-                              : () {
-                                  setState(() {
-                                    _isEditing = false;
-                                  });
-                                  _loadUserData();
-                                },
-                          child: const Text(
-                            'Cancel',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF0066CC),
-                            ),
-                          ),
-                        ),
-                      ),
                     ],
-                  ),
-                const SizedBox(height: 12),
-                SizedBox(
-                  width: double.infinity,
-                  height: 54,
-                  child: OutlinedButton(
-                    onPressed: _isSaving ? null : _deleteAccount,
-                    style: OutlinedButton.styleFrom(
-                      side: const BorderSide(color: Colors.red, width: 1.5),
-                    ),
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.red,
-                              ),
-                            ),
-                          )
-                        : const Text(
-                            'Delete Account',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Colors.red,
-                            ),
-                          ),
                   ),
                 ),
               ],
             ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -655,101 +697,81 @@ class _BookingHistoryRoutePage extends StatefulWidget {
 
 class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
   _BookingHistoryFilter _selectedFilter = _BookingHistoryFilter.all;
+  bool _hasStartedStream = false;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_hasStartedStream) {
+      return;
+    }
+
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) {
+      return;
+    }
+
+    _hasStartedStream = true;
+    context.read<ProfileViewModel>().startBookingHistoryStream(uid);
+  }
+
+  @override
+  void dispose() {
+    context.read<ProfileViewModel>().stopBookingHistoryStream();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
+    final bookings = context.watch<ProfileViewModel>().bookingHistory;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Booking History'), centerTitle: true),
       body: currentUser == null
           ? const Center(child: Text('Please sign in to view your bookings.'))
-          : StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-              stream: FirebaseFirestore.instance
-                  .collection('bookings')
-                  .where('userId', isEqualTo: currentUser.uid)
-                  .snapshots(includeMetadataChanges: true),
-              builder: (context, snapshot) {
-                if (snapshot.hasError) {
-                  return _buildHistoryState(
-                    icon: Icons.receipt_long,
-                    title: 'Unable to load bookings',
-                    message: 'Please check your connection and try again.',
-                  );
-                }
+          : _buildContent(bookings),
+    );
+  }
 
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !snapshot.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+  Widget _buildContent(List<BookingModel> bookings) {
+    if (bookings.isEmpty) {
+      return _buildHistoryState(
+        icon: Icons.directions_boat,
+        title: 'No bookings yet',
+        message:
+            'Your completed and upcoming water taxi bookings will appear here.',
+      );
+    }
 
-                final docs =
-                    [
-                      ...(snapshot.data?.docs ??
-                          const <
-                            QueryDocumentSnapshot<Map<String, dynamic>>
-                          >[]),
-                    ]..sort((a, b) {
-                      final aTimestamp = a.data()['createdAt'];
-                      final bTimestamp = b.data()['createdAt'];
-                      if (aTimestamp is Timestamp && bTimestamp is Timestamp) {
-                        return bTimestamp.compareTo(aTimestamp);
-                      }
-                      if (bTimestamp is Timestamp) {
-                        return 1;
-                      }
-                      if (aTimestamp is Timestamp) {
-                        return -1;
-                      }
-                      return 0;
-                    });
+    final filteredBookings = bookings.where((booking) {
+      switch (_selectedFilter) {
+        case _BookingHistoryFilter.active:
+          return booking.status.isActive;
+        case _BookingHistoryFilter.completed:
+          return booking.status == BookingStatus.completed;
+        case _BookingHistoryFilter.cancelled:
+          return booking.status == BookingStatus.cancelled ||
+              booking.status == BookingStatus.rejected;
+        case _BookingHistoryFilter.all:
+          return true;
+      }
+    }).toList();
 
-                if (docs.isEmpty) {
-                  return _BookingHistoryRoutePageState._buildHistoryState(
-                    icon: Icons.directions_boat,
-                    title: 'No bookings yet',
-                    message:
-                        'Your completed and upcoming water taxi bookings will appear here.',
-                  );
-                }
-
-                final filteredDocs = docs.where((doc) {
-                  final status = (doc.data()['status'] ?? '')
-                      .toString()
-                      .toLowerCase();
-                  switch (_selectedFilter) {
-                    case _BookingHistoryFilter.active:
-                      return _isActiveStatus(status);
-                    case _BookingHistoryFilter.completed:
-                      return status == 'completed';
-                    case _BookingHistoryFilter.cancelled:
-                      return status == 'cancelled' || status == 'rejected';
-                    case _BookingHistoryFilter.all:
-                      return true;
-                  }
-                }).toList();
-
-                return ListView(
-                  padding: const EdgeInsets.all(24),
-                  children: [
-                    _buildFilterChips(),
-                    const SizedBox(height: 16),
-                    if (filteredDocs.isEmpty)
-                      _buildHistoryState(
-                        icon: Icons.filter_list,
-                        title:
-                            'No ${_filterLabel(_selectedFilter).toLowerCase()} bookings',
-                        message:
-                            'Try a different filter to see other bookings.',
-                      )
-                    else
-                      ...filteredDocs.map(
-                        (doc) => _buildBookingCard(doc.data()),
-                      ),
-                  ],
-                );
-              },
-            ),
+    return ListView(
+      padding: const EdgeInsets.all(24),
+      children: [
+        _buildFilterChips(),
+        const SizedBox(height: 16),
+        if (filteredBookings.isEmpty)
+          _buildHistoryState(
+            icon: Icons.filter_list,
+            title: 'No ${_filterLabel(_selectedFilter).toLowerCase()} bookings',
+            message: 'Try a different filter to see other bookings.',
+          )
+        else
+          ...filteredBookings.map(_buildBookingCard),
+      ],
     );
   }
 
@@ -787,20 +809,6 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     );
   }
 
-  static bool _isActiveStatus(String status) {
-    switch (status) {
-      case 'pending':
-      case 'confirmed':
-      case 'accepted':
-      case 'on_the_way':
-      case 'in_progress':
-      case 'ongoing':
-        return true;
-      default:
-        return false;
-    }
-  }
-
   static String _filterLabel(_BookingHistoryFilter filter) {
     switch (filter) {
       case _BookingHistoryFilter.all:
@@ -821,7 +829,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
   }) {
     return Center(
       child: Padding(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(24),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(20),
@@ -856,19 +864,14 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     );
   }
 
-  static Widget _buildBookingCard(Map<String, dynamic> booking) {
-    final bookingId = (booking['bookingId'] ?? '').toString();
-    final origin = (booking['origin'] ?? 'Unknown origin').toString();
-    final destination = (booking['destination'] ?? 'Unknown destination')
-        .toString();
-    final totalFare = _toDouble(booking['totalFare'] ?? booking['fare']);
-    final passengerCount = _toInt(booking['passengerCount']);
-    final paymentMethod = _formatPaymentMethod(
-      (booking['paymentMethod'] ?? 'unknown').toString(),
-    );
-    final status = (booking['status'] ?? 'pending').toString();
-    final statusColor = _statusColor(status);
-    final createdAt = _formatTimestamp(booking['createdAt']);
+  static Widget _buildBookingCard(BookingModel booking) {
+    final totalFare = booking.totalFare > 0 ? booking.totalFare : booking.fare;
+    final statusColor = _statusColor(booking.status);
+    final paymentMethod = PaymentMethods.label(booking.paymentMethod);
+    final createdAt = _formatTimestamp(booking.createdAt);
+    final bookingTitle = booking.bookingId.isNotEmpty
+        ? booking.bookingId
+        : 'Booking';
 
     return Container(
       width: double.infinity,
@@ -886,7 +889,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
             children: [
               Expanded(
                 child: Text(
-                  bookingId.isEmpty ? 'Booking' : bookingId,
+                  bookingTitle,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -906,7 +909,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  _formatStatusLabel(status),
+                  _formatStatusLabel(booking.status.firestoreValue),
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
@@ -920,13 +923,13 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
           _buildHistoryRow(
             Icons.location_on,
             'Route',
-            '$origin -> $destination',
+            '${booking.origin} -> ${booking.destination}',
           ),
           const SizedBox(height: 8),
           _buildHistoryRow(
             Icons.people,
             'Passengers',
-            passengerCount == null ? 'Unavailable' : '$passengerCount',
+            '${booking.passengerCount}',
           ),
           const SizedBox(height: 8),
           _buildHistoryRow(
@@ -949,9 +952,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                 ),
               ),
               Text(
-                totalFare == null
-                    ? 'Unavailable'
-                    : 'RM ${totalFare.toStringAsFixed(2)}',
+                'RM ${totalFare.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontSize: 15,
                   color: Color(0xFF0066CC),
@@ -992,49 +993,17 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     );
   }
 
-  static int? _toInt(dynamic value) {
-    if (value is int) {
-      return value;
+  static String _formatTimestamp(DateTime? value) {
+    if (value == null) {
+      return 'Unavailable';
     }
-    if (value is num) {
-      return value.toInt();
-    }
-    return int.tryParse(value?.toString() ?? '');
-  }
 
-  static double? _toDouble(dynamic value) {
-    if (value is double) {
-      return value;
-    }
-    if (value is num) {
-      return value.toDouble();
-    }
-    return double.tryParse(value?.toString() ?? '');
-  }
-
-  static String _formatTimestamp(dynamic value) {
-    if (value is Timestamp) {
-      final local = value.toDate().toLocal();
-      final month = local.month.toString().padLeft(2, '0');
-      final day = local.day.toString().padLeft(2, '0');
-      final hour = local.hour.toString().padLeft(2, '0');
-      final minute = local.minute.toString().padLeft(2, '0');
-      return '${local.year}-$month-$day $hour:$minute';
-    }
-    return 'Unavailable';
-  }
-
-  static String _formatPaymentMethod(String paymentMethod) {
-    switch (paymentMethod) {
-      case 'credit_card':
-        return 'Card';
-      case 'e_wallet':
-        return 'E-Wallet';
-      case 'online_banking':
-        return 'Online Banking';
-      default:
-        return _formatStatusLabel(paymentMethod);
-    }
+    final local = value.toLocal();
+    final month = local.month.toString().padLeft(2, '0');
+    final day = local.day.toString().padLeft(2, '0');
+    final hour = local.hour.toString().padLeft(2, '0');
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '${local.year}-$month-$day $hour:$minute';
   }
 
   static String _formatStatusLabel(String status) {
@@ -1045,24 +1014,21 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
         .join(' ');
   }
 
-  static Color _statusColor(String status) {
-    switch (status.toLowerCase()) {
-      case 'pending':
+  static Color _statusColor(BookingStatus status) {
+    switch (status) {
+      case BookingStatus.pending:
         return Colors.orange;
-      case 'confirmed':
-      case 'accepted':
+      case BookingStatus.accepted:
         return const Color(0xFF0066CC);
-      case 'completed':
+      case BookingStatus.completed:
         return Colors.green;
-      case 'cancelled':
+      case BookingStatus.cancelled:
         return Colors.red;
-      case 'rejected':
+      case BookingStatus.rejected:
         return Colors.deepOrange;
-      case 'on_the_way':
-      case 'in_progress':
-      case 'ongoing':
+      case BookingStatus.onTheWay:
         return Colors.teal;
-      default:
+      case BookingStatus.unknown:
         return const Color(0xFF666666);
     }
   }

@@ -1,0 +1,16 @@
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "water_taxi_shared",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "3.8"
+    }
+  ],
+  "generator": "pub",
+  "generatorVersion": "3.8.1",
+  "flutterRoot": "file:///C:/flutter",
+  "flutterVersion": "3.32.7",
+  "pubCache": "file:///C:/Users/Jul23/AppData/Local/Pub/Cache"
+}

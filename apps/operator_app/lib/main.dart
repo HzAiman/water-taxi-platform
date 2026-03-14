@@ -1,10 +1,14 @@
+﻿import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
+import 'package:provider/provider.dart';
+
+import 'package:operator_app/data/repositories/booking_repository.dart';
+import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
 import 'package:operator_app/app.dart';
 import 'package:operator_app/firebase_options.dart';
 
 void main() async {
-  // CRITICAL: This line prevents the "Isolate" crash
   WidgetsFlutterBinding.ensureInitialized();
 
   try {
@@ -14,11 +18,30 @@ void main() async {
       );
     }
   } catch (e) {
-    // Firebase already initialized (can happen on hot reload)
     if (!e.toString().contains('duplicate-app')) {
       rethrow;
     }
   }
 
-  runApp(const OperatorApp());
+  final bookingRepo = BookingRepository();
+  final operatorRepo = OperatorRepository();
+
+  runApp(
+    MultiProvider(
+      providers: [
+        // Repositories
+        Provider<BookingRepository>.value(value: bookingRepo),
+        Provider<OperatorRepository>.value(value: operatorRepo),
+
+        // App-scoped ViewModel
+        ChangeNotifierProvider<OperatorHomeViewModel>(
+          create: (_) => OperatorHomeViewModel(
+            bookingRepo: bookingRepo,
+            operatorRepo: operatorRepo,
+          ),
+        ),
+      ],
+      child: const OperatorApp(),
+    ),
+  );
 }

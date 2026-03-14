@@ -1,0 +1,10 @@
+name: water_taxi_shared
+description: Shared constants and models for the Melaka Water Taxi platform.
+publish_to: none
+
+environment:
+  sdk: ^3.8.1
+
+# Pure Dart — no Flutter or Firebase dependencies.
+# Firestore-specific types (GeoPoint, Timestamp) are converted to plain Dart
+# types (double, DateTime) by the repository layer in each app.

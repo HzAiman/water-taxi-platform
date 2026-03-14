@@ -1,0 +1,14 @@
+{
+  "roots": [
+    "water_taxi_shared"
+  ],
+  "packages": [
+    {
+      "name": "water_taxi_shared",
+      "version": "0.0.0",
+      "dependencies": [],
+      "devDependencies": []
+    }
+  ],
+  "configVersion": 1
+}

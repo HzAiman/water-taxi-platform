@@ -1,14 +1,11 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
+import 'package:passenger_app/features/home/presentation/viewmodels/booking_tracking_view_model.dart';
+import 'package:provider/provider.dart';
+import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class BookingTrackingScreen extends StatefulWidget {
-  final String bookingId;
-  final String origin;
-  final String destination;
-  final int passengerCount;
-
   const BookingTrackingScreen({
     super.key,
     required this.bookingId,
@@ -17,12 +14,26 @@ class BookingTrackingScreen extends StatefulWidget {
     required this.passengerCount,
   });
 
+  final String bookingId;
+  final String origin;
+  final String destination;
+  final int passengerCount;
+
   @override
   State<BookingTrackingScreen> createState() => _BookingTrackingScreenState();
 }
 
 class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
-  bool _isCancelling = false;
+  @override
+  void initState() {
+    super.initState();
+    Future.microtask(() {
+      if (!mounted) {
+        return;
+      }
+      context.read<BookingTrackingViewModel>().startTracking(widget.bookingId);
+    });
+  }
 
   void _closeTrackingScreen() {
     if (!mounted) {
@@ -57,313 +68,276 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       return;
     }
 
-    setState(() {
-      _isCancelling = true;
-    });
+    final result = await context.read<BookingTrackingViewModel>().cancelBooking(
+      widget.bookingId,
+    );
+    if (!mounted) {
+      return;
+    }
 
-    try {
-      await FirebaseFirestore.instance
-          .collection('bookings')
-          .doc(widget.bookingId)
-          .update({
-            'status': 'cancelled',
-            'updatedAt': FieldValue.serverTimestamp(),
-            'cancelledAt': FieldValue.serverTimestamp(),
-          });
-
-      if (!mounted) {
-        return;
-      }
-
-      showTopSuccess(context, message: 'Booking cancelled successfully.');
-      await Future.delayed(const Duration(milliseconds: 900));
-      _closeTrackingScreen();
-    } catch (e) {
-      if (!mounted) {
-        return;
-      }
-
-      showTopError(
-        context,
-        message: 'Failed to cancel booking: ${e.toString()}',
-      );
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isCancelling = false;
-        });
-      }
+    switch (result) {
+      case OperationSuccess(:final message):
+        showTopSuccess(context, message: message);
+        await Future<void>.delayed(const Duration(milliseconds: 900));
+        _closeTrackingScreen();
+      case OperationFailure(:final title, :final message, :final isInfo):
+        if (isInfo) {
+          showTopInfo(context, title: title, message: message);
+        } else {
+          showTopError(context, title: title, message: message);
+        }
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final viewModel = context.watch<BookingTrackingViewModel>();
+    final booking = viewModel.booking;
+
+    if (booking == null) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Booking Status'),
+          centerTitle: true,
+          elevation: 0,
+        ),
+        body: const Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    final currentOrigin = booking.origin.isNotEmpty
+        ? booking.origin
+        : widget.origin;
+    final currentDestination = booking.destination.isNotEmpty
+        ? booking.destination
+        : widget.destination;
+    final currentPassengerCount = booking.passengerCount > 0
+        ? booking.passengerCount
+        : widget.passengerCount;
+    final status = booking.status;
+    final statusTheme = _statusThemeFor(status);
+    final canCancel = status.canBeCancelledByPassenger;
+    final paymentMethod = booking.paymentMethod;
+    final paymentStatus = booking.paymentStatus;
+
+    final originPoint = _latLngOrNull(booking.originLat, booking.originLng);
+    final destinationPoint = _latLngOrNull(
+      booking.destinationLat,
+      booking.destinationLng,
+    );
+    final markers = _buildMarkers(
+      originPoint: originPoint,
+      destinationPoint: destinationPoint,
+      originLabel: currentOrigin,
+      destinationLabel: currentDestination,
+    );
+    final polylines = _buildPolylines(originPoint, destinationPoint);
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Booking Status'),
         centerTitle: true,
         elevation: 0,
       ),
-      body: StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('bookings')
-            .doc(widget.bookingId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return _buildMessageState(
-              title: 'Unable to load booking',
-              message: 'Please check your connection and try again.',
-            );
-          }
-
-          if (snapshot.connectionState == ConnectionState.waiting &&
-              !snapshot.hasData) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          final bookingDoc = snapshot.data;
-          if (bookingDoc == null || !bookingDoc.exists) {
-            return _buildMessageState(
-              title: 'Booking not found',
-              message: 'This booking may have been deleted or is unavailable.',
-            );
-          }
-
-          final booking = bookingDoc.data() ?? <String, dynamic>{};
-          final currentOrigin = (booking['origin'] ?? widget.origin).toString();
-          final currentDestination =
-              (booking['destination'] ?? widget.destination).toString();
-          final currentPassengerCount =
-              _toInt(booking['passengerCount']) ?? widget.passengerCount;
-          final status = (booking['status'] ?? 'pending').toString();
-          final paymentMethod = (booking['paymentMethod'] ?? 'unknown')
-              .toString();
-          final paymentStatus = (booking['paymentStatus'] ?? 'unknown')
-              .toString();
-          final statusTheme = _statusThemeFor(status);
-          final canCancel = _canCancelStatus(status);
-
-          final originPoint = _geoPointToLatLng(booking['originCoords']);
-          final destinationPoint = _geoPointToLatLng(
-            booking['destinationCoords'],
-          );
-          final markers = _buildMarkers(
-            originPoint: originPoint,
-            destinationPoint: destinationPoint,
-            originLabel: currentOrigin,
-            destinationLabel: currentDestination,
-          );
-          final polylines = _buildPolylines(originPoint, destinationPoint);
-
-          return Stack(
-            children: [
-              Positioned.fill(
-                child: GoogleMap(
-                  initialCameraPosition: _cameraPositionFor(
-                    originPoint,
-                    destinationPoint,
-                  ),
-                  markers: markers,
-                  polylines: polylines,
-                  myLocationEnabled: false,
-                  myLocationButtonEnabled: false,
-                  compassEnabled: true,
-                  zoomControlsEnabled: false,
-                  mapToolbarEnabled: false,
-                ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: GoogleMap(
+              initialCameraPosition: _cameraPositionFor(
+                originPoint,
+                destinationPoint,
               ),
-              DraggableScrollableSheet(
-                initialChildSize: 0.30,
-                minChildSize: 0.22,
-                maxChildSize: 0.68,
-                snap: true,
-                builder: (context, scrollController) {
-                  return Container(
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.vertical(
-                        top: Radius.circular(24),
-                      ),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Color(0x1A000000),
-                          blurRadius: 12,
-                          offset: Offset(0, -4),
-                        ),
-                      ],
+              markers: markers,
+              polylines: polylines,
+              myLocationEnabled: false,
+              myLocationButtonEnabled: false,
+              compassEnabled: true,
+              zoomControlsEnabled: false,
+              mapToolbarEnabled: false,
+            ),
+          ),
+          DraggableScrollableSheet(
+            initialChildSize: 0.30,
+            minChildSize: 0.22,
+            maxChildSize: 0.68,
+            snap: true,
+            builder: (context, scrollController) {
+              return Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Color(0x1A000000),
+                      blurRadius: 12,
+                      offset: Offset(0, -4),
                     ),
-                    child: SafeArea(
-                      top: false,
-                      child: ListView(
-                        controller: scrollController,
-                        padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                  ],
+                ),
+                child: SafeArea(
+                  top: false,
+                  child: ListView(
+                    controller: scrollController,
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 4,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDDE5F0),
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
                         children: [
-                          Center(
-                            child: Container(
-                              width: 44,
-                              height: 4,
-                              decoration: BoxDecoration(
-                                color: const Color(0xFFDDE5F0),
-                                borderRadius: BorderRadius.circular(999),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Container(
-                                width: 12,
-                                height: 12,
-                                decoration: BoxDecoration(
-                                  color: statusTheme.color,
-                                  shape: BoxShape.circle,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  statusTheme.title,
-                                  style: const TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1A1A1A),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            statusTheme.message,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF666666),
-                            ),
-                          ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              const Text(
-                                'Booking ID',
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: Color(0xFF666666),
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  widget.bookingId,
-                                  textAlign: TextAlign.end,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: Color(0xFF1A1A1A),
-                                  ),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 16),
                           Container(
-                            padding: const EdgeInsets.all(16),
+                            width: 12,
+                            height: 12,
                             decoration: BoxDecoration(
-                              color: const Color(0xFFF0F5FF),
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: const Color(0xFFDDE5F0),
-                              ),
-                            ),
-                            child: Column(
-                              children: [
-                                _buildLocationRow(
-                                  Icons.location_on,
-                                  'Pick-up',
-                                  currentOrigin,
-                                ),
-                                const Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 8.0),
-                                  child: Divider(color: Color(0xFFDDE5F0)),
-                                ),
-                                _buildLocationRow(
-                                  Icons.flag,
-                                  'Drop-off',
-                                  currentDestination,
-                                ),
-                              ],
+                              color: statusTheme.color,
+                              shape: BoxShape.circle,
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _buildInfoTile(
-                                  icon: Icons.people,
-                                  label: 'Passengers',
-                                  value:
-                                      '$currentPassengerCount ${currentPassengerCount == 1 ? 'Passenger' : 'Passengers'}',
-                                ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              statusTheme.title,
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF1A1A1A),
                               ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: _buildInfoTile(
-                                  icon: Icons.account_balance_wallet,
-                                  label: 'Payment',
-                                  value:
-                                      '${_formatPaymentMethod(paymentMethod)} • ${_formatStatusLabel(paymentStatus)}',
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 20),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 50,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: canCancel
-                                    ? const Color(0xFFD64545)
-                                    : const Color(0xFF0066CC),
-                                foregroundColor: Colors.white,
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              onPressed: _isCancelling
-                                  ? null
-                                  : canCancel
-                                  ? _cancelBooking
-                                  : _closeTrackingScreen,
-                              child: _isCancelling
-                                  ? const SizedBox(
-                                      height: 20,
-                                      width: 20,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                        valueColor:
-                                            AlwaysStoppedAnimation<Color>(
-                                              Colors.white,
-                                            ),
-                                      ),
-                                    )
-                                  : Text(
-                                      canCancel ? 'Cancel Booking' : 'Close',
-                                    ),
                             ),
                           ),
                         ],
                       ),
-                    ),
-                  );
-                },
-              ),
-            ],
-          );
-        },
+                      const SizedBox(height: 4),
+                      Text(
+                        statusTheme.message,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF666666),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          const Text(
+                            'Booking ID',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF666666),
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              booking.bookingId,
+                              textAlign: TextAlign.end,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF1A1A1A),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(16),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF0F5FF),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFDDE5F0)),
+                        ),
+                        child: Column(
+                          children: [
+                            _buildLocationRow(
+                              Icons.location_on,
+                              'Pick-up',
+                              currentOrigin,
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 8),
+                              child: Divider(color: Color(0xFFDDE5F0)),
+                            ),
+                            _buildLocationRow(
+                              Icons.flag,
+                              'Drop-off',
+                              currentDestination,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: _buildInfoTile(
+                              icon: Icons.people,
+                              label: 'Passengers',
+                              value:
+                                  '$currentPassengerCount ${currentPassengerCount == 1 ? 'Passenger' : 'Passengers'}',
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _buildInfoTile(
+                              icon: Icons.account_balance_wallet,
+                              label: 'Payment',
+                              value:
+                                  '${PaymentMethods.label(paymentMethod)} • ${_formatStatusLabel(paymentStatus)}',
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      SizedBox(
+                        width: double.infinity,
+                        height: 50,
+                        child: ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: canCancel
+                                ? const Color(0xFFD64545)
+                                : const Color(0xFF0066CC),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                          ),
+                          onPressed: viewModel.isCancelling
+                              ? null
+                              : canCancel
+                              ? _cancelBooking
+                              : _closeTrackingScreen,
+                          child: viewModel.isCancelling
+                              ? const SizedBox(
+                                  height: 20,
+                                  width: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                )
+                              : Text(canCancel ? 'Cancel Booking' : 'Close'),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
       ),
     );
   }
@@ -372,35 +346,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     target: LatLng(2.1916, 102.2490),
     zoom: 14,
   );
-
-  Widget _buildMessageState({required String title, required String message}) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.receipt_long, size: 56, color: Color(0xFF0066CC)),
-            const SizedBox(height: 16),
-            Text(
-              title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF1A1A1A),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              message,
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 14, color: Color(0xFF666666)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   Widget _buildLocationRow(IconData icon, String label, String address) {
     return Row(
@@ -553,34 +498,11 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     };
   }
 
-  LatLng? _geoPointToLatLng(dynamic value) {
-    if (value is GeoPoint) {
-      return LatLng(value.latitude, value.longitude);
+  LatLng? _latLngOrNull(double lat, double lng) {
+    if (lat == 0 && lng == 0) {
+      return null;
     }
-    return null;
-  }
-
-  int? _toInt(dynamic value) {
-    if (value is int) {
-      return value;
-    }
-    if (value is num) {
-      return value.toInt();
-    }
-    return int.tryParse(value?.toString() ?? '');
-  }
-
-  String _formatPaymentMethod(String paymentMethod) {
-    switch (paymentMethod) {
-      case 'credit_card':
-        return 'Card';
-      case 'e_wallet':
-        return 'E-Wallet';
-      case 'online_banking':
-        return 'Online Banking';
-      default:
-        return _formatStatusLabel(paymentMethod);
-    }
+    return LatLng(lat, lng);
   }
 
   String _formatStatusLabel(String status) {
@@ -591,80 +513,63 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         .join(' ');
   }
 
-  bool _canCancelStatus(String status) {
-    switch (status.toLowerCase()) {
-      case 'pending':
-      case 'confirmed':
-      case 'accepted':
-      case 'on_the_way':
-      case 'in_progress':
-      case 'ongoing':
-        return true;
-      default:
-        return false;
-    }
-  }
-
-  _BookingStatusTheme _statusThemeFor(String status) {
-    switch (status.toLowerCase()) {
-      case 'pending':
+  _BookingStatusTheme _statusThemeFor(BookingStatus status) {
+    switch (status) {
+      case BookingStatus.pending:
         return const _BookingStatusTheme(
           title: 'Booking Request Pending',
           message: 'Waiting for an operator to accept your booking request.',
           color: Colors.orange,
         );
-      case 'confirmed':
-      case 'accepted':
+      case BookingStatus.accepted:
         return const _BookingStatusTheme(
           title: 'Booking Confirmed',
           message: 'An operator has accepted your booking.',
           color: Color(0xFF0066CC),
         );
-      case 'on_the_way':
-      case 'in_progress':
-      case 'ongoing':
+      case BookingStatus.onTheWay:
         return const _BookingStatusTheme(
           title: 'Trip In Progress',
           message: 'Your assigned operator is currently handling this trip.',
           color: Colors.teal,
         );
-      case 'completed':
+      case BookingStatus.completed:
         return const _BookingStatusTheme(
           title: 'Trip Completed',
           message: 'This booking has been completed successfully.',
           color: Colors.green,
         );
-      case 'cancelled':
+      case BookingStatus.cancelled:
         return const _BookingStatusTheme(
           title: 'Booking Cancelled',
           message: 'This booking was cancelled.',
           color: Colors.red,
         );
-      case 'rejected':
+      case BookingStatus.rejected:
         return const _BookingStatusTheme(
           title: 'Booking Rejected',
           message:
               'All available operators declined this request. Please create a new booking when an operator becomes available.',
           color: Colors.deepOrange,
         );
-      default:
-        return _BookingStatusTheme(
-          title: 'Status: ${_formatStatusLabel(status)}',
+      case BookingStatus.unknown:
+        return const _BookingStatusTheme(
+          title: 'Booking Updated',
           message: 'This booking has been updated.',
-          color: const Color(0xFF0066CC),
+          color: Color(0xFF0066CC),
         );
     }
   }
 }
 
 class _BookingStatusTheme {
-  final String title;
-  final String message;
-  final Color color;
-
   const _BookingStatusTheme({
     required this.title,
     required this.message,
     required this.color,
   });
+
+  final String title;
+  final String message;
+  final Color color;
 }
