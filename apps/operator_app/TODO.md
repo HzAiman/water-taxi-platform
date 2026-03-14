@@ -89,6 +89,8 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 - [x] Optional Firestore Emulator contention suite added for transaction-realistic dispatch verification.
 - [x] Optional emulator network-recovery scenario added (offline accept attempt, online retry success).
 - [x] Client-side stale cleanup writes removed from Firestore rules; debug page now provides preview-only guidance for server-admin cleanup.
+- [x] Operator Ride / Transaction Summary added with period metrics, searchable/filterable history, and saved statement management.
+- [x] Income statement export is PDF-only.
 
 ## Emulator Test Run (Optional)
 

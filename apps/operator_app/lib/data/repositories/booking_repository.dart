@@ -67,6 +67,29 @@ class BookingRepository {
     });
   }
 
+  /// Streams booking history associated with [operatorId], newest first.
+  Stream<List<BookingModel>> streamOperatorBookingHistory(String operatorId) {
+    return _db
+        .collection(FirestoreCollections.bookings)
+        .where(BookingFields.driverId, isEqualTo: operatorId)
+        .limit(500)
+        .snapshots(includeMetadataChanges: true)
+        .map((snap) {
+      final history = snap.docs
+          .map((d) => _fromDoc(d.id, d.data()))
+          .toList()
+        ..sort((a, b) {
+          final at = a.updatedAt ?? a.createdAt;
+          final bt = b.updatedAt ?? b.createdAt;
+          if (at == null && bt == null) return 0;
+          if (at == null) return 1;
+          if (bt == null) return -1;
+          return bt.compareTo(at);
+        });
+      return history;
+    });
+  }
+
   // ── Transactions ─────────────────────────────────────────────────────────
 
   /// Atomically accepts a pending booking. Returns an [OperationResult].

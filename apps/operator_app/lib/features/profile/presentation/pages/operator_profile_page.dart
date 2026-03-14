@@ -3,8 +3,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_presence_debug_page.dart';
+import 'package:operator_app/features/profile/presentation/pages/operator_transaction_summary_page.dart';
+import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
 
 class OperatorProfilePage extends StatefulWidget {
   const OperatorProfilePage({super.key});
@@ -95,6 +99,36 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => const _OperatorAccountManagementRoutePage(),
+              ),
+            );
+          },
+        ),
+        const SizedBox(height: 16),
+        _buildMenuButton(
+          icon: Icons.receipt_long_outlined,
+          title: 'Ride / Transaction Summary',
+          subtitle: 'Track rides, earnings, and export income statements',
+          onTap: () {
+            final user = FirebaseAuth.instance.currentUser;
+            if (user == null) {
+              showTopInfo(
+                context,
+                title: 'Not signed in',
+                message: 'Sign in again to view transaction summary.',
+              );
+              return;
+            }
+
+            final bookingRepo = context.read<BookingRepository>();
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => ChangeNotifierProvider(
+                  create: (_) => OperatorTransactionSummaryViewModel(
+                    bookingRepository: bookingRepo,
+                    operatorId: user.uid,
+                  ),
+                  child: const OperatorTransactionSummaryPage(),
+                ),
               ),
             );
           },
