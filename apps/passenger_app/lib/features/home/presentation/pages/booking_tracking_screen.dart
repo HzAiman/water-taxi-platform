@@ -12,12 +12,19 @@ class BookingTrackingScreen extends StatefulWidget {
     required this.origin,
     required this.destination,
     required this.passengerCount,
+    this.mapBuilder,
   });
 
   final String bookingId;
   final String origin;
   final String destination;
   final int passengerCount;
+  final Widget Function({
+    required CameraPosition initialCameraPosition,
+    required Set<Marker> markers,
+    required Set<Polyline> polylines,
+  })?
+  mapBuilder;
 
   @override
   State<BookingTrackingScreen> createState() => _BookingTrackingScreenState();
@@ -142,19 +149,28 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       body: Stack(
         children: [
           Positioned.fill(
-            child: GoogleMap(
-              initialCameraPosition: _cameraPositionFor(
-                originPoint,
-                destinationPoint,
-              ),
-              markers: markers,
-              polylines: polylines,
-              myLocationEnabled: false,
-              myLocationButtonEnabled: false,
-              compassEnabled: true,
-              zoomControlsEnabled: false,
-              mapToolbarEnabled: false,
-            ),
+            child:
+                widget.mapBuilder?.call(
+                  initialCameraPosition: _cameraPositionFor(
+                    originPoint,
+                    destinationPoint,
+                  ),
+                  markers: markers,
+                  polylines: polylines,
+                ) ??
+                GoogleMap(
+                  initialCameraPosition: _cameraPositionFor(
+                    originPoint,
+                    destinationPoint,
+                  ),
+                  markers: markers,
+                  polylines: polylines,
+                  myLocationEnabled: false,
+                  myLocationButtonEnabled: false,
+                  compassEnabled: true,
+                  zoomControlsEnabled: false,
+                  mapToolbarEnabled: false,
+                ),
           ),
           DraggableScrollableSheet(
             initialChildSize: 0.30,

@@ -8,7 +8,14 @@ import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({super.key});
+  const ProfileScreen({
+    super.key,
+    this.testUserId,
+    this.testPhoneNumber,
+  });
+
+  final String? testUserId;
+  final String? testPhoneNumber;
 
   @override
   State<ProfileScreen> createState() => _ProfileScreenState();
@@ -16,6 +23,9 @@ class ProfileScreen extends StatefulWidget {
 
 class _ProfileScreenState extends State<ProfileScreen> {
   bool _hasInitialized = false;
+
+  String? get _effectiveUserId =>
+      widget.testUserId ?? FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void didChangeDependencies() {
@@ -25,9 +35,14 @@ class _ProfileScreenState extends State<ProfileScreen> {
     }
 
     _hasInitialized = true;
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _effectiveUserId;
     if (uid != null) {
-      context.read<ProfileViewModel>().loadProfile(uid);
+      Future.microtask(() {
+        if (!mounted) {
+          return;
+        }
+        context.read<ProfileViewModel>().loadProfile(uid);
+      });
     }
   }
 
@@ -93,7 +108,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => const _BookingHistoryRoutePage(),
+                builder: (_) => _BookingHistoryRoutePage(
+                  testUserId: widget.testUserId,
+                ),
               ),
             );
           },
@@ -187,10 +204,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final topInset = MediaQuery.of(context).padding.top;
     final viewModel = context.watch<ProfileViewModel>();
     final user = viewModel.user;
-    final phoneNumber =
-        FirebaseAuth.instance.currentUser?.phoneNumber ??
-        user?.phoneNumber ??
-        '';
+    final phoneNumber = widget.testPhoneNumber ??
+      FirebaseAuth.instance.currentUser?.phoneNumber ??
+      user?.phoneNumber ??
+      '';
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
@@ -688,7 +705,9 @@ class _AccountManagementRoutePageState
 enum _BookingHistoryFilter { all, active, completed, cancelled }
 
 class _BookingHistoryRoutePage extends StatefulWidget {
-  const _BookingHistoryRoutePage();
+  const _BookingHistoryRoutePage({this.testUserId});
+
+  final String? testUserId;
 
   @override
   State<_BookingHistoryRoutePage> createState() =>
@@ -698,6 +717,10 @@ class _BookingHistoryRoutePage extends StatefulWidget {
 class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
   _BookingHistoryFilter _selectedFilter = _BookingHistoryFilter.all;
   bool _hasStartedStream = false;
+  ProfileViewModel? _profileViewModel;
+
+  String? get _effectiveUserId =>
+      widget.testUserId ?? FirebaseAuth.instance.currentUser?.uid;
 
   @override
   void didChangeDependencies() {
@@ -706,31 +729,33 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
       return;
     }
 
-    final uid = FirebaseAuth.instance.currentUser?.uid;
+    final uid = _effectiveUserId;
     if (uid == null) {
       return;
     }
 
+    _profileViewModel = context.read<ProfileViewModel>();
     _hasStartedStream = true;
-    context.read<ProfileViewModel>().startBookingHistoryStream(uid);
+    _profileViewModel!.startBookingHistoryStream(uid);
   }
 
   @override
   void dispose() {
-    context.read<ProfileViewModel>().stopBookingHistoryStream();
+    _profileViewModel?.stopBookingHistoryStream();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
+    final hasUser = widget.testUserId != null || currentUser != null;
     final bookings = context.watch<ProfileViewModel>().bookingHistory;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Booking History'), centerTitle: true),
-      body: currentUser == null
-          ? const Center(child: Text('Please sign in to view your bookings.'))
-          : _buildContent(bookings),
+        body: hasUser
+          ? _buildContent(bookings)
+          : const Center(child: Text('Please sign in to view your bookings.')),
     );
   }
 

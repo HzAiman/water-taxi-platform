@@ -53,14 +53,14 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 
 ### P3: Testing + Validation
 - [x] Add view model tests for home/payment/tracking/profile flows
-- [ ] Add widget tests for:
-	- [ ] booking creation guards
-	- [ ] active booking card behavior
-	- [ ] tracking status rendering
-	- [ ] booking history filters
-- [ ] Add integration test for full flow:
-	- [ ] book -> operator accepts -> start -> complete -> history reflects final status
-- [ ] Add regression tests for cancellation edge cases
+- [x] Add widget tests for:
+	- [x] booking creation guards
+	- [x] active booking card behavior
+	- [x] tracking status rendering
+	- [x] booking history filters
+- [x] Add integration test for full flow:
+	- [x] book -> operator accepts -> start -> complete -> history reflects final status
+- [x] Add regression tests for cancellation edge cases
 
 ### P3: Production Readiness
 - [ ] Verify Android release config and signing settings
@@ -72,5 +72,5 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 1. Finalize shared booking state contract with operator reject/dispatch behavior.
 2. Complete passenger UX for all operator-driven status transitions.
 3. Implement payment reliability and idempotent booking commit safeguards.
-4. Add widget tests for booking card/tracking/history rendering.
-5. Add integration tests for full two-app lifecycle.
+4. Expand integration coverage for failure/retry branches.
+5. Harden cancellation policy enforcement for terminal bookings.
