@@ -86,3 +86,13 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 ## Progress Notes
 
 - [x] Concurrent dispatch load reliability validation baseline added via integration tests.
+- [x] Optional Firestore Emulator contention suite added for transaction-realistic dispatch verification.
+- [x] Optional emulator network-recovery scenario added (offline accept attempt, online retry success).
+- [x] Client-side stale cleanup writes removed from Firestore rules; debug page now provides preview-only guidance for server-admin cleanup.
+
+## Emulator Test Run (Optional)
+
+- Start Firestore emulator in a separate shell:
+  - `firebase emulators:start --only firestore --project melaka-water-taxi`
+- Run contention tests against emulator:
+  - `set FIREBASE_EMULATOR_TESTS=1 && flutter test test/integration/dispatch_contention_emulator_test.dart`

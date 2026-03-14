@@ -58,7 +58,11 @@ void main() {
     expect(find.text('operator-2'), findsWidgets);
     expect(find.text('ONLINE'), findsOneWidget);
     expect(find.text('OFFLINE'), findsOneWidget);
-    expect(find.text('Mark Stale Offline'), findsOneWidget);
+    expect(find.text('Mark Stale Offline (Server Admin)'), findsOneWidget);
+    expect(
+      find.text('Disabled in client app. Use the server-admin operation path for cleanup.'),
+      findsOneWidget,
+    );
     expect(find.text('operator-1 (current)'), findsOneWidget);
     expect(find.text('STALE (>10 min)'), findsOneWidget);
   });
@@ -106,7 +110,7 @@ void main() {
     expect(find.textContaining('Presence synced to online'), findsOneWidget);
   });
 
-  testWidgets('mark stale offline updates stale online presence docs', (
+  testWidgets('dry-run preview lists stale online operators for server cleanup', (
     tester,
   ) async {
     final firestore = FakeFirebaseFirestore();
@@ -143,7 +147,7 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-      find.text('Mark Stale Offline'),
+      find.text('Mark Stale Offline (Server Admin)'),
       150,
       scrollable: find.byType(Scrollable).first,
     );
@@ -151,21 +155,10 @@ void main() {
 
     expect(find.text('Will mark offline (1):'), findsOneWidget);
     expect(find.text('operator-2'), findsWidgets);
-
-    await tester.tap(find.text('Mark Stale Offline'));
-    await tester.pumpAndSettle();
-
-    final op1 = await firestore
-        .collection(FirestoreCollections.operatorPresence)
-        .doc('operator-1')
-        .get();
-    final op2 = await firestore
-        .collection(FirestoreCollections.operatorPresence)
-        .doc('operator-2')
-        .get();
-
-    expect(op1.data()?[OperatorPresenceFields.isOnline], isTrue);
-    expect(op2.data()?[OperatorPresenceFields.isOnline], isFalse);
-    expect(find.textContaining('Marked 1 stale operator(s) offline.'), findsOneWidget);
+    expect(find.text('Mark Stale Offline (Server Admin)'), findsOneWidget);
+    expect(
+      find.text('Disabled in client app. Use the server-admin operation path for cleanup.'),
+      findsOneWidget,
+    );
   });
 }

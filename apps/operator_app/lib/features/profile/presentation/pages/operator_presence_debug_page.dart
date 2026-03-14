@@ -23,7 +23,6 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
   static const Duration _staleThreshold = Duration(minutes: 10);
 
   bool _isSyncing = false;
-  bool _isMarkingStale = false;
 
   FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
 
@@ -59,53 +58,6 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
     } finally {
       if (mounted) {
         setState(() => _isSyncing = false);
-      }
-    }
-  }
-
-  Future<void> _markStaleOffline(
-    List<QueryDocumentSnapshot<Map<String, dynamic>>> staleOnlineDocs,
-  ) async {
-    if (_isMarkingStale) return;
-    setState(() => _isMarkingStale = true);
-
-    try {
-      if (staleOnlineDocs.isEmpty) {
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('No stale online presence docs found.')),
-        );
-        return;
-      }
-
-      final batch = _db.batch();
-      for (final doc in staleOnlineDocs) {
-        batch.update(doc.reference, {
-          OperatorPresenceFields.isOnline: false,
-          OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
-        });
-      }
-      await batch.commit();
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Marked ${staleOnlineDocs.length} stale operator(s) offline.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Mark stale offline failed: $e'),
-          backgroundColor: const Color(0xFF8A1C1C),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isMarkingStale = false);
       }
     }
   }
@@ -302,21 +254,17 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                   SizedBox(
                     width: double.infinity,
                     child: OutlinedButton.icon(
-                      onPressed: _isMarkingStale
-                          ? null
-                          : () => _markStaleOffline(staleOnlineDocs),
-                      icon: _isMarkingStale
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.cleaning_services_outlined),
-                      label: Text(
-                        _isMarkingStale
-                            ? 'Marking Stale Offline...'
-                            : 'Mark Stale Offline',
-                      ),
+                      onPressed: null,
+                      icon: const Icon(Icons.admin_panel_settings_outlined),
+                      label: const Text('Mark Stale Offline (Server Admin)'),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Disabled in client app. Use the server-admin operation path for cleanup.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF66758A),
                     ),
                   ),
                   const SizedBox(height: 10),
