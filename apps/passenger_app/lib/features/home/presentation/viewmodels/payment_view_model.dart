@@ -5,6 +5,7 @@ import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/data/repositories/fare_repository.dart';
 import 'package:passenger_app/data/repositories/jetty_repository.dart';
 import 'package:passenger_app/data/repositories/user_repository.dart';
+import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 
 /// Fare breakdown calculated from a [FareModel] and passenger counts.
 class FareBreakdown {
@@ -32,15 +33,18 @@ class PaymentViewModel extends ChangeNotifier {
     required JettyRepository jettyRepo,
     required UserRepository userRepo,
     required BookingRepository bookingRepo,
+    required PaymentGatewayService paymentGateway,
   })  : _fareRepo = fareRepo,
         _jettyRepo = jettyRepo,
         _userRepo = userRepo,
-        _bookingRepo = bookingRepo;
+        _bookingRepo = bookingRepo,
+        _paymentGateway = paymentGateway;
 
   final FareRepository _fareRepo;
   final JettyRepository _jettyRepo;
   final UserRepository _userRepo;
   final BookingRepository _bookingRepo;
+  final PaymentGatewayService _paymentGateway;
 
   // ── State ────────────────────────────────────────────────────────────────
 
@@ -150,6 +154,40 @@ class PaymentViewModel extends ChangeNotifier {
             'Jetty error', 'Jetty "$destination" not found.');
       }
 
+      final paymentResult = await _paymentGateway.charge(
+        PaymentGatewayRequest(
+          userId: userId,
+          amount: _fareBreakdown!.total,
+          currency: 'MYR',
+          paymentMethod: _selectedPaymentMethod!,
+          idempotencyKey: _buildIdempotencyKey(
+            userId: userId,
+            origin: origin,
+            destination: destination,
+            adultCount: adultCount,
+            childCount: childCount,
+          ),
+          description:
+              'Water taxi $origin to $destination for ${adultCount + childCount} passenger(s)',
+        ),
+      );
+
+      if (!paymentResult.isSuccess) {
+        if (paymentResult.status == PaymentGatewayStatus.cancelled) {
+          return const OperationFailure(
+            'Payment cancelled',
+            'Payment was cancelled. No booking was created.',
+            isInfo: true,
+          );
+        }
+
+        return OperationFailure(
+          'Payment failed',
+          paymentResult.errorMessage ??
+              'The payment gateway declined the transaction.',
+        );
+      }
+
       final bookingId = await _bookingRepo.createBooking(
         BookingCreationParams(
           userId: userId,
@@ -179,5 +217,17 @@ class PaymentViewModel extends ChangeNotifier {
       _isProcessing = false;
       notifyListeners();
     }
+  }
+
+  static String _buildIdempotencyKey({
+    required String userId,
+    required String origin,
+    required String destination,
+    required int adultCount,
+    required int childCount,
+  }) {
+    final normalizedOrigin = origin.trim().toLowerCase();
+    final normalizedDestination = destination.trim().toLowerCase();
+    return '$userId|$normalizedOrigin|$normalizedDestination|$adultCount|$childCount';
   }
 }

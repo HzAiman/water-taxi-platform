@@ -40,6 +40,11 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 	- [ ] Post-payment reconciliation to avoid orphan bookings
 - [ ] Prevent duplicate booking document creation on repeated taps/network retries
 
+Progress notes:
+- [x] Added gateway-ready payment abstraction (`PaymentGatewayService`) and wired it into `PaymentViewModel` before booking creation.
+- [x] Added temporary simulated external adapter (`SimulatedExternalPaymentGatewayService`) for current flows while real provider API/SDK is pending.
+- [x] Added payment outcome coverage in tests (success/failure/cancel) with booking-creation guard when payment is not successful.
+
 ### P2: UX + Recovery Quality
 - [ ] Improve tracking screen resilience when booking doc is delayed/missing
 - [ ] Improve error states when network disconnects during status transitions

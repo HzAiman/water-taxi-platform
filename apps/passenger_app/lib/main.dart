@@ -9,6 +9,7 @@ import 'package:passenger_app/data/repositories/jetty_repository.dart';
 import 'package:passenger_app/data/repositories/user_repository.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/home_view_model.dart';
 import 'package:passenger_app/features/profile/presentation/viewmodels/profile_view_model.dart';
+import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'firebase_options.dart';
 import 'app.dart';
 
@@ -37,6 +38,7 @@ void main() async {
   final userRepo = UserRepository();
   final jettyRepo = JettyRepository();
   final fareRepo = FareRepository();
+  final paymentGateway = SimulatedExternalPaymentGatewayService();
 
   runApp(
     MultiProvider(
@@ -46,6 +48,7 @@ void main() async {
         Provider<UserRepository>.value(value: userRepo),
         Provider<JettyRepository>.value(value: jettyRepo),
         Provider<FareRepository>.value(value: fareRepo),
+        Provider<PaymentGatewayService>.value(value: paymentGateway),
 
         // App-scoped ViewModels
         ChangeNotifierProvider<HomeViewModel>(

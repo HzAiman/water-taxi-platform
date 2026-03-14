@@ -9,6 +9,7 @@ import 'package:passenger_app/features/home/presentation/viewmodels/booking_trac
 import 'package:passenger_app/features/home/presentation/viewmodels/home_view_model.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/payment_view_model.dart';
 import 'package:passenger_app/features/profile/presentation/viewmodels/profile_view_model.dart';
+import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
@@ -186,6 +187,9 @@ Future<_IntegrationSetup> _createSetup() async {
   final jettyRepo = JettyRepository(firestore: firestore);
   final fareRepo = FareRepository(firestore: firestore);
   final bookingRepo = BookingRepository(firestore: firestore);
+  final paymentGateway = SimulatedExternalPaymentGatewayService(
+    simulatedLatency: Duration.zero,
+  );
 
   final homeVm = HomeViewModel(
     userRepo: userRepo,
@@ -198,6 +202,7 @@ Future<_IntegrationSetup> _createSetup() async {
     jettyRepo: jettyRepo,
     userRepo: userRepo,
     bookingRepo: bookingRepo,
+    paymentGateway: paymentGateway,
   );
   final trackingVm = BookingTrackingViewModel(bookingRepo: bookingRepo);
   final profileVm = ProfileViewModel(userRepo: userRepo, bookingRepo: bookingRepo);

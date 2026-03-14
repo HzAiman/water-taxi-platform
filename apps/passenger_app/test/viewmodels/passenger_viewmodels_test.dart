@@ -10,6 +10,7 @@ import 'package:passenger_app/features/home/presentation/viewmodels/booking_trac
 import 'package:passenger_app/features/home/presentation/viewmodels/home_view_model.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/payment_view_model.dart';
 import 'package:passenger_app/features/profile/presentation/viewmodels/profile_view_model.dart';
+import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
@@ -102,6 +103,7 @@ void main() {
         jettyRepo: FakeJettyRepository(),
         userRepo: FakeUserRepository(),
         bookingRepo: FakeBookingRepository(),
+        paymentGateway: FakePaymentGatewayService(),
       );
 
       await viewModel.loadFare(
@@ -119,6 +121,7 @@ void main() {
 
     test('processPayment returns success and passes booking params', () async {
       final bookingRepo = FakeBookingRepository();
+      final paymentGateway = FakePaymentGatewayService();
       final viewModel = PaymentViewModel(
         fareRepo: FakeFareRepository(
           fare: const FareModel(
@@ -143,6 +146,7 @@ void main() {
           ),
         ),
         bookingRepo: bookingRepo,
+        paymentGateway: paymentGateway,
       );
 
       await viewModel.loadFare(
@@ -166,6 +170,107 @@ void main() {
       expect(bookingRepo.lastCreatedParams?.paymentMethod, PaymentMethods.creditCard);
       expect(bookingRepo.lastCreatedParams?.adultCount, 2);
       expect(bookingRepo.lastCreatedParams?.childCount, 1);
+      expect(paymentGateway.lastRequest?.idempotencyKey, isNotNull);
+      expect(paymentGateway.lastRequest?.currency, 'MYR');
+    });
+
+    test('processPayment does not create booking when gateway fails', () async {
+      final bookingRepo = FakeBookingRepository();
+      final viewModel = PaymentViewModel(
+        fareRepo: FakeFareRepository(
+          fare: const FareModel(
+            origin: 'Terminal A',
+            destination: 'Terminal B',
+            adultFare: 8,
+            childFare: 4,
+          ),
+        ),
+        jettyRepo: FakeJettyRepository(
+          jetties: const [
+            JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+            JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+          ],
+        ),
+        userRepo: FakeUserRepository(),
+        bookingRepo: bookingRepo,
+        paymentGateway: FakePaymentGatewayService(
+          result: const PaymentGatewayResult(
+            status: PaymentGatewayStatus.failed,
+            errorMessage: 'Gateway timeout',
+          ),
+        ),
+      );
+
+      await viewModel.loadFare(
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 0,
+      );
+      viewModel.selectPaymentMethod(PaymentMethods.eWallet);
+
+      final result = await viewModel.processPayment(
+        userId: 'user-1',
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 0,
+      );
+
+      expect(result, isA<OperationFailure>());
+      final failure = result as OperationFailure;
+      expect(failure.title, 'Payment failed');
+      expect(failure.message, 'Gateway timeout');
+      expect(bookingRepo.lastCreatedParams, isNull);
+    });
+
+    test('processPayment returns info failure when gateway is cancelled', () async {
+      final bookingRepo = FakeBookingRepository();
+      final viewModel = PaymentViewModel(
+        fareRepo: FakeFareRepository(
+          fare: const FareModel(
+            origin: 'Terminal A',
+            destination: 'Terminal B',
+            adultFare: 8,
+            childFare: 4,
+          ),
+        ),
+        jettyRepo: FakeJettyRepository(
+          jetties: const [
+            JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+            JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+          ],
+        ),
+        userRepo: FakeUserRepository(),
+        bookingRepo: bookingRepo,
+        paymentGateway: FakePaymentGatewayService(
+          result: const PaymentGatewayResult(
+            status: PaymentGatewayStatus.cancelled,
+          ),
+        ),
+      );
+
+      await viewModel.loadFare(
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 0,
+      );
+      viewModel.selectPaymentMethod(PaymentMethods.onlineBanking);
+
+      final result = await viewModel.processPayment(
+        userId: 'user-1',
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 0,
+      );
+
+      expect(result, isA<OperationFailure>());
+      final failure = result as OperationFailure;
+      expect(failure.title, 'Payment cancelled');
+      expect(failure.isInfo, isTrue);
+      expect(bookingRepo.lastCreatedParams, isNull);
     });
   });
 
@@ -382,6 +487,24 @@ class FakeBookingRepository extends BookingRepository {
 
   void emitHistory(List<BookingModel> bookings) {
     _historyController.add(bookings);
+  }
+}
+
+class FakePaymentGatewayService implements PaymentGatewayService {
+  FakePaymentGatewayService({PaymentGatewayResult? result})
+      : _result = result ??
+            const PaymentGatewayResult(
+              status: PaymentGatewayStatus.success,
+              transactionId: 'txn-test-1',
+            );
+
+  final PaymentGatewayResult _result;
+  PaymentGatewayRequest? lastRequest;
+
+  @override
+  Future<PaymentGatewayResult> charge(PaymentGatewayRequest request) async {
+    lastRequest = request;
+    return _result;
   }
 }
 

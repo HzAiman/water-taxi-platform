@@ -12,6 +12,7 @@ import 'package:passenger_app/features/home/presentation/pages/payment_screen.da
 import 'package:passenger_app/features/home/presentation/viewmodels/booking_tracking_view_model.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/home_view_model.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/payment_view_model.dart';
+import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -139,6 +140,7 @@ class _HomeScreenState extends State<HomeScreen> {
               jettyRepo: context.read<JettyRepository>(),
               userRepo: context.read<UserRepository>(),
               bookingRepo: context.read<BookingRepository>(),
+              paymentGateway: context.read<PaymentGatewayService>(),
             ),
             child: PaymentScreen(
               origin: viewModel.selectedOrigin!,
