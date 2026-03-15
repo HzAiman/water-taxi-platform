@@ -118,6 +118,11 @@ class HomeViewModel extends ChangeNotifier {
     }
   }
 
+  /// Returns `true` if at least one operator is currently online.
+  Future<bool> hasOnlineOperators() {
+    return _bookingRepo.hasOnlineOperators();
+  }
+
   // ── Private ──────────────────────────────────────────────────────────────
 
   Future<void> _loadUserName(String userId) async {

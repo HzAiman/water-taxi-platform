@@ -36,6 +36,7 @@ class OperatorNotificationCoordinator {
   StreamSubscription<List<BookingModel>>? _pendingSub;
   StreamSubscription<List<BookingModel>>? _historySub;
   StreamSubscription<OperatorModel?>? _operatorSub;
+  Timer? _onlineReminderSyncTimer;
 
   bool _isForeground = true;
   bool _isOnline = false;
@@ -54,15 +55,9 @@ class OperatorNotificationCoordinator {
       _isOnline = op?.isOnline ?? false;
 
       if (wasOnline != _isOnline) {
-        if (_isOnline && !_isForeground) {
-          await _localNotifications.showOnlineReminder(
-            title: 'You are online',
-            body: 'You can receive incoming booking requests.',
-          );
-        }
-        if (!_isOnline) {
-          await _localNotifications.cancelOnlineReminder();
-        }
+        await _syncOnlineReminder();
+      } else {
+        _ensureReminderSyncLoop();
       }
     });
 
@@ -79,6 +74,10 @@ class OperatorNotificationCoordinator {
           .where((b) => !_knownPendingIds.contains(b.bookingId))
           .toList();
       _knownPendingIds = pendingIds;
+
+      if (!_isOnline) {
+        return;
+      }
 
       for (final booking in newBookings) {
         _deliver(
@@ -125,18 +124,7 @@ class OperatorNotificationCoordinator {
 
   Future<void> setForeground(bool isForeground) async {
     _isForeground = isForeground;
-
-    if (_isForeground) {
-      await _localNotifications.cancelOnlineReminder();
-      return;
-    }
-
-    if (_isOnline) {
-      await _localNotifications.showOnlineReminder(
-        title: 'You are online',
-        body: 'You can receive incoming booking requests.',
-      );
-    }
+    await _syncOnlineReminder();
   }
 
   Future<void> _deliver(
@@ -162,9 +150,48 @@ class OperatorNotificationCoordinator {
   }
 
   Future<void> dispose() async {
+    _onlineReminderSyncTimer?.cancel();
     await _pendingSub?.cancel();
     await _historySub?.cancel();
     await _operatorSub?.cancel();
     await _localNotifications.cancelOnlineReminder();
+  }
+
+  Future<void> _syncOnlineReminder() async {
+    if (_isOnline && !_isForeground) {
+      await _localNotifications.showOnlineReminder(
+        title: 'You are online',
+        body: 'You can receive incoming booking requests.',
+      );
+      _ensureReminderSyncLoop();
+      return;
+    }
+
+    _onlineReminderSyncTimer?.cancel();
+    _onlineReminderSyncTimer = null;
+    await _localNotifications.cancelOnlineReminder();
+  }
+
+  void _ensureReminderSyncLoop() {
+    if (!(_isOnline && !_isForeground)) {
+      _onlineReminderSyncTimer?.cancel();
+      _onlineReminderSyncTimer = null;
+      return;
+    }
+
+    _onlineReminderSyncTimer ??= Timer.periodic(
+      const Duration(seconds: 15),
+      (_) {
+        if (!(_isOnline && !_isForeground)) {
+          _onlineReminderSyncTimer?.cancel();
+          _onlineReminderSyncTimer = null;
+          return;
+        }
+        _localNotifications.showOnlineReminder(
+          title: 'You are online',
+          body: 'You can receive incoming booking requests.',
+        );
+      },
+    );
   }
 }

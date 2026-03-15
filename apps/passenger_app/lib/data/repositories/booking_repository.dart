@@ -168,6 +168,17 @@ class BookingRepository {
     });
   }
 
+  /// Returns `true` when at least one operator is currently online.
+  Future<bool> hasOnlineOperators() async {
+    final snap = await _db
+        .collection(FirestoreCollections.operatorPresence)
+        .where(OperatorPresenceFields.isOnline, isEqualTo: true)
+        .limit(1)
+        .get();
+
+    return snap.docs.isNotEmpty;
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   static String _routeKey(String origin, String destination) {

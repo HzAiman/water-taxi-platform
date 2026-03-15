@@ -43,6 +43,13 @@ class PushNotificationService {
     });
 
     FirebaseMessaging.onMessage.listen((message) {
+      final type = message.data['type']?.toString();
+      // Incoming booking requests are handled by the coordinator stream,
+      // which respects operator online status.
+      if (type == 'incoming_booking') {
+        return;
+      }
+
       final notification = message.notification;
       if (notification == null) {
         return;

@@ -118,6 +118,18 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     try {
+      final hasOnlineOperators = await viewModel.hasOnlineOperators();
+
+      if (!mounted) {
+        return;
+      }
+      if (!hasOnlineOperators) {
+        _showBookingError(
+          'No operators are online right now. Please try again in a moment.',
+        );
+        return;
+      }
+
       final fare = await viewModel.getFareForSelectedRoute();
 
       if (!mounted) {
@@ -156,7 +168,7 @@ class _HomeScreenState extends State<HomeScreen> {
         return;
       }
       _showBookingError(
-        'Unable to verify fare for this route. Please try again.',
+        'Unable to verify operator availability or fare. Please try again.',
       );
     }
   }

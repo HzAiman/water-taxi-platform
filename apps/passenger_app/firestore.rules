@@ -96,7 +96,7 @@ service cloud.firestore {
     }
 
     match /operator_presence/{operatorUid} {
-      allow read: if isOperator();
+      allow read: if isSignedIn();
       allow create: if isOwner(operatorUid)
         && request.resource.data.keys().hasOnly(['isOnline', 'updatedAt']);
       allow update: if isOwner(operatorUid)

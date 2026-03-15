@@ -129,6 +129,7 @@ class LocalNotificationService {
           channelDescription: _reminderChannelDesc,
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
+          category: AndroidNotificationCategory.service,
           ongoing: true,
           autoCancel: false,
           playSound: false,
