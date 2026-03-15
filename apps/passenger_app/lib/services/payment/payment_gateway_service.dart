@@ -8,6 +8,22 @@ enum PaymentGatewayStatus {
   cancelled,
 }
 
+class PaymentGatewayConfig {
+  const PaymentGatewayConfig({
+    required this.portalPublicKey,
+  });
+
+  factory PaymentGatewayConfig.fromDartDefine() {
+    return const PaymentGatewayConfig(
+      portalPublicKey: String.fromEnvironment('PAYMENT_PORTAL_PUBLIC_KEY'),
+    );
+  }
+
+  final String portalPublicKey;
+
+  bool get hasPortalPublicKey => portalPublicKey.trim().isNotEmpty;
+}
+
 class PaymentGatewayRequest {
   const PaymentGatewayRequest({
     required this.userId,
@@ -49,15 +65,30 @@ abstract class PaymentGatewayService {
 /// This implementation always returns success for supported methods and is
 /// designed to be replaced with a real provider SDK/API integration.
 class SimulatedExternalPaymentGatewayService implements PaymentGatewayService {
-  SimulatedExternalPaymentGatewayService({Duration? simulatedLatency})
-      : _simulatedLatency =
+  SimulatedExternalPaymentGatewayService({
+    Duration? simulatedLatency,
+    PaymentGatewayConfig? config,
+    bool requirePortalKey = false,
+  })  : _requirePortalKey = requirePortalKey,
+        _config = config ?? PaymentGatewayConfig.fromDartDefine(),
+        _simulatedLatency =
             simulatedLatency ?? const Duration(milliseconds: 800);
 
   final Duration _simulatedLatency;
+  final bool _requirePortalKey;
+  final PaymentGatewayConfig _config;
 
   @override
   Future<PaymentGatewayResult> charge(PaymentGatewayRequest request) async {
     await Future<void>.delayed(_simulatedLatency);
+
+    if (_requirePortalKey && !_config.hasPortalPublicKey) {
+      return const PaymentGatewayResult(
+        status: PaymentGatewayStatus.failed,
+        errorMessage:
+            'Payment gateway is not configured. Run with --dart-define=PAYMENT_PORTAL_PUBLIC_KEY=...',
+      );
+    }
 
     if (!PaymentMethods.all.contains(request.paymentMethod)) {
       return const PaymentGatewayResult(

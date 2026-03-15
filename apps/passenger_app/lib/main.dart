@@ -49,7 +49,11 @@ void main() async {
   final userRepo = UserRepository();
   final jettyRepo = JettyRepository();
   final fareRepo = FareRepository();
-  final paymentGateway = SimulatedExternalPaymentGatewayService();
+  final paymentGatewayConfig = PaymentGatewayConfig.fromDartDefine();
+  final paymentGateway = SimulatedExternalPaymentGatewayService(
+    config: paymentGatewayConfig,
+    requirePortalKey: true,
+  );
 
   runApp(
     MultiProvider(
