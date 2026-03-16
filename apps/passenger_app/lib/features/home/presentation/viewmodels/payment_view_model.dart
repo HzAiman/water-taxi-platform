@@ -45,14 +45,18 @@ class PaymentViewModel extends ChangeNotifier {
   final UserRepository _userRepo;
   final BookingRepository _bookingRepo;
   final PaymentGatewayService _paymentGateway;
+  static const String _gatewayPaymentMethod = 'bayarcash_payment_intent';
 
   // ── State ────────────────────────────────────────────────────────────────
 
   bool _isLoadingFare = true;
   FareBreakdown? _fareBreakdown;
   String? _fareError;
+  bool _isLoadingBanks = false;
+  String? _bankError;
+  List<PaymentBankOption> _availableBanks = const [];
+  PaymentBankOption? _selectedBank;
 
-  String? _selectedPaymentMethod;
   bool _isProcessing = false;
 
   // ── Getters ──────────────────────────────────────────────────────────────
@@ -60,7 +64,10 @@ class PaymentViewModel extends ChangeNotifier {
   bool get isLoadingFare => _isLoadingFare;
   FareBreakdown? get fareBreakdown => _fareBreakdown;
   String? get fareError => _fareError;
-  String? get selectedPaymentMethod => _selectedPaymentMethod;
+  bool get isLoadingBanks => _isLoadingBanks;
+  String? get bankError => _bankError;
+  List<PaymentBankOption> get availableBanks => _availableBanks;
+  PaymentBankOption? get selectedBank => _selectedBank;
   bool get isProcessing => _isProcessing;
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -92,6 +99,8 @@ class PaymentViewModel extends ChangeNotifier {
         childSubtotal: childSubtotal,
         total: adultSubtotal + childSubtotal,
       );
+
+      await _loadBanks();
     } catch (_) {
       _fareError = 'Failed to load fare information';
     } finally {
@@ -100,8 +109,8 @@ class PaymentViewModel extends ChangeNotifier {
     }
   }
 
-  void selectPaymentMethod(String method) {
-    _selectedPaymentMethod = method;
+  void selectBank(PaymentBankOption? bank) {
+    _selectedBank = bank;
     notifyListeners();
   }
 
@@ -114,13 +123,6 @@ class PaymentViewModel extends ChangeNotifier {
     required int adultCount,
     required int childCount,
   }) async {
-    if (_selectedPaymentMethod == null) {
-      return const OperationFailure(
-        'Payment method required',
-        'Please select a payment method.',
-        isInfo: true,
-      );
-    }
     if (_fareBreakdown == null) {
       return const OperationFailure(
         'Fare unavailable',
@@ -159,7 +161,26 @@ class PaymentViewModel extends ChangeNotifier {
           userId: userId,
           amount: _fareBreakdown!.total,
           currency: 'MYR',
-          paymentMethod: _selectedPaymentMethod!,
+          orderNumber: _buildOrderNumber(
+            userId: userId,
+            idempotencyKey: _buildIdempotencyKey(
+              userId: userId,
+              origin: origin,
+              destination: destination,
+              adultCount: adultCount,
+              childCount: childCount,
+            ),
+          ),
+          payerName: user?.name.trim().isNotEmpty == true
+              ? user!.name
+              : 'Passenger',
+          payerEmail: user?.email.trim().isNotEmpty == true
+              ? user!.email
+              : 'passenger+$userId@water-taxi.local',
+          payerTelephoneNumber: user?.phoneNumber,
+            payerBankCode: _selectedBank?.code,
+            payerBankName: _selectedBank?.name,
+          paymentMethod: _gatewayPaymentMethod,
           idempotencyKey: _buildIdempotencyKey(
             userId: userId,
             origin: origin,
@@ -203,7 +224,7 @@ class PaymentViewModel extends ChangeNotifier {
           childCount: childCount,
           adultFare: _fareBreakdown!.adultFarePerPerson,
           childFare: _fareBreakdown!.childFarePerPerson,
-          paymentMethod: _selectedPaymentMethod!,
+          paymentMethod: _gatewayPaymentMethod,
         ),
       );
 
@@ -219,6 +240,28 @@ class PaymentViewModel extends ChangeNotifier {
     }
   }
 
+  Future<void> _loadBanks() async {
+    _isLoadingBanks = true;
+    _bankError = null;
+    notifyListeners();
+
+    try {
+      final banks = await _paymentGateway.fetchDobwBanks();
+      _availableBanks = banks;
+      if (_selectedBank != null &&
+          !_availableBanks.any((b) => b.code == _selectedBank!.code)) {
+        _selectedBank = null;
+      }
+    } catch (_) {
+      _bankError = 'Unable to load bank list. You can continue without preselecting.';
+      _availableBanks = const [];
+      _selectedBank = null;
+    } finally {
+      _isLoadingBanks = false;
+      notifyListeners();
+    }
+  }
+
   static String _buildIdempotencyKey({
     required String userId,
     required String origin,
@@ -229,5 +272,21 @@ class PaymentViewModel extends ChangeNotifier {
     final normalizedOrigin = origin.trim().toLowerCase();
     final normalizedDestination = destination.trim().toLowerCase();
     return '$userId|$normalizedOrigin|$normalizedDestination|$adultCount|$childCount';
+  }
+
+  static String _buildOrderNumber({
+    required String userId,
+    required String idempotencyKey,
+  }) {
+    final compactUid = userId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
+    final compactKey = idempotencyKey.hashCode.abs();
+    return 'WT-${compactUid.takeLast(6)}-$compactKey';
+  }
+}
+
+extension on String {
+  String takeLast(int count) {
+    if (length <= count) return this;
+    return substring(length - count);
   }
 }

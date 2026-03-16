@@ -31,7 +31,6 @@ void main() {
       adultCount: 2,
       childCount: 1,
     );
-    paymentVm.selectPaymentMethod(PaymentMethods.creditCard);
 
     final bookingResult = await paymentVm.processPayment(
       userId: 'user-1',
@@ -107,7 +106,6 @@ void main() {
 
         final bookingId = await _createBookingAndTrack(
           setup: setup,
-          paymentMethod: PaymentMethods.creditCard,
         );
 
         if (status != BookingStatus.pending) {
@@ -148,7 +146,6 @@ void main() {
 
     final bookingId = await _createBookingAndTrack(
       setup: setup,
-      paymentMethod: PaymentMethods.eWallet,
     );
 
     await _operatorUpdateStatus(
@@ -219,7 +216,6 @@ Future<_IntegrationSetup> _createSetup() async {
 
 Future<String> _createBookingAndTrack({
   required _IntegrationSetup setup,
-  required String paymentMethod,
 }) async {
   await setup.homeVm.init('user-1');
   setup.homeVm.selectOrigin('Jetty A');
@@ -231,7 +227,6 @@ Future<String> _createBookingAndTrack({
     adultCount: 2,
     childCount: 1,
   );
-  setup.paymentVm.selectPaymentMethod(paymentMethod);
 
   final bookingResult = await setup.paymentVm.processPayment(
     userId: 'user-1',

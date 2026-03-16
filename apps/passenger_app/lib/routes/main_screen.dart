@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:app_links/app_links.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -26,6 +27,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   PassengerNotificationCoordinator? _notificationCoordinator;
   PushNotificationService? _pushNotificationService;
   StreamSubscription<RemoteMessage>? _fcmOpenedSub;
+  StreamSubscription<Uri>? _deepLinkSub;
+  final AppLinks _appLinks = AppLinks();
 
   final List<Widget> _screens = [
     const HomeScreen(),
@@ -36,6 +39,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _initDeepLinks();
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       final userId = FirebaseAuth.instance.currentUser?.uid;
@@ -102,8 +106,52 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _fcmOpenedSub?.cancel();
+    _deepLinkSub?.cancel();
     _notificationCoordinator?.dispose();
     super.dispose();
+  }
+
+  Future<void> _initDeepLinks() async {
+    try {
+      final initialUri = await _appLinks.getInitialLink();
+      if (!mounted) return;
+      if (initialUri != null) _handleDeepLink(initialUri);
+
+      _deepLinkSub = _appLinks.uriLinkStream.listen((uri) {
+        if (!mounted) return;
+        _handleDeepLink(uri);
+      });
+    } catch (_) {
+      // Keep app resilient if deep-link plugin fails on unsupported states.
+    }
+  }
+
+  void _handleDeepLink(Uri uri) {
+    final bookingId =
+        uri.queryParameters['bookingId'] ?? uri.queryParameters['booking_id'];
+
+    if (bookingId != null && bookingId.trim().isNotEmpty) {
+      _navigateToBooking(
+        bookingId: bookingId,
+        origin: uri.queryParameters['origin'] ?? '',
+        destination: uri.queryParameters['destination'] ?? '',
+        passengerCount: int.tryParse(uri.queryParameters['passengerCount'] ?? '') ??
+            int.tryParse(uri.queryParameters['passenger_count'] ?? '') ??
+            1,
+      );
+      return;
+    }
+
+    final status = uri.queryParameters['status'];
+    if (status != null && status.isNotEmpty) {
+      showTopInfo(
+        context,
+        title: 'Payment update',
+        message: 'Payment returned with status: $status',
+      );
+    }
+
+    setState(() => _selectedIndex = 0);
   }
 
   void _handleFcmTap(RemoteMessage message) {

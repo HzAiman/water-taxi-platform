@@ -5,6 +5,7 @@ import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/booking_tracking_view_model.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/payment_view_model.dart';
+import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -418,35 +419,108 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           ),
                         ),
                         const SizedBox(height: 24),
-                        const Text(
-                          'Payment Method',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF1A1A1A),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF7FAFF),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: const Color(0xFFDDE5F0),
+                            ),
+                          ),
+                          child: const Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                color: Color(0xFF0066CC),
+                                size: 20,
+                              ),
+                              SizedBox(width: 10),
+                              Expanded(
+                                child: Text(
+                                  'Bank and e-wallet options will be shown by the payment gateway after you continue.',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: Color(0xFF355070),
+                                  ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
                         const SizedBox(height: 16),
-                        _buildPaymentMethodOption(
-                          context,
-                          PaymentMethods.creditCard,
-                          PaymentMethods.label(PaymentMethods.creditCard),
-                          Icons.credit_card,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildPaymentMethodOption(
-                          context,
-                          PaymentMethods.eWallet,
-                          PaymentMethods.label(PaymentMethods.eWallet),
-                          Icons.account_balance_wallet,
-                        ),
-                        const SizedBox(height: 12),
-                        _buildPaymentMethodOption(
-                          context,
-                          PaymentMethods.onlineBanking,
-                          PaymentMethods.label(PaymentMethods.onlineBanking),
-                          Icons.account_balance,
-                        ),
+                        if (viewModel.isLoadingBanks)
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 12),
+                            child: Row(
+                              children: [
+                                SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                ),
+                                SizedBox(width: 10),
+                                Text('Loading supported banks/e-wallets...'),
+                              ],
+                            ),
+                          )
+                        else if (viewModel.availableBanks.isNotEmpty)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: DropdownButtonFormField<String>(
+                              value: viewModel.selectedBank?.code,
+                              decoration: InputDecoration(
+                                labelText: 'Preferred bank/e-wallet (optional)',
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 14,
+                                ),
+                              ),
+                              isExpanded: true,
+                              items: [
+                                const DropdownMenuItem<String>(
+                                  value: '__none__',
+                                  child: Text('Let BayarCash show all options'),
+                                ),
+                                ...viewModel.availableBanks.map(
+                                  (bank) => DropdownMenuItem<String>(
+                                    value: bank.code,
+                                    child: Text('${bank.name} (${bank.code})'),
+                                  ),
+                                ),
+                              ],
+                              onChanged: (code) {
+                                if (code == null || code == '__none__') {
+                                  context.read<PaymentViewModel>().selectBank(null);
+                                  return;
+                                }
+                                PaymentBankOption? bank;
+                                for (final candidate in viewModel.availableBanks) {
+                                  if (candidate.code == code) {
+                                    bank = candidate;
+                                    break;
+                                  }
+                                }
+                                context.read<PaymentViewModel>().selectBank(bank);
+                              },
+                            ),
+                          )
+                        else
+                          const Padding(
+                            padding: EdgeInsets.only(bottom: 12),
+                            child: Text(
+                              'No preloaded bank list available. BayarCash will still show available options.',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: Color(0xFF666666),
+                              ),
+                            ),
+                          ),
                         const SizedBox(height: 32),
                         SizedBox(
                           width: double.infinity,
@@ -467,7 +541,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                     ),
                                   )
                                 : Text(
-                                    'Pay RM ${fare.total.toStringAsFixed(2)}',
+                                    'Continue to Payment (RM ${fare.total.toStringAsFixed(2)})',
                                     style: const TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600,
@@ -481,66 +555,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
                 ],
               ),
             ),
-    );
-  }
-
-  Widget _buildPaymentMethodOption(
-    BuildContext context,
-    String value,
-    String label,
-    IconData icon,
-  ) {
-    final selectedValue = context
-        .watch<PaymentViewModel>()
-        .selectedPaymentMethod;
-
-    return GestureDetector(
-      onTap: () => context.read<PaymentViewModel>().selectPaymentMethod(value),
-      child: Container(
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selectedValue == value
-                ? const Color(0xFF0066CC)
-                : const Color(0xFFDDE5F0),
-            width: selectedValue == value ? 2 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              icon,
-              color: selectedValue == value
-                  ? const Color(0xFF0066CC)
-                  : const Color(0xFF666666),
-              size: 28,
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w500,
-                  color: selectedValue == value
-                      ? const Color(0xFF0066CC)
-                      : const Color(0xFF1A1A1A),
-                ),
-              ),
-            ),
-            if (selectedValue == value)
-              const Icon(Icons.check_circle, color: Color(0xFF0066CC), size: 24)
-            else
-              const Icon(
-                Icons.radio_button_unchecked,
-                color: Color(0xFFDDE5F0),
-                size: 24,
-              ),
-          ],
-        ),
-      ),
     );
   }
 }

@@ -155,7 +155,6 @@ void main() {
         adultCount: 2,
         childCount: 1,
       );
-      viewModel.selectPaymentMethod(PaymentMethods.creditCard);
 
       final result = await viewModel.processPayment(
         userId: 'user-1',
@@ -167,7 +166,10 @@ void main() {
 
       expect(result, isA<OperationSuccess>());
       expect((result as OperationSuccess).message, 'booking-1');
-      expect(bookingRepo.lastCreatedParams?.paymentMethod, PaymentMethods.creditCard);
+      expect(
+        bookingRepo.lastCreatedParams?.paymentMethod,
+        'bayarcash_payment_intent',
+      );
       expect(bookingRepo.lastCreatedParams?.adultCount, 2);
       expect(bookingRepo.lastCreatedParams?.childCount, 1);
       expect(paymentGateway.lastRequest?.idempotencyKey, isNotNull);
@@ -207,7 +209,6 @@ void main() {
         adultCount: 1,
         childCount: 0,
       );
-      viewModel.selectPaymentMethod(PaymentMethods.eWallet);
 
       final result = await viewModel.processPayment(
         userId: 'user-1',
@@ -256,7 +257,6 @@ void main() {
         adultCount: 1,
         childCount: 0,
       );
-      viewModel.selectPaymentMethod(PaymentMethods.onlineBanking);
 
       final result = await viewModel.processPayment(
         userId: 'user-1',
@@ -491,13 +491,17 @@ class FakeBookingRepository extends BookingRepository {
 }
 
 class FakePaymentGatewayService implements PaymentGatewayService {
-  FakePaymentGatewayService({PaymentGatewayResult? result})
-      : _result = result ??
+  FakePaymentGatewayService({
+    PaymentGatewayResult? result,
+    List<PaymentBankOption>? banks,
+  })  : _banks = banks ?? const [],
+        _result = result ??
             const PaymentGatewayResult(
               status: PaymentGatewayStatus.success,
               transactionId: 'txn-test-1',
             );
 
+  final List<PaymentBankOption> _banks;
   final PaymentGatewayResult _result;
   PaymentGatewayRequest? lastRequest;
 
@@ -506,6 +510,9 @@ class FakePaymentGatewayService implements PaymentGatewayService {
     lastRequest = request;
     return _result;
   }
+
+  @override
+  Future<List<PaymentBankOption>> fetchDobwBanks() async => _banks;
 }
 
 BookingModel _sampleBooking({
