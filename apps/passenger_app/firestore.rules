@@ -40,6 +40,8 @@ service cloud.firestore {
         'totalFare',
         'paymentMethod',
         'paymentStatus',
+        'orderNumber',
+        'transactionId',
         'status',
         'driverId',
         'createdAt',
@@ -69,6 +71,8 @@ service cloud.firestore {
         'totalFare',
         'paymentMethod',
         'paymentStatus',
+        'orderNumber',
+        'transactionId',
         'status',
         'driverId',
         'rejectedBy',
@@ -137,7 +141,7 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.bookingId == bookingId
         && request.resource.data.status == 'pending'
-        && request.resource.data.paymentStatus == 'paid'
+        && request.resource.data.paymentStatus == 'pending'
         && bookingCreateHasExpectedFields();
 
       allow update: if isOwner(resource.data.userId)
