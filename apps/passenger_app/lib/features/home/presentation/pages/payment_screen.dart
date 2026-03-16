@@ -5,8 +5,8 @@ import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/booking_tracking_view_model.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/payment_view_model.dart';
-import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class PaymentScreen extends StatefulWidget {
@@ -66,6 +66,52 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     switch (result) {
       case OperationSuccess(:final message):
+        final redirectUrl = viewModel.pendingRedirectUrl;
+        if (redirectUrl != null && redirectUrl.isNotEmpty) {
+          final uri = Uri.tryParse(redirectUrl);
+          if (uri != null) {
+            // Launch URL with timeout and better error handling
+            try {
+              final launchFuture = launchUrl(
+                uri,
+                mode: LaunchMode.externalApplication,
+                webOnlyWindowName: '_blank',
+              );
+              
+              // Add a timeout of 10 seconds for the launch operation
+              await launchFuture.timeout(
+                const Duration(seconds: 10),
+                onTimeout: () {
+                  assert(() {
+                    debugPrint('Payment URL launch timed out. URL: $redirectUrl');
+                    return true;
+                  }());
+                  // Continue anyway - user will still navigate to tracking
+                  return false;
+                },
+              );
+            } catch (e) {
+              assert(() {
+                debugPrint('Could not launch payment URL: $e');
+                return true;
+              }());
+              // Could not open browser; user will still be navigated to tracking
+              if (mounted) {
+                showTopInfo(
+                  context,
+                  title: 'Payment Portal',
+                  message: 'Unable to open payment page in browser. '
+                      'Please complete the payment manually.',
+                );
+              }
+            }
+          }
+        }
+
+        // Add a small delay to ensure browser opens before navigation
+        await Future.delayed(const Duration(milliseconds: 500));
+
+        if (!mounted) return;
         final bookingRepo = context.read<BookingRepository>();
         final passengerCount = widget.adultCount + widget.childCount;
         Navigator.of(context).pushAndRemoveUntil(
@@ -418,109 +464,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
                             ],
                           ),
                         ),
-                        const SizedBox(height: 24),
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(14),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF7FAFF),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                              color: const Color(0xFFDDE5F0),
-                            ),
-                          ),
-                          child: const Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Icon(
-                                Icons.info_outline,
-                                color: Color(0xFF0066CC),
-                                size: 20,
-                              ),
-                              SizedBox(width: 10),
-                              Expanded(
-                                child: Text(
-                                  'Bank and e-wallet options will be shown by the payment gateway after you continue.',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF355070),
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        if (viewModel.isLoadingBanks)
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 12),
-                            child: Row(
-                              children: [
-                                SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(strokeWidth: 2),
-                                ),
-                                SizedBox(width: 10),
-                                Text('Loading supported banks/e-wallets...'),
-                              ],
-                            ),
-                          )
-                        else if (viewModel.availableBanks.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: DropdownButtonFormField<String>(
-                              value: viewModel.selectedBank?.code,
-                              decoration: InputDecoration(
-                                labelText: 'Preferred bank/e-wallet (optional)',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 12,
-                                  vertical: 14,
-                                ),
-                              ),
-                              isExpanded: true,
-                              items: [
-                                const DropdownMenuItem<String>(
-                                  value: '__none__',
-                                  child: Text('Let BayarCash show all options'),
-                                ),
-                                ...viewModel.availableBanks.map(
-                                  (bank) => DropdownMenuItem<String>(
-                                    value: bank.code,
-                                    child: Text('${bank.name} (${bank.code})'),
-                                  ),
-                                ),
-                              ],
-                              onChanged: (code) {
-                                if (code == null || code == '__none__') {
-                                  context.read<PaymentViewModel>().selectBank(null);
-                                  return;
-                                }
-                                PaymentBankOption? bank;
-                                for (final candidate in viewModel.availableBanks) {
-                                  if (candidate.code == code) {
-                                    bank = candidate;
-                                    break;
-                                  }
-                                }
-                                context.read<PaymentViewModel>().selectBank(bank);
-                              },
-                            ),
-                          )
-                        else
-                          const Padding(
-                            padding: EdgeInsets.only(bottom: 12),
-                            child: Text(
-                              'No preloaded bank list available. BayarCash will still show available options.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF666666),
-                              ),
-                            ),
-                          ),
                         const SizedBox(height: 32),
                         SizedBox(
                           width: double.infinity,

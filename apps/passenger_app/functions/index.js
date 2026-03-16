@@ -15,8 +15,6 @@ const PAYMENT_PORTAL_PAT = defineSecret("PAYMENT_PORTAL_PAT");
 const PAYMENT_PORTAL_KEY = defineSecret("PAYMENT_PORTAL_KEY");
 const PAYMENT_PORTAL_CHARGE_URL = defineString("PAYMENT_PORTAL_CHARGE_URL");
 const PAYMENT_PORTAL_PAYMENT_CHANNEL = defineString("PAYMENT_PORTAL_PAYMENT_CHANNEL");
-const PAYMENT_PORTAL_BANKS_URL = defineString("PAYMENT_PORTAL_BANKS_URL");
-const PAYMENT_PORTAL_RETURN_URL = defineString("PAYMENT_PORTAL_RETURN_URL");
 const PAYMENT_PORTAL_CALLBACK_URL = defineString("PAYMENT_PORTAL_CALLBACK_URL");
 
 const COLLECTIONS = {
@@ -34,77 +32,16 @@ const BOOKING_FIELDS = {
   destination: "destination",
   driverId: "driverId",
   updatedAt: "updatedAt",
-    passengerCount: "passengerCount",
+  passengerCount: "passengerCount",
+  paymentStatus: "paymentStatus",
+  orderNumber: "orderNumber",
+  transactionId: "transactionId",
 };
 
 const DEVICE_FIELDS = {
   token: "token",
   appRole: "appRole",
 };
-
-exports.getDobwBanks = onCall(
-  {
-    region: "asia-southeast1",
-    secrets: [PAYMENT_PORTAL_PAT],
-  },
-  async (request) => {
-    if (!request.auth) {
-      throw new HttpsError("unauthenticated", "Sign in is required.");
-    }
-
-    const pat = PAYMENT_PORTAL_PAT.value();
-    const banksUrl = PAYMENT_PORTAL_BANKS_URL.value();
-    if (!pat || !pat.trim()) {
-      throw new HttpsError(
-        "failed-precondition",
-        "PAYMENT_PORTAL_PAT is not configured."
-      );
-    }
-    if (!banksUrl || !banksUrl.trim()) {
-      throw new HttpsError(
-        "failed-precondition",
-        "PAYMENT_PORTAL_BANKS_URL is not configured."
-      );
-    }
-
-    const upstream = await fetch(banksUrl, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${pat}`,
-      },
-    });
-
-    let payload = {};
-    try {
-      payload = await upstream.json();
-    } catch (_) {
-      payload = {};
-    }
-
-    if (!upstream.ok) {
-      logger.error("BayarCash banks API error", {
-        code: upstream.status,
-        payload,
-      });
-      throw new HttpsError("internal", "Unable to load payment bank list.");
-    }
-
-    const candidates =
-      (Array.isArray(payload) && payload) ||
-      payload.data ||
-      payload.banks ||
-      [];
-
-    const banks = (Array.isArray(candidates) ? candidates : [])
-      .map((item) => ({
-        code: String(item.bank_code || item.code || item.payer_bank_code || ""),
-        name: String(item.bank_name || item.name || item.payer_bank_name || ""),
-      }))
-      .filter((b) => b.code && b.name);
-
-    return { banks };
-  }
-);
 
 exports.createPaymentCharge = onCall(
   {
@@ -169,7 +106,6 @@ exports.createPaymentCharge = onCall(
     const chargeUrl = PAYMENT_PORTAL_CHARGE_URL.value();
     const paymentChannelRaw = PAYMENT_PORTAL_PAYMENT_CHANNEL.value();
     const paymentChannel = Number(paymentChannelRaw || "5");
-    const returnUrl = PAYMENT_PORTAL_RETURN_URL.value();
     const callbackUrl = PAYMENT_PORTAL_CALLBACK_URL.value();
     if (chargeUrl) {
       const headers = {
@@ -192,7 +128,6 @@ exports.createPaymentCharge = onCall(
           payer_bank_code: payerBankCode || undefined,
           payer_bank_name: payerBankName || undefined,
           metadata: description || undefined,
-          return_url: returnUrl || undefined,
           callback_url: callbackUrl || undefined,
           platform_id: request.auth.uid,
           checksum: undefined,
@@ -217,11 +152,28 @@ exports.createPaymentCharge = onCall(
         );
       }
 
+      const redirectUrl = payload.url || payload.redirect_url || payload.checkout_url || payload.payment_url || null;
+      logger.info("BayarCash payment intent response", {
+        status: upstream.status,
+        redirectUrl,
+        transactionId: payload.id,
+        payloadKeys: Object.keys(payload),
+        urlFieldValue: payload.url,
+      });
+
+      // Additional detailed logging for debugging connection timeouts
+      if (!redirectUrl) {
+        logger.warn("No redirect URL found in BayarCash response", {
+          payloadKeys: Object.keys(payload),
+          payload: JSON.stringify(payload),
+        });
+      }
+
       return {
         status: "success",
         transactionId:
           payload.transactionId || payload.id || `tx-${Date.now()}`,
-        redirectUrl: payload.url || payload.redirect_url || null,
+        redirectUrl,
         message: "Charge successful",
       };
     }
@@ -254,18 +206,49 @@ exports.bayarcashWebhook = onRequest(
         payload.id || payload.transaction_id || payload.reference || ""
       );
       const status = String(payload.status || payload.payment_status || "unknown");
+      const orderNumber = String(payload.order_number || "");
       const idempotencyKey = String(
         payload.idempotency_key || payload?.metadata?.idempotencyKey || ""
       );
 
+      // Durably record the raw webhook first so we never lose data.
       await db.collection("payment_webhooks").add({
         provider: "bayarcash",
         reference,
         status,
+        orderNumber,
         idempotencyKey,
         payload,
         receivedAt: new Date(),
       });
+
+      // Update booking paymentStatus when payment is confirmed.
+      if (orderNumber && (status === "successful" || status === "success")) {
+        const snapshot = await db
+          .collection(COLLECTIONS.bookings)
+          .where(BOOKING_FIELDS.orderNumber, "==", orderNumber)
+          .limit(1)
+          .get();
+
+        if (!snapshot.empty) {
+          const bookingRef = snapshot.docs[0].ref;
+          await bookingRef.update({
+            [BOOKING_FIELDS.paymentStatus]: "paid",
+            [BOOKING_FIELDS.updatedAt]: new Date(),
+          });
+          logger.info("Booking paymentStatus updated to paid", {
+            bookingId: snapshot.docs[0].id,
+            orderNumber,
+            reference,
+          });
+        } else {
+          logger.warn("Webhook received but no matching booking found", {
+            orderNumber,
+            reference,
+            status,
+          });
+        }
+      }
 
       // Always return 200 after durable write so provider retries stop.
       res.status(200).json({ ok: true });

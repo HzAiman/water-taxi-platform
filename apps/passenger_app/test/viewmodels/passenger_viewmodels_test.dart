@@ -493,15 +493,12 @@ class FakeBookingRepository extends BookingRepository {
 class FakePaymentGatewayService implements PaymentGatewayService {
   FakePaymentGatewayService({
     PaymentGatewayResult? result,
-    List<PaymentBankOption>? banks,
-  })  : _banks = banks ?? const [],
-        _result = result ??
+  }) : _result = result ??
             const PaymentGatewayResult(
               status: PaymentGatewayStatus.success,
               transactionId: 'txn-test-1',
             );
 
-  final List<PaymentBankOption> _banks;
   final PaymentGatewayResult _result;
   PaymentGatewayRequest? lastRequest;
 
@@ -510,9 +507,6 @@ class FakePaymentGatewayService implements PaymentGatewayService {
     lastRequest = request;
     return _result;
   }
-
-  @override
-  Future<List<PaymentBankOption>> fetchDobwBanks() async => _banks;
 }
 
 BookingModel _sampleBooking({

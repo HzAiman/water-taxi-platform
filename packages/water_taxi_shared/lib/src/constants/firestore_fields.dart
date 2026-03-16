@@ -20,6 +20,8 @@ abstract final class BookingFields {
   static const String totalFare = 'totalFare';
   static const String paymentMethod = 'paymentMethod';
   static const String paymentStatus = 'paymentStatus';
+  static const String orderNumber = 'orderNumber';
+  static const String transactionId = 'transactionId';
   static const String status = 'status';
   static const String driverId = 'driverId';
   static const String rejectedBy = 'rejectedBy';

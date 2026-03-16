@@ -18,6 +18,8 @@ class BookingCreationParams {
     required this.adultFare,
     required this.childFare,
     required this.paymentMethod,
+    this.orderNumber,
+    this.transactionId,
   });
 
   final String userId;
@@ -34,6 +36,8 @@ class BookingCreationParams {
   final double adultFare;
   final double childFare;
   final String paymentMethod;
+  final String? orderNumber;
+  final String? transactionId;
 }
 
 /// Data-access layer for the `bookings` Firestore collection (passenger side).
@@ -74,7 +78,9 @@ class BookingRepository {
       BookingFields.fare: total,
       BookingFields.totalFare: total,
       BookingFields.paymentMethod: p.paymentMethod,
-      BookingFields.paymentStatus: 'paid',
+      BookingFields.paymentStatus: 'pending',
+      if (p.orderNumber != null) BookingFields.orderNumber: p.orderNumber,
+      if (p.transactionId != null) BookingFields.transactionId: p.transactionId,
       BookingFields.status: BookingStatus.pending.firestoreValue,
       BookingFields.driverId: null,
       BookingFields.createdAt: FieldValue.serverTimestamp(),

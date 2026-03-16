@@ -52,11 +52,7 @@ class PaymentViewModel extends ChangeNotifier {
   bool _isLoadingFare = true;
   FareBreakdown? _fareBreakdown;
   String? _fareError;
-  bool _isLoadingBanks = false;
-  String? _bankError;
-  List<PaymentBankOption> _availableBanks = const [];
-  PaymentBankOption? _selectedBank;
-
+  String? _pendingRedirectUrl;
   bool _isProcessing = false;
 
   // ── Getters ──────────────────────────────────────────────────────────────
@@ -64,10 +60,7 @@ class PaymentViewModel extends ChangeNotifier {
   bool get isLoadingFare => _isLoadingFare;
   FareBreakdown? get fareBreakdown => _fareBreakdown;
   String? get fareError => _fareError;
-  bool get isLoadingBanks => _isLoadingBanks;
-  String? get bankError => _bankError;
-  List<PaymentBankOption> get availableBanks => _availableBanks;
-  PaymentBankOption? get selectedBank => _selectedBank;
+  String? get pendingRedirectUrl => _pendingRedirectUrl;
   bool get isProcessing => _isProcessing;
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -99,19 +92,12 @@ class PaymentViewModel extends ChangeNotifier {
         childSubtotal: childSubtotal,
         total: adultSubtotal + childSubtotal,
       );
-
-      await _loadBanks();
     } catch (_) {
       _fareError = 'Failed to load fare information';
     } finally {
       _isLoadingFare = false;
       notifyListeners();
     }
-  }
-
-  void selectBank(PaymentBankOption? bank) {
-    _selectedBank = bank;
-    notifyListeners();
   }
 
   /// Validates inputs, creates the booking document, and returns an
@@ -178,8 +164,6 @@ class PaymentViewModel extends ChangeNotifier {
               ? user!.email
               : 'passenger+$userId@water-taxi.local',
           payerTelephoneNumber: user?.phoneNumber,
-            payerBankCode: _selectedBank?.code,
-            payerBankName: _selectedBank?.name,
           paymentMethod: _gatewayPaymentMethod,
           idempotencyKey: _buildIdempotencyKey(
             userId: userId,
@@ -192,6 +176,10 @@ class PaymentViewModel extends ChangeNotifier {
               'Water taxi $origin to $destination for ${adultCount + childCount} passenger(s)',
         ),
       );
+
+      _pendingRedirectUrl = paymentResult.redirectUrl?.isNotEmpty == true
+          ? paymentResult.redirectUrl
+          : null;
 
       if (!paymentResult.isSuccess) {
         if (paymentResult.status == PaymentGatewayStatus.cancelled) {
@@ -209,6 +197,17 @@ class PaymentViewModel extends ChangeNotifier {
         );
       }
 
+      final orderNumber = _buildOrderNumber(
+        userId: userId,
+        idempotencyKey: _buildIdempotencyKey(
+          userId: userId,
+          origin: origin,
+          destination: destination,
+          adultCount: adultCount,
+          childCount: childCount,
+        ),
+      );
+
       final bookingId = await _bookingRepo.createBooking(
         BookingCreationParams(
           userId: userId,
@@ -225,6 +224,8 @@ class PaymentViewModel extends ChangeNotifier {
           adultFare: _fareBreakdown!.adultFarePerPerson,
           childFare: _fareBreakdown!.childFarePerPerson,
           paymentMethod: _gatewayPaymentMethod,
+          orderNumber: orderNumber,
+          transactionId: paymentResult.transactionId,
         ),
       );
 
@@ -236,28 +237,6 @@ class PaymentViewModel extends ChangeNotifier {
       );
     } finally {
       _isProcessing = false;
-      notifyListeners();
-    }
-  }
-
-  Future<void> _loadBanks() async {
-    _isLoadingBanks = true;
-    _bankError = null;
-    notifyListeners();
-
-    try {
-      final banks = await _paymentGateway.fetchDobwBanks();
-      _availableBanks = banks;
-      if (_selectedBank != null &&
-          !_availableBanks.any((b) => b.code == _selectedBank!.code)) {
-        _selectedBank = null;
-      }
-    } catch (_) {
-      _bankError = 'Unable to load bank list. You can continue without preselecting.';
-      _availableBanks = const [];
-      _selectedBank = null;
-    } finally {
-      _isLoadingBanks = false;
       notifyListeners();
     }
   }

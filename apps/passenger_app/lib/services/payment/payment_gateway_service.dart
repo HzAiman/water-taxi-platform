@@ -8,16 +8,6 @@ enum PaymentGatewayStatus {
   cancelled,
 }
 
-class PaymentBankOption {
-  const PaymentBankOption({
-    required this.code,
-    required this.name,
-  });
-
-  final String code;
-  final String name;
-}
-
 class PaymentGatewayConfig {
   const PaymentGatewayConfig({
     required this.portalPublicKey,
@@ -46,8 +36,6 @@ class PaymentGatewayRequest {
     required this.idempotencyKey,
     required this.description,
     this.payerTelephoneNumber,
-    this.payerBankCode,
-    this.payerBankName,
   });
 
   final String userId;
@@ -57,8 +45,6 @@ class PaymentGatewayRequest {
   final String payerName;
   final String payerEmail;
   final String? payerTelephoneNumber;
-  final String? payerBankCode;
-  final String? payerBankName;
   final String paymentMethod;
   final String idempotencyKey;
   final String description;
@@ -82,7 +68,6 @@ class PaymentGatewayResult {
 
 abstract class PaymentGatewayService {
   Future<PaymentGatewayResult> charge(PaymentGatewayRequest request);
-  Future<List<PaymentBankOption>> fetchDobwBanks();
 }
 
 /// Production-oriented gateway service that delegates sensitive payment logic
@@ -105,8 +90,6 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
         'payerName': request.payerName,
         'payerEmail': request.payerEmail,
         'payerTelephoneNumber': request.payerTelephoneNumber,
-        'payerBankCode': request.payerBankCode,
-        'payerBankName': request.payerBankName,
         'paymentMethod': request.paymentMethod,
         'idempotencyKey': request.idempotencyKey,
         'description': request.description,
@@ -147,31 +130,6 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
         status: PaymentGatewayStatus.failed,
         errorMessage: 'Unable to reach payment service. Please try again.',
       );
-    }
-  }
-
-  @override
-  Future<List<PaymentBankOption>> fetchDobwBanks() async {
-    try {
-      final callable = _functions.httpsCallable('getDobwBanks');
-      final response = await callable.call();
-      final data = Map<String, dynamic>.from(
-        (response.data as Map?) ?? const <String, dynamic>{},
-      );
-      final banks = (data['banks'] as List?) ?? const [];
-
-      return banks
-          .map((e) => Map<String, dynamic>.from((e as Map?) ?? const {}))
-          .map(
-            (e) => PaymentBankOption(
-              code: (e['code'] ?? '').toString(),
-              name: (e['name'] ?? '').toString(),
-            ),
-          )
-          .where((b) => b.code.isNotEmpty && b.name.isNotEmpty)
-          .toList(growable: false);
-    } catch (_) {
-      return const [];
     }
   }
 }
@@ -221,10 +179,5 @@ class SimulatedExternalPaymentGatewayService implements PaymentGatewayService {
       transactionId: 'sim-$stamp-$suffix',
       redirectUrl: null,
     );
-  }
-
-  @override
-  Future<List<PaymentBankOption>> fetchDobwBanks() async {
-    return const [];
   }
 }
