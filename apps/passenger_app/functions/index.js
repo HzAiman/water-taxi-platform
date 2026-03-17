@@ -5,17 +5,14 @@ const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
+const Stripe = require("stripe");
 
 initializeApp();
 
 const db = getFirestore();
 const messaging = getMessaging();
-const PAYMENT_PORTAL_SECRET = defineSecret("PAYMENT_PORTAL_SECRET");
-const PAYMENT_PORTAL_PAT = defineSecret("PAYMENT_PORTAL_PAT");
-const PAYMENT_PORTAL_KEY = defineSecret("PAYMENT_PORTAL_KEY");
-const PAYMENT_PORTAL_CHARGE_URL = defineString("PAYMENT_PORTAL_CHARGE_URL");
-const PAYMENT_PORTAL_PAYMENT_CHANNEL = defineString("PAYMENT_PORTAL_PAYMENT_CHANNEL");
-const PAYMENT_PORTAL_CALLBACK_URL = defineString("PAYMENT_PORTAL_CALLBACK_URL");
+const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+const STRIPE_CURRENCY = defineString("STRIPE_CURRENCY");
 
 const COLLECTIONS = {
   bookings: "bookings",
@@ -43,10 +40,10 @@ const DEVICE_FIELDS = {
   appRole: "appRole",
 };
 
-exports.createPaymentCharge = onCall(
+exports.createStripePaymentIntent = onCall(
   {
     region: "asia-southeast1",
-    secrets: [PAYMENT_PORTAL_SECRET, PAYMENT_PORTAL_PAT, PAYMENT_PORTAL_KEY],
+    secrets: [STRIPE_SECRET_KEY],
   },
   async (request) => {
     if (!request.auth) {
@@ -55,144 +52,81 @@ exports.createPaymentCharge = onCall(
 
     const data = request.data || {};
     const amount = Number(data.amount || 0);
-    const currency = String(data.currency || "").trim();
+    const currencyRaw = String(data.currency || "").trim().toLowerCase();
+    const defaultCurrency = String(STRIPE_CURRENCY.value() || "myr").trim().toLowerCase();
+    const currency = currencyRaw || defaultCurrency || "myr";
     const orderNumber = String(data.orderNumber || "").trim();
     const payerName = String(data.payerName || "").trim();
     const payerEmail = String(data.payerEmail || "").trim();
     const payerTelephoneNumber = String(data.payerTelephoneNumber || "").trim();
-    const payerBankCode = String(data.payerBankCode || "").trim();
-    const payerBankName = String(data.payerBankName || "").trim();
-    const paymentMethod = String(data.paymentMethod || "").trim();
     const idempotencyKey = String(data.idempotencyKey || "").trim();
     const description = String(data.description || "").trim();
 
-    if (
-      !(amount > 0) ||
-      !currency ||
-      !orderNumber ||
-      !payerName ||
-      !payerEmail ||
-      !paymentMethod ||
-      !idempotencyKey
-    ) {
+    if (!(amount > 0) || !currency || !orderNumber || !payerName || !payerEmail || !idempotencyKey) {
       throw new HttpsError(
         "invalid-argument",
-        "amount, currency, orderNumber, payerName, payerEmail, paymentMethod, and idempotencyKey are required."
+        "amount, currency, orderNumber, payerName, payerEmail, and idempotencyKey are required."
       );
     }
 
-    const secret = PAYMENT_PORTAL_SECRET.value();
-    const pat = PAYMENT_PORTAL_PAT.value();
-    const portalKey = PAYMENT_PORTAL_KEY.value();
+    const secretKey = STRIPE_SECRET_KEY.value();
+    if (!secretKey || !secretKey.trim()) {
+      throw new HttpsError("failed-precondition", "STRIPE_SECRET_KEY is not configured.");
+    }
 
-    if (!pat || !pat.trim()) {
-      throw new HttpsError(
-        "failed-precondition",
-        "PAYMENT_PORTAL_PAT is not configured."
+    const stripe = new Stripe(secretKey);
+    const amountInMinorUnit = Math.round(amount * 100);
+    if (!(amountInMinorUnit > 0)) {
+      throw new HttpsError("invalid-argument", "amount must be at least 0.01.");
+    }
+
+    try {
+      const intent = await stripe.paymentIntents.create(
+        {
+          amount: amountInMinorUnit,
+          currency,
+          receipt_email: payerEmail,
+          description: description || `Water taxi booking ${orderNumber}`,
+          automatic_payment_methods: { enabled: true },
+          metadata: {
+            userId: request.auth.uid,
+            orderNumber,
+            payerName,
+            payerTelephoneNumber,
+            idempotencyKey,
+          },
+        },
+        {
+          idempotencyKey,
+        }
       );
-    }
-    if (!portalKey || !portalKey.trim()) {
-      throw new HttpsError(
-        "failed-precondition",
-        "PAYMENT_PORTAL_KEY is not configured."
-      );
-    }
 
-    // Keep secret configured for optional checksum/signature integration.
-    if (!secret || !secret.trim()) {
-      logger.warn("PAYMENT_PORTAL_SECRET is empty; checksum/signature is disabled.");
-    }
-
-    const chargeUrl = PAYMENT_PORTAL_CHARGE_URL.value();
-    const paymentChannelRaw = PAYMENT_PORTAL_PAYMENT_CHANNEL.value();
-    const paymentChannel = Number(paymentChannelRaw || "5");
-    const callbackUrl = PAYMENT_PORTAL_CALLBACK_URL.value();
-    if (chargeUrl) {
-      const headers = {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${pat}`,
-        "Idempotency-Key": idempotencyKey,
-      };
-
-      const upstream = await fetch(chargeUrl, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          payment_channel: paymentChannel,
-          portal_key: portalKey,
-          order_number: orderNumber,
-          amount,
-          payer_name: payerName,
-          payer_email: payerEmail,
-          payer_telephone_number: payerTelephoneNumber || undefined,
-          payer_bank_code: payerBankCode || undefined,
-          payer_bank_name: payerBankName || undefined,
-          metadata: description || undefined,
-          callback_url: callbackUrl || undefined,
-          platform_id: request.auth.uid,
-          checksum: undefined,
-        }),
+      logger.info("Stripe payment intent created", {
+        paymentIntentId: intent.id,
+        orderNumber,
+        amountInMinorUnit,
+        currency,
       });
-
-      let payload = {};
-      try {
-        payload = await upstream.json();
-      } catch (_) {
-        payload = {};
-      }
-
-      if (!upstream.ok) {
-        logger.error("Payment gateway error", {
-          code: upstream.status,
-          payload,
-        });
-        throw new HttpsError(
-          "internal",
-          "Payment gateway rejected the transaction."
-        );
-      }
-
-      const redirectUrl = payload.url || payload.redirect_url || payload.checkout_url || payload.payment_url || null;
-      logger.info("BayarCash payment intent response", {
-        status: upstream.status,
-        redirectUrl,
-        transactionId: payload.id,
-        payloadKeys: Object.keys(payload),
-        urlFieldValue: payload.url,
-      });
-
-      // Additional detailed logging for debugging connection timeouts
-      if (!redirectUrl) {
-        logger.warn("No redirect URL found in BayarCash response", {
-          payloadKeys: Object.keys(payload),
-          payload: JSON.stringify(payload),
-        });
-      }
 
       return {
-        status: "success",
-        transactionId:
-          payload.transactionId || payload.id || `tx-${Date.now()}`,
-        redirectUrl,
-        message: "Charge successful",
+        status: "ready",
+        paymentIntentId: intent.id,
+        clientSecret: intent.client_secret,
       };
+    } catch (error) {
+      logger.error("Stripe payment intent creation failed", {
+        message: error?.message || "Unknown Stripe error",
+        orderNumber,
+      });
+      throw new HttpsError("internal", "Unable to initialize Stripe payment.");
     }
-
-    logger.warn(
-      "PAYMENT_PORTAL_CHARGE_URL not set. Returning server-side simulated charge."
-    );
-
-    return {
-      status: "success",
-      transactionId: `srv-sim-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
-      message: "Simulated server-side charge successful",
-    };
   }
 );
 
-exports.bayarcashWebhook = onRequest(
+exports.stripeWebhook = onRequest(
   {
     region: "asia-southeast1",
+    secrets: [STRIPE_SECRET_KEY],
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -200,30 +134,42 @@ exports.bayarcashWebhook = onRequest(
       return;
     }
 
-    try {
-      const payload = req.body || {};
-      const reference = String(
-        payload.id || payload.transaction_id || payload.reference || ""
-      );
-      const status = String(payload.status || payload.payment_status || "unknown");
-      const orderNumber = String(payload.order_number || "");
-      const idempotencyKey = String(
-        payload.idempotency_key || payload?.metadata?.idempotencyKey || ""
-      );
+    const secretKey = STRIPE_SECRET_KEY.value();
+    if (!secretKey || !secretKey.trim()) {
+      logger.error("stripeWebhook called without STRIPE_SECRET_KEY configured");
+      res.status(500).json({ error: "Stripe not configured" });
+      return;
+    }
 
-      // Durably record the raw webhook first so we never lose data.
+    const stripe = new Stripe(secretKey);
+    const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+
+    try {
+      let event;
+      if (webhookSecret) {
+        const signature = req.headers["stripe-signature"];
+        event = stripe.webhooks.constructEvent(req.rawBody, signature, webhookSecret);
+      } else {
+        event = req.body;
+      }
+
+      const eventType = String(event?.type || "unknown");
+      const payloadObject = event?.data?.object || {};
+      const paymentIntentId = String(payloadObject.id || "");
+      const status = String(payloadObject.status || "unknown");
+      const orderNumber = String(payloadObject?.metadata?.orderNumber || "");
+
       await db.collection("payment_webhooks").add({
-        provider: "bayarcash",
-        reference,
+        provider: "stripe",
+        eventType,
+        paymentIntentId,
         status,
         orderNumber,
-        idempotencyKey,
-        payload,
+        payload: event,
         receivedAt: new Date(),
       });
 
-      // Update booking paymentStatus when payment is confirmed.
-      if (orderNumber && (status === "successful" || status === "success")) {
+      if (eventType === "payment_intent.succeeded" && orderNumber) {
         const snapshot = await db
           .collection(COLLECTIONS.bookings)
           .where(BOOKING_FIELDS.orderNumber, "==", orderNumber)
@@ -231,31 +177,18 @@ exports.bayarcashWebhook = onRequest(
           .get();
 
         if (!snapshot.empty) {
-          const bookingRef = snapshot.docs[0].ref;
-          await bookingRef.update({
+          await snapshot.docs[0].ref.update({
             [BOOKING_FIELDS.paymentStatus]: "paid",
+            [BOOKING_FIELDS.transactionId]: paymentIntentId,
             [BOOKING_FIELDS.updatedAt]: new Date(),
-          });
-          logger.info("Booking paymentStatus updated to paid", {
-            bookingId: snapshot.docs[0].id,
-            orderNumber,
-            reference,
-          });
-        } else {
-          logger.warn("Webhook received but no matching booking found", {
-            orderNumber,
-            reference,
-            status,
           });
         }
       }
 
-      // Always return 200 after durable write so provider retries stop.
       res.status(200).json({ ok: true });
     } catch (error) {
-      logger.error("Webhook processing failed", error);
-      // Return 500 to allow provider retry if processing fails.
-      res.status(500).json({ error: "Webhook processing failed" });
+      logger.error("Stripe webhook processing failed", error);
+      res.status(400).json({ error: "Webhook error" });
     }
   }
 );

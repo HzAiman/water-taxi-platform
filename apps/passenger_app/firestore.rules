@@ -141,7 +141,7 @@ service cloud.firestore {
         && request.resource.data.userId == request.auth.uid
         && request.resource.data.bookingId == bookingId
         && request.resource.data.status == 'pending'
-        && request.resource.data.paymentStatus == 'pending'
+        && request.resource.data.paymentStatus == 'paid'
         && bookingCreateHasExpectedFields();
 
       allow update: if isOwner(resource.data.userId)

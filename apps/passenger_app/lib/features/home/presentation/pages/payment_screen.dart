@@ -6,7 +6,6 @@ import 'package:passenger_app/features/home/presentation/pages/booking_tracking_
 import 'package:passenger_app/features/home/presentation/viewmodels/booking_tracking_view_model.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/payment_view_model.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class PaymentScreen extends StatefulWidget {
@@ -66,51 +65,6 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     switch (result) {
       case OperationSuccess(:final message):
-        final redirectUrl = viewModel.pendingRedirectUrl;
-        if (redirectUrl != null && redirectUrl.isNotEmpty) {
-          final uri = Uri.tryParse(redirectUrl);
-          if (uri != null) {
-            // Launch URL with timeout and better error handling
-            try {
-              final launchFuture = launchUrl(
-                uri,
-                mode: LaunchMode.externalApplication,
-                webOnlyWindowName: '_blank',
-              );
-              
-              // Add a timeout of 10 seconds for the launch operation
-              await launchFuture.timeout(
-                const Duration(seconds: 10),
-                onTimeout: () {
-                  assert(() {
-                    debugPrint('Payment URL launch timed out. URL: $redirectUrl');
-                    return true;
-                  }());
-                  // Continue anyway - user will still navigate to tracking
-                  return false;
-                },
-              );
-            } catch (e) {
-              assert(() {
-                debugPrint('Could not launch payment URL: $e');
-                return true;
-              }());
-              // Could not open browser; user will still be navigated to tracking
-              if (mounted) {
-                showTopInfo(
-                  context,
-                  title: 'Payment Portal',
-                  message: 'Unable to open payment page in browser. '
-                      'Please complete the payment manually.',
-                );
-              }
-            }
-          }
-        }
-
-        // Add a small delay to ensure browser opens before navigation
-        await Future.delayed(const Duration(milliseconds: 500));
-
         if (!mounted) return;
         final bookingRepo = context.read<BookingRepository>();
         final passengerCount = widget.adultCount + widget.childCount;

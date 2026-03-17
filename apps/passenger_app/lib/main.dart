@@ -2,6 +2,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:provider/provider.dart';
 
 import 'package:passenger_app/data/repositories/booking_repository.dart';
@@ -25,6 +26,24 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  final stripePublishableKey =
+      const String.fromEnvironment('STRIPE_PUBLISHABLE_KEY');
+  final stripeMerchantIdentifier =
+      const String.fromEnvironment('STRIPE_MERCHANT_IDENTIFIER');
+  final stripeUrlScheme = const String.fromEnvironment(
+    'STRIPE_URL_SCHEME',
+    defaultValue: 'watertaxistripe',
+  );
+
+  if (stripePublishableKey.trim().isNotEmpty) {
+    Stripe.publishableKey = stripePublishableKey;
+    if (stripeMerchantIdentifier.trim().isNotEmpty) {
+      Stripe.merchantIdentifier = stripeMerchantIdentifier;
+    }
+    Stripe.urlScheme = stripeUrlScheme;
+    await Stripe.instance.applySettings();
+  }
 
   try {
     if (Firebase.apps.isEmpty) {

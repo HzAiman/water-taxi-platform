@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
 
 enum PaymentGatewayStatus {
   success,
@@ -10,18 +11,28 @@ enum PaymentGatewayStatus {
 
 class PaymentGatewayConfig {
   const PaymentGatewayConfig({
-    required this.portalPublicKey,
+    required this.stripePublishableKey,
+    this.merchantDisplayName = 'Water Taxi',
+    this.returnUrlScheme,
   });
 
   factory PaymentGatewayConfig.fromDartDefine() {
     return const PaymentGatewayConfig(
-      portalPublicKey: String.fromEnvironment('PAYMENT_PORTAL_PUBLIC_KEY'),
+      stripePublishableKey: String.fromEnvironment('STRIPE_PUBLISHABLE_KEY'),
+      merchantDisplayName:
+          String.fromEnvironment('STRIPE_MERCHANT_DISPLAY_NAME', defaultValue: 'Water Taxi'),
+      returnUrlScheme: String.fromEnvironment(
+        'STRIPE_RETURN_URL',
+        defaultValue: 'watertaxistripe://stripe-redirect',
+      ),
     );
   }
 
-  final String portalPublicKey;
+  final String stripePublishableKey;
+  final String merchantDisplayName;
+  final String? returnUrlScheme;
 
-  bool get hasPortalPublicKey => portalPublicKey.trim().isNotEmpty;
+  bool get hasStripePublishableKey => stripePublishableKey.trim().isNotEmpty;
 }
 
 class PaymentGatewayRequest {
@@ -54,13 +65,11 @@ class PaymentGatewayResult {
   const PaymentGatewayResult({
     required this.status,
     this.transactionId,
-    this.redirectUrl,
     this.errorMessage,
   });
 
   final PaymentGatewayStatus status;
   final String? transactionId;
-  final String? redirectUrl;
   final String? errorMessage;
 
   bool get isSuccess => status == PaymentGatewayStatus.success;
@@ -73,24 +82,36 @@ abstract class PaymentGatewayService {
 /// Production-oriented gateway service that delegates sensitive payment logic
 /// to a secured Cloud Function.
 class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
-  CloudFunctionPaymentGatewayService({FirebaseFunctions? functions})
-      : _functions =
+  CloudFunctionPaymentGatewayService({
+    FirebaseFunctions? functions,
+    PaymentGatewayConfig? config,
+  })  : _config = config ?? PaymentGatewayConfig.fromDartDefine(),
+        _functions =
             functions ?? FirebaseFunctions.instanceFor(region: 'asia-southeast1');
 
   final FirebaseFunctions _functions;
+  final PaymentGatewayConfig _config;
 
   @override
   Future<PaymentGatewayResult> charge(PaymentGatewayRequest request) async {
+    if (!_config.hasStripePublishableKey) {
+      return const PaymentGatewayResult(
+        status: PaymentGatewayStatus.failed,
+        errorMessage:
+            'Stripe is not configured. Pass --dart-define=STRIPE_PUBLISHABLE_KEY=pk_... when running the app.',
+      );
+    }
+
     try {
-      final callable = _functions.httpsCallable('createPaymentCharge');
+      final callable = _functions.httpsCallable('createStripePaymentIntent');
       final response = await callable.call(<String, dynamic>{
         'amount': request.amount,
         'currency': request.currency,
+        'userId': request.userId,
         'orderNumber': request.orderNumber,
         'payerName': request.payerName,
         'payerEmail': request.payerEmail,
         'payerTelephoneNumber': request.payerTelephoneNumber,
-        'paymentMethod': request.paymentMethod,
         'idempotencyKey': request.idempotencyKey,
         'description': request.description,
       });
@@ -99,25 +120,44 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
         (response.data as Map?) ?? const <String, dynamic>{},
       );
       final status = (data['status'] ?? '').toString();
+      final clientSecret = (data['clientSecret'] ?? '').toString();
+      final paymentIntentId = (data['paymentIntentId'] ?? '').toString();
 
-      if (status == 'success') {
+      if (status == 'ready' && clientSecret.isNotEmpty) {
+        await Stripe.instance.initPaymentSheet(
+          paymentSheetParameters: SetupPaymentSheetParameters(
+            paymentIntentClientSecret: clientSecret,
+            merchantDisplayName: _config.merchantDisplayName,
+            returnURL: _config.returnUrlScheme,
+          ),
+        );
+
+        await Stripe.instance.presentPaymentSheet();
+
         return PaymentGatewayResult(
           status: PaymentGatewayStatus.success,
-          transactionId: (data['transactionId'] ?? '').toString(),
-          redirectUrl: (data['redirectUrl'] ?? '').toString(),
-        );
-      }
-
-      if (status == 'cancelled') {
-        return PaymentGatewayResult(
-          status: PaymentGatewayStatus.cancelled,
-          errorMessage: (data['message'] ?? 'Payment cancelled').toString(),
+          transactionId: paymentIntentId,
         );
       }
 
       return PaymentGatewayResult(
         status: PaymentGatewayStatus.failed,
         errorMessage: (data['message'] ?? 'Payment failed').toString(),
+      );
+    } on StripeException catch (e) {
+      final code = e.error.code;
+      if (code == FailureCode.Canceled) {
+        return PaymentGatewayResult(
+          status: PaymentGatewayStatus.cancelled,
+          errorMessage:
+              e.error.localizedMessage ?? 'Payment sheet was cancelled.',
+        );
+      }
+
+      return PaymentGatewayResult(
+        status: PaymentGatewayStatus.failed,
+        errorMessage:
+            e.error.localizedMessage ?? 'Stripe payment failed. Please try again.',
       );
     } on FirebaseFunctionsException catch (e) {
       return PaymentGatewayResult(
@@ -142,25 +182,25 @@ class SimulatedExternalPaymentGatewayService implements PaymentGatewayService {
   SimulatedExternalPaymentGatewayService({
     Duration? simulatedLatency,
     PaymentGatewayConfig? config,
-    bool requirePortalKey = false,
-  })  : _requirePortalKey = requirePortalKey,
+    bool requireStripeKey = false,
+  })  : _requireStripeKey = requireStripeKey,
         _config = config ?? PaymentGatewayConfig.fromDartDefine(),
         _simulatedLatency =
             simulatedLatency ?? const Duration(milliseconds: 800);
 
   final Duration _simulatedLatency;
-  final bool _requirePortalKey;
+  final bool _requireStripeKey;
   final PaymentGatewayConfig _config;
 
   @override
   Future<PaymentGatewayResult> charge(PaymentGatewayRequest request) async {
     await Future<void>.delayed(_simulatedLatency);
 
-    if (_requirePortalKey && !_config.hasPortalPublicKey) {
+    if (_requireStripeKey && !_config.hasStripePublishableKey) {
       return const PaymentGatewayResult(
         status: PaymentGatewayStatus.failed,
         errorMessage:
-            'Payment gateway is not configured. Pass --dart-define=PAYMENT_PORTAL_PUBLIC_KEY=...',
+            'Stripe is not configured. Pass --dart-define=STRIPE_PUBLISHABLE_KEY=pk_... when running the app.',
       );
     }
 
@@ -177,7 +217,6 @@ class SimulatedExternalPaymentGatewayService implements PaymentGatewayService {
     return PaymentGatewayResult(
       status: PaymentGatewayStatus.success,
       transactionId: 'sim-$stamp-$suffix',
-      redirectUrl: null,
     );
   }
 }

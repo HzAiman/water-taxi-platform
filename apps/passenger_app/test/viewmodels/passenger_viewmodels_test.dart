@@ -168,7 +168,7 @@ void main() {
       expect((result as OperationSuccess).message, 'booking-1');
       expect(
         bookingRepo.lastCreatedParams?.paymentMethod,
-        'bayarcash_payment_intent',
+        'stripe_payment_sheet',
       );
       expect(bookingRepo.lastCreatedParams?.adultCount, 2);
       expect(bookingRepo.lastCreatedParams?.childCount, 1);

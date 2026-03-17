@@ -78,7 +78,7 @@ class BookingRepository {
       BookingFields.fare: total,
       BookingFields.totalFare: total,
       BookingFields.paymentMethod: p.paymentMethod,
-      BookingFields.paymentStatus: 'pending',
+      BookingFields.paymentStatus: 'paid',
       if (p.orderNumber != null) BookingFields.orderNumber: p.orderNumber,
       if (p.transactionId != null) BookingFields.transactionId: p.transactionId,
       BookingFields.status: BookingStatus.pending.firestoreValue,

@@ -45,14 +45,13 @@ class PaymentViewModel extends ChangeNotifier {
   final UserRepository _userRepo;
   final BookingRepository _bookingRepo;
   final PaymentGatewayService _paymentGateway;
-  static const String _gatewayPaymentMethod = 'bayarcash_payment_intent';
+  static const String _gatewayPaymentMethod = 'stripe_payment_sheet';
 
   // ── State ────────────────────────────────────────────────────────────────
 
   bool _isLoadingFare = true;
   FareBreakdown? _fareBreakdown;
   String? _fareError;
-  String? _pendingRedirectUrl;
   bool _isProcessing = false;
 
   // ── Getters ──────────────────────────────────────────────────────────────
@@ -60,7 +59,6 @@ class PaymentViewModel extends ChangeNotifier {
   bool get isLoadingFare => _isLoadingFare;
   FareBreakdown? get fareBreakdown => _fareBreakdown;
   String? get fareError => _fareError;
-  String? get pendingRedirectUrl => _pendingRedirectUrl;
   bool get isProcessing => _isProcessing;
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -176,10 +174,6 @@ class PaymentViewModel extends ChangeNotifier {
               'Water taxi $origin to $destination for ${adultCount + childCount} passenger(s)',
         ),
       );
-
-      _pendingRedirectUrl = paymentResult.redirectUrl?.isNotEmpty == true
-          ? paymentResult.redirectUrl
-          : null;
 
       if (!paymentResult.isSuccess) {
         if (paymentResult.status == PaymentGatewayStatus.cancelled) {
