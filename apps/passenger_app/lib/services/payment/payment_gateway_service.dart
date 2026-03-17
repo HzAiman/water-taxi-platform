@@ -18,7 +18,7 @@ class PaymentGatewayConfig {
 
   factory PaymentGatewayConfig.fromDartDefine() {
     return const PaymentGatewayConfig(
-      stripePublishableKey: String.fromEnvironment('STRIPE_PUBLISHABLE_KEY'),
+      stripePublishableKey: String.fromEnvironment('STRIPE_PUBLISHABLE_KEY', defaultValue: 'pk_test_51T97A8DffuNgYO2I26KHN9DHMPqilZ5ZxO5KYwUxUA1X153WZNcMk1eO9jXCBQqo3Fcb9012xTIRovouQekYCuNS00SCObGaWN'),
       merchantDisplayName:
           String.fromEnvironment('STRIPE_MERCHANT_DISPLAY_NAME', defaultValue: 'Water Taxi'),
       returnUrlScheme: String.fromEnvironment(

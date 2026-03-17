@@ -27,8 +27,11 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  final stripePublishableKey =
-      const String.fromEnvironment('STRIPE_PUBLISHABLE_KEY');
+  final stripePublishableKey = const String.fromEnvironment(
+    'STRIPE_PUBLISHABLE_KEY',
+    defaultValue:
+        'pk_test_51T97A8DffuNgYO2I26KHN9DHMPqilZ5ZxO5KYwUxUA1X153WZNcMk1eO9jXCBQqo3Fcb9012xTIRovouQekYCuNS00SCObGaWN',
+  );
   final stripeMerchantIdentifier =
       const String.fromEnvironment('STRIPE_MERCHANT_IDENTIFIER');
   final stripeUrlScheme = const String.fromEnvironment(
