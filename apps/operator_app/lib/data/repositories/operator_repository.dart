@@ -129,6 +129,38 @@ class OperatorRepository {
     });
   }
 
+  /// Repairs legacy operator records by ensuring claim ownership is present.
+  ///
+  /// Returns `true` when a migration write was applied.
+  Future<bool> ensureProfileClaim({
+    required String uid,
+    String? fallbackEmail,
+  }) async {
+    final op = await getOperator(uid);
+    if (op == null) return false;
+
+    final normalized = normalizeOperatorIdKey(op.operatorId);
+    final currentKey = normalized;
+    final claimRef = _db
+        .collection(FirestoreCollections.operatorIdClaims)
+        .doc(currentKey);
+    final claimSnap = await claimRef.get();
+    final claimOwner = claimSnap.data()?['uid']?.toString();
+
+    final needsRepair = !claimSnap.exists || claimOwner != uid;
+    if (!needsRepair) return false;
+
+    await saveProfile(
+      uid: uid,
+      name: op.name,
+      email: op.email.isNotEmpty ? op.email : (fallbackEmail ?? ''),
+      operatorId: op.operatorId,
+      isOnline: op.isOnline,
+    );
+
+    return true;
+  }
+
   /// Updates operator profile fields.
   Future<void> updateOperator(String uid, {String? name, String? email}) async {
     final updates = <String, dynamic>{

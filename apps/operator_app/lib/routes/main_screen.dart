@@ -37,11 +37,26 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      final operatorId = FirebaseAuth.instance.currentUser?.uid;
+      final currentUser = FirebaseAuth.instance.currentUser;
+      final operatorId = currentUser?.uid;
       if (!mounted || operatorId == null) return;
 
       final bookingRepo = context.read<BookingRepository>();
       final operatorRepo = context.read<OperatorRepository>();
+
+      try {
+        await operatorRepo.ensureProfileClaim(
+          uid: operatorId,
+          fallbackEmail: currentUser?.email,
+        );
+      } catch (e) {
+        if (!mounted) return;
+        showTopError(
+          context,
+          title: 'Profile sync warning',
+          message: 'Unable to verify operator ID uniqueness. ${e.toString()}',
+        );
+      }
 
       // Check for a local-notification launch payload BEFORE initialize().
       final localNotifications = LocalNotificationService();
@@ -53,11 +68,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         localNotifications: localNotifications,
         onForegroundMessage: (message) {
           if (!mounted) return;
-          showTopInfo(
-            context,
-            title: message.title,
-            message: message.body,
-          );
+          showTopInfo(context, title: message.title, message: message.body);
         },
       );
       await _notificationCoordinator?.start(operatorId: operatorId);
@@ -66,12 +77,13 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       LocalNotificationService.setOnTapHandler(_handleNotificationTap);
 
       // Handle FCM tap from terminated state.
-      final initialMessage =
-          await FirebaseMessaging.instance.getInitialMessage();
+      final initialMessage = await FirebaseMessaging.instance
+          .getInitialMessage();
       if (!mounted) return;
       if (initialMessage != null) {
         _handleNotificationTap(
-            initialMessage.data['bookingId'] as String? ?? '');
+          initialMessage.data['bookingId'] as String? ?? '',
+        );
       }
 
       // Handle local notification tap from terminated state.
@@ -120,22 +132,19 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _screens,
-      ),
+      body: IndexedStack(index: _selectedIndex, children: _screens),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedIndex,
         onTap: _onItemTapped,
         items: [
           BottomNavigationBarItem(
-            icon: Icon(
-                _selectedIndex == 0 ? Icons.home : Icons.home_outlined),
+            icon: Icon(_selectedIndex == 0 ? Icons.home : Icons.home_outlined),
             label: 'Home',
           ),
           BottomNavigationBarItem(
             icon: Icon(
-                _selectedIndex == 1 ? Icons.person : Icons.person_outlined),
+              _selectedIndex == 1 ? Icons.person : Icons.person_outlined,
+            ),
             label: 'Profile',
           ),
         ],
