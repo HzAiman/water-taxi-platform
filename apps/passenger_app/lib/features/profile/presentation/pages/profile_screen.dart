@@ -893,6 +893,8 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     final totalFare = booking.totalFare > 0 ? booking.totalFare : booking.fare;
     final statusColor = _statusColor(booking.status);
     final paymentMethod = PaymentMethods.label(booking.paymentMethod);
+    final paymentStatusLabel = _formatStatusLabel(booking.paymentStatus);
+    final paymentOutcomeMessage = _historyPaymentOutcomeMessage(booking);
     final createdAt = _formatTimestamp(booking.createdAt);
     final bookingTitle = booking.bookingId.isNotEmpty
         ? booking.bookingId
@@ -960,8 +962,28 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
           _buildHistoryRow(
             Icons.account_balance_wallet,
             'Payment',
-            paymentMethod,
+            '$paymentMethod • $paymentStatusLabel',
           ),
+          if (paymentOutcomeMessage != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF4E8),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFFFD7AE)),
+              ),
+              child: Text(
+                paymentOutcomeMessage,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF8A4B08),
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 8),
           _buildHistoryRow(Icons.schedule, 'Booked At', createdAt),
           const SizedBox(height: 12),
@@ -1037,6 +1059,38 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
         .where((part) => part.isNotEmpty)
         .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
         .join(' ');
+  }
+
+  static String? _historyPaymentOutcomeMessage(BookingModel booking) {
+    final normalizedPayment = booking.paymentStatus.trim().toLowerCase();
+
+    if (booking.status == BookingStatus.rejected) {
+      if (normalizedPayment.contains('refunded')) {
+        return 'Payment refunded successfully for this rejected booking.';
+      }
+      if (normalizedPayment.contains('cancelled')) {
+        return 'Payment authorization released. No charge captured for this rejected booking.';
+      }
+      if (normalizedPayment.contains('authorized')) {
+        return 'Payment is authorized and pending release after rejection.';
+      }
+      if (normalizedPayment.contains('paid')) {
+        return 'Payment was captured. Refund is being processed after rejection.';
+      }
+      return null;
+    }
+
+    if (booking.status == BookingStatus.cancelled) {
+      if (normalizedPayment.contains('refunded')) {
+        return 'Payment refunded after cancellation.';
+      }
+      if (normalizedPayment.contains('cancelled')) {
+        return 'Payment authorization released after cancellation.';
+      }
+      return null;
+    }
+
+    return null;
   }
 
   static Color _statusColor(BookingStatus status) {
