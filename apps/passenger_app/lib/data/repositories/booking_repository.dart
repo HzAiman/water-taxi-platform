@@ -85,6 +85,7 @@ class BookingRepository {
       if (p.orderNumber != null) BookingFields.orderNumber: p.orderNumber,
       if (p.transactionId != null) BookingFields.transactionId: p.transactionId,
       BookingFields.status: BookingStatus.pending.firestoreValue,
+      BookingFields.operatorUid: null,
       BookingFields.operatorId: null,
       BookingFields.createdAt: FieldValue.serverTimestamp(),
       BookingFields.updatedAt: FieldValue.serverTimestamp(),

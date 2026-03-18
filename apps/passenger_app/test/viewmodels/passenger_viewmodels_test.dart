@@ -555,7 +555,7 @@ BookingModel _sampleBooking({
     paymentMethod: PaymentMethods.creditCard,
     paymentStatus: 'paid',
     status: status,
-    operatorId: null,
+    operatorUid: null,
     rejectedBy: const [],
     createdAt: DateTime(2026, 3, 15, 10, 30),
     updatedAt: DateTime(2026, 3, 15, 10, 35),

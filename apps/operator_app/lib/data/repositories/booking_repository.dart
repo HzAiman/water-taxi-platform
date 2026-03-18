@@ -20,6 +20,7 @@ class BookingRepository {
   Stream<List<BookingModel>> streamActiveBookings(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
+        // Transitional read path: keep legacy field until old data is migrated.
         .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(50)
         .snapshots(includeMetadataChanges: true)
@@ -60,7 +61,7 @@ class BookingRepository {
           final pending =
               snap.docs
                   .map((d) => _fromDoc(d.id, d.data()))
-                  .where((b) => b.operatorId == null || b.operatorId!.isEmpty)
+                  .where((b) => b.operatorUid == null || b.operatorUid!.isEmpty)
                   .toList()
                 ..sort((a, b) {
                   final at = a.createdAt;
@@ -78,6 +79,7 @@ class BookingRepository {
   Stream<List<BookingModel>> streamOperatorBookingHistory(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
+        // Transitional read path: keep legacy field until old data is migrated.
         .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(500)
         .snapshots(includeMetadataChanges: true)
@@ -116,14 +118,13 @@ class BookingRepository {
         final status = BookingStatus.fromString(
           (data[BookingFields.status] ?? '').toString(),
         );
-        final assignedOperatorId = (data[BookingFields.operatorId] ?? '')
-            .toString();
+        final assignedOperatorUid = _assignedOperatorUid(data);
         final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
         if (status != BookingStatus.pending) {
           throw StateError('This booking is no longer pending.');
         }
-        if (assignedOperatorId.isNotEmpty) {
+        if (assignedOperatorUid.isNotEmpty) {
           throw StateError(
             'This booking was already assigned to another operator.',
           );
@@ -134,6 +135,7 @@ class BookingRepository {
 
         tx.update(ref, {
           BookingFields.status: BookingStatus.accepted.firestoreValue,
+          BookingFields.operatorUid: operatorId,
           BookingFields.operatorId: operatorId,
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
         });
@@ -174,11 +176,10 @@ class BookingRepository {
         final status = BookingStatus.fromString(
           (data[BookingFields.status] ?? '').toString(),
         );
-        final assignedOperatorId = (data[BookingFields.operatorId] ?? '')
-            .toString();
+        final assignedOperatorUid = _assignedOperatorUid(data);
         final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
-        if (status != BookingStatus.pending || assignedOperatorId.isNotEmpty) {
+        if (status != BookingStatus.pending || assignedOperatorUid.isNotEmpty) {
           throw StateError('Only unassigned pending bookings can be rejected.');
         }
         if (rejectedBy.contains(operatorId)) {
@@ -239,17 +240,17 @@ class BookingRepository {
           final status = BookingStatus.fromString(
             (data[BookingFields.status] ?? '').toString(),
           );
-          final assignedOperatorId = (data[BookingFields.operatorId] ?? '')
-              .toString();
+          final assignedOperatorUid = _assignedOperatorUid(data);
           final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
           if (status != BookingStatus.accepted ||
-              assignedOperatorId != operatorId) {
+              assignedOperatorUid != operatorId) {
             throw StateError('Only your accepted booking can be released.');
           }
 
           tx.update(ref, {
             BookingFields.status: BookingStatus.pending.firestoreValue,
+            BookingFields.operatorUid: null,
             BookingFields.operatorId: null,
             BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
             BookingFields.updatedAt: FieldValue.serverTimestamp(),
@@ -299,6 +300,7 @@ class BookingRepository {
   Future<int> releaseAllAcceptedBookings(String operatorId) async {
     final snap = await _db
         .collection(FirestoreCollections.bookings)
+        // Transitional read path: keep legacy field until old data is migrated.
         .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(50)
         .get();
@@ -315,6 +317,7 @@ class BookingRepository {
       await _runWithRetry(
         () => doc.reference.update({
           BookingFields.status: BookingStatus.pending.firestoreValue,
+          BookingFields.operatorUid: null,
           BookingFields.operatorId: null,
           BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
@@ -339,6 +342,7 @@ class BookingRepository {
             .doc(bookingId)
             .update({
               BookingFields.status: status.firestoreValue,
+              BookingFields.operatorUid: operatorId,
               BookingFields.operatorId: operatorId,
               BookingFields.updatedAt: FieldValue.serverTimestamp(),
             }),
@@ -410,5 +414,10 @@ class BookingRepository {
   static List<String> _strList(dynamic v) {
     if (v is Iterable) return v.map((e) => e.toString()).toList();
     return const [];
+  }
+
+  static String _assignedOperatorUid(Map<String, dynamic> data) {
+    return (data[BookingFields.operatorUid] ?? data[BookingFields.operatorId] ?? '')
+        .toString();
   }
 }

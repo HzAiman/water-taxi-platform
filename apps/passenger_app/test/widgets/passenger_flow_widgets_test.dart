@@ -344,7 +344,7 @@ BookingModel _sampleBooking({
     paymentMethod: PaymentMethods.creditCard,
     paymentStatus: 'paid',
     status: status,
-    operatorId: status == BookingStatus.pending ? null : 'operator-1',
+    operatorUid: status == BookingStatus.pending ? null : 'operator-1',
     rejectedBy: const [],
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: DateTime(2026, 3, 15, 10, 5),

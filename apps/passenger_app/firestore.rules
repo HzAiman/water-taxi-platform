@@ -14,8 +14,10 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/operators/$(request.auth.uid));
     }
 
-    function bookingOperatorId(data) {
-      return data.operatorId;
+    function bookingOperatorUid(data) {
+      return data.keys().hasAny(['operatorUid'])
+        ? data.operatorUid
+        : data.operatorId;
     }
 
     function operatorClaimPath(operatorIdKey) {
@@ -36,7 +38,7 @@ service cloud.firestore {
     }
 
     function isAssignedOperator() {
-      return isOperator() && bookingOperatorId(resource.data) == request.auth.uid;
+      return isOperator() && bookingOperatorUid(resource.data) == request.auth.uid;
     }
 
     function bookingCreateHasExpectedFields() {
@@ -64,6 +66,7 @@ service cloud.firestore {
         'orderNumber',
         'transactionId',
         'status',
+        'operatorUid',
         'operatorId',
         'createdAt',
         'updatedAt'
@@ -95,6 +98,7 @@ service cloud.firestore {
         'orderNumber',
         'transactionId',
         'status',
+        'operatorUid',
         'operatorId',
         'rejectedBy',
         'createdAt',
@@ -185,7 +189,7 @@ service cloud.firestore {
           isOperator()
           && (
             resource.data.status == 'pending'
-            || bookingOperatorId(resource.data) == request.auth.uid
+            || bookingOperatorUid(resource.data) == request.auth.uid
           )
         );
 
@@ -209,31 +213,31 @@ service cloud.firestore {
         && request.resource.data.bookingId == resource.data.bookingId
         && (
           (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId'])
             &&
             resource.data.status == 'pending'
             && request.resource.data.status == 'accepted'
-            && bookingOperatorId(request.resource.data) == request.auth.uid
-            && bookingOperatorId(resource.data) == null
+            && bookingOperatorUid(request.resource.data) == request.auth.uid
+            && bookingOperatorUid(resource.data) == null
             && !(
               resource.data.keys().hasAny(['rejectedBy'])
               && resource.data.rejectedBy.hasAny([request.auth.uid])
             )
           )
           || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId'])
             &&
             resource.data.status == 'accepted'
             && request.resource.data.status == 'on_the_way'
-            && bookingOperatorId(request.resource.data) == bookingOperatorId(resource.data)
+            && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
             && isAssignedOperator()
           )
           || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId', 'rejectedBy'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId', 'rejectedBy'])
             && resource.data.status == 'accepted'
             && request.resource.data.status == 'pending'
             && isAssignedOperator()
-            && bookingOperatorId(request.resource.data) == null
+            && bookingOperatorUid(request.resource.data) == null
             && request.resource.data.keys().hasAny(['rejectedBy'])
             && request.resource.data.rejectedBy is list
             && request.resource.data.rejectedBy.hasAny([request.auth.uid])
@@ -252,19 +256,19 @@ service cloud.firestore {
             )
           )
           || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId'])
             &&
             resource.data.status == 'on_the_way'
             && request.resource.data.status == 'completed'
-            && bookingOperatorId(request.resource.data) == bookingOperatorId(resource.data)
+            && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
             && isAssignedOperator()
           )
           || (
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['rejectedBy', 'updatedAt'])
             && resource.data.status == 'pending'
             && request.resource.data.status == resource.data.status
-            && bookingOperatorId(request.resource.data) == bookingOperatorId(resource.data)
-            && bookingOperatorId(request.resource.data) == null
+            && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
+            && bookingOperatorUid(request.resource.data) == null
             && request.resource.data.keys().hasAny(['rejectedBy'])
             && request.resource.data.rejectedBy is list
             && request.resource.data.rejectedBy.hasAny([request.auth.uid])
@@ -286,8 +290,8 @@ service cloud.firestore {
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'rejectedBy', 'updatedAt'])
             && resource.data.status == 'pending'
             && request.resource.data.status == 'rejected'
-            && bookingOperatorId(request.resource.data) == bookingOperatorId(resource.data)
-            && bookingOperatorId(request.resource.data) == null
+            && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
+            && bookingOperatorUid(request.resource.data) == null
             && request.resource.data.keys().hasAny(['rejectedBy'])
             && request.resource.data.rejectedBy is list
             && request.resource.data.rejectedBy.hasAny([request.auth.uid])

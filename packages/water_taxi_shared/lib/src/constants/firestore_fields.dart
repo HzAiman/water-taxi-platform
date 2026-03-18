@@ -24,6 +24,7 @@ abstract final class BookingFields {
   static const String orderNumber = 'orderNumber';
   static const String transactionId = 'transactionId';
   static const String status = 'status';
+  static const String operatorUid = 'operatorUid';
   static const String operatorId = 'operatorId';
   static const String rejectedBy = 'rejectedBy';
   static const String createdAt = 'createdAt';

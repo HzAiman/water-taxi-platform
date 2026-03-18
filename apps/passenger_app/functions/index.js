@@ -14,6 +14,7 @@ initializeApp();
 const db = getFirestore();
 const messaging = getMessaging();
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 const STRIPE_CURRENCY = defineString("STRIPE_CURRENCY");
 
 const COLLECTIONS = {
@@ -29,6 +30,7 @@ const BOOKING_FIELDS = {
   status: "status",
   origin: "origin",
   destination: "destination",
+  operatorUid: "operatorUid",
   operatorId: "operatorId",
   updatedAt: "updatedAt",
   passengerCount: "passengerCount",
@@ -42,6 +44,195 @@ const DEVICE_FIELDS = {
   appRole: "appRole",
 };
 
+// ============================================================================
+// UTILITY FUNCTIONS
+// ============================================================================
+
+/**
+ * Validates payment intent creation parameters.
+ * @param {Object} params - Payment parameters
+ * @returns {Object} - Validation result { valid: boolean, error?: string }
+ */
+function validatePaymentIntentParams(params) {
+  const { amount, currency, orderNumber, payerName, payerEmail, idempotencyKey } = params;
+
+  if (!(amount > 0)) {
+    return { valid: false, error: "amount must be greater than 0" };
+  }
+  if (!currency || typeof currency !== "string") {
+    return { valid: false, error: "currency is required and must be a string" };
+  }
+  if (!orderNumber || typeof orderNumber !== "string") {
+    return { valid: false, error: "orderNumber is required and must be a string" };
+  }
+  if (!payerName || typeof payerName !== "string") {
+    return { valid: false, error: "payerName is required and must be a string" };
+  }
+  if (!payerEmail || typeof payerEmail !== "string") {
+    return { valid: false, error: "payerEmail is required and must be a string" };
+  }
+  if (!idempotencyKey || typeof idempotencyKey !== "string") {
+    return { valid: false, error: "idempotencyKey is required and must be a string" };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Core payment intent creation logic shared by callable and HTTP functions.
+ * @param {Stripe} stripe - Stripe client instance
+ * @param {Object} params - Payment parameters (amount, currency, etc.)
+ * @returns {Object} - Created payment intent
+ */
+async function createPaymentIntentCore(stripe, params) {
+  const { amount, currency, orderNumber, payerName, payerEmail, payerTelephoneNumber, idempotencyKey, description, userId } = params;
+
+  const amountInMinorUnit = Math.round(amount * 100);
+  if (!(amountInMinorUnit > 0)) {
+    throw new Error("Amount must be at least 0.01");
+  }
+
+  const intent = await stripe.paymentIntents.create(
+    {
+      amount: amountInMinorUnit,
+      currency,
+      capture_method: "manual",
+      receipt_email: payerEmail,
+      description: description || `Water taxi booking ${orderNumber}`,
+      automatic_payment_methods: { enabled: true },
+      metadata: {
+        userId,
+        orderNumber,
+        payerName,
+        payerTelephoneNumber,
+        idempotencyKey,
+      },
+    },
+    {
+      idempotencyKey,
+    }
+  );
+
+  logger.info("Stripe payment intent created", {
+    paymentIntentId: intent.id,
+    orderNumber,
+    amountInMinorUnit,
+    currency,
+  });
+
+  return intent;
+}
+
+/**
+ * Ensures webhook event is processed only once using idempotency.
+ * @param {string} eventId - Stripe event ID
+ * @returns {boolean} - True if event is new; false if already processed
+ */
+async function isWebhookEventNew(eventId) {
+  const ref = db.collection("webhook_events").doc(eventId);
+  const doc = await ref.get();
+
+  if (doc.exists) {
+    logger.info("Skipping duplicate webhook event", { eventId });
+    return false;
+  }
+
+  // Mark event as processed
+  await ref.set({ processedAt: new Date() });
+  return true;
+}
+
+/**
+ * Handles refund for a succeeded/captured payment.
+ */
+async function handleSucceededRefund(stripe, intent, orderNumber, reason) {
+  logger.debug("Creating Stripe refund for succeeded payment", { paymentIntentId: intent.id, orderNumber });
+  
+  const refund = await stripe.refunds.create({
+    payment_intent: intent.id,
+    reason: "requested_by_customer",
+    metadata: {
+      orderNumber,
+      cancellationReason: reason || "requested_by_customer",
+    },
+  });
+
+  logger.debug("Refund created", { refundId: refund.id, status: refund.status });
+
+  await updateBookingPaymentState({
+    orderNumber,
+    paymentStatus: "refunded",
+    transactionId: intent.id,
+    extra: {
+      refundedAt: new Date(),
+      refundId: refund.id,
+    },
+  });
+
+  logger.info("Stripe payment refunded", {
+    paymentIntentId: intent.id,
+    refundId: refund.id,
+    orderNumber,
+    refundStatus: refund.status,
+  });
+
+  return {
+    status: "refunded",
+    paymentIntentId: intent.id,
+    refundId: refund.id,
+    refundStatus: refund.status,
+  };
+}
+
+/**
+ * Handles cancellation of an uncaptured/authorized payment.
+ */
+async function handleUncapturedCancel(stripe, intent, orderNumber, reason) {
+  const stripeCancellationReason = toStripeCancellationReason(reason);
+  logger.debug("Cancelling uncaptured payment intent", { paymentIntentId: intent.id, status: intent.status });
+
+  const cancelledIntent = await stripe.paymentIntents.cancel(intent.id, {
+    cancellation_reason: stripeCancellationReason,
+  });
+
+  logger.debug("Payment intent cancelled", { paymentIntentId: cancelledIntent.id, status: cancelledIntent.status });
+
+  await updateBookingPaymentState({
+    orderNumber,
+    paymentStatus: "cancelled",
+    transactionId: cancelledIntent.id,
+  });
+
+  logger.info("Stripe payment intent cancelled", {
+    paymentIntentId: cancelledIntent.id,
+    orderNumber,
+    reason: reason || "requested_by_customer",
+    stripeCancellationReason,
+    status: cancelledIntent.status,
+  });
+
+  return {
+    status: "cancelled",
+    paymentIntentId: cancelledIntent.id,
+  };
+}
+
+/**
+ * Creates a Stripe PaymentIntent via callable Firebase function.
+ * Uses manual capture for e-hailing hold/release payment lifecycle.
+ * Requires App Check validation.
+ * 
+ * Request data:
+ *   - amount: number (in MYR or specified currency)
+ *   - currency: string (defaults to STRIPE_CURRENCY environment variable)
+ *   - orderNumber: string (booking order ID)
+ *   - payerName: string
+ *   - payerEmail: string
+ *   - payerTelephoneNumber: string
+ *   - idempotencyKey: string (stable key for retries with same parameters)
+ * 
+ * Returns: { status: "ready", paymentIntentId, clientSecret }
+ */
 exports.createStripePaymentIntent = onCall(
   {
     region: "asia-southeast1",
@@ -65,11 +256,18 @@ exports.createStripePaymentIntent = onCall(
     const idempotencyKey = String(data.idempotencyKey || "").trim();
     const description = String(data.description || "").trim();
 
-    if (!(amount > 0) || !currency || !orderNumber || !payerName || !payerEmail || !idempotencyKey) {
-      throw new HttpsError(
-        "invalid-argument",
-        "amount, currency, orderNumber, payerName, payerEmail, and idempotencyKey are required."
-      );
+    // Validate input parameters
+    const validation = validatePaymentIntentParams({
+      amount,
+      currency,
+      orderNumber,
+      payerName,
+      payerEmail,
+      idempotencyKey,
+    });
+
+    if (!validation.valid) {
+      throw new HttpsError("invalid-argument", validation.error);
     }
 
     const secretKey = STRIPE_SECRET_KEY.value();
@@ -78,38 +276,18 @@ exports.createStripePaymentIntent = onCall(
     }
 
     const stripe = new Stripe(secretKey);
-    const amountInMinorUnit = Math.round(amount * 100);
-    if (!(amountInMinorUnit > 0)) {
-      throw new HttpsError("invalid-argument", "amount must be at least 0.01.");
-    }
 
     try {
-      const intent = await stripe.paymentIntents.create(
-        {
-          amount: amountInMinorUnit,
-          currency,
-          capture_method: "manual",
-          receipt_email: payerEmail,
-          description: description || `Water taxi booking ${orderNumber}`,
-          automatic_payment_methods: { enabled: true },
-          metadata: {
-            userId: request.auth.uid,
-            orderNumber,
-            payerName,
-            payerTelephoneNumber,
-            idempotencyKey,
-          },
-        },
-        {
-          idempotencyKey,
-        }
-      );
-
-      logger.info("Stripe payment intent created", {
-        paymentIntentId: intent.id,
-        orderNumber,
-        amountInMinorUnit,
+      const intent = await createPaymentIntentCore(stripe, {
+        amount,
         currency,
+        orderNumber,
+        payerName,
+        payerEmail,
+        payerTelephoneNumber,
+        idempotencyKey,
+        description,
+        userId: request.auth.uid,
       });
 
       return {
@@ -121,12 +299,18 @@ exports.createStripePaymentIntent = onCall(
       logger.error("Stripe payment intent creation failed", {
         message: error?.message || "Unknown Stripe error",
         orderNumber,
+        stripeErrorCode: error?.code || "unknown",
       });
       throw new HttpsError("internal", "Unable to initialize Stripe payment.");
     }
   }
 );
 
+/**
+ * Creates a Stripe PaymentIntent via HTTP endpoint.
+ * Alternative to callable for clients without App Check support.
+ * Verifies Firebase ID token from Authorization header.
+ */
 exports.createStripePaymentIntentHttp = onRequest(
   {
     region: "asia-southeast1",
@@ -172,12 +356,18 @@ exports.createStripePaymentIntentHttp = onRequest(
       const idempotencyKey = String(data.idempotencyKey || "").trim();
       const description = String(data.description || "").trim();
 
-      if (!(amount > 0) || !currency || !orderNumber || !payerName || !payerEmail || !idempotencyKey) {
-        res.status(400).json({
-          status: "failed",
-          message:
-            "amount, currency, orderNumber, payerName, payerEmail, and idempotencyKey are required.",
-        });
+      // Validate input parameters
+      const validation = validatePaymentIntentParams({
+        amount,
+        currency,
+        orderNumber,
+        payerName,
+        payerEmail,
+        idempotencyKey,
+      });
+
+      if (!validation.valid) {
+        res.status(400).json({ status: "failed", message: validation.error });
         return;
       }
 
@@ -188,32 +378,17 @@ exports.createStripePaymentIntentHttp = onRequest(
       }
 
       const stripe = new Stripe(secretKey);
-      const amountInMinorUnit = Math.round(amount * 100);
-      if (!(amountInMinorUnit > 0)) {
-        res.status(400).json({ status: "failed", message: "amount must be at least 0.01." });
-        return;
-      }
-
-      const intent = await stripe.paymentIntents.create(
-        {
-          amount: amountInMinorUnit,
-          currency,
-          capture_method: "manual",
-          receipt_email: payerEmail,
-          description: description || `Water taxi booking ${orderNumber}`,
-          automatic_payment_methods: { enabled: true },
-          metadata: {
-            userId: decoded.uid,
-            orderNumber,
-            payerName,
-            payerTelephoneNumber,
-            idempotencyKey,
-          },
-        },
-        {
-          idempotencyKey,
-        }
-      );
+      const intent = await createPaymentIntentCore(stripe, {
+        amount,
+        currency,
+        orderNumber,
+        payerName,
+        payerEmail,
+        payerTelephoneNumber,
+        idempotencyKey,
+        description,
+        userId: decoded.uid,
+      });
 
       res.status(200).json({
         status: "ready",
@@ -242,10 +417,19 @@ exports.createStripePaymentIntentHttp = onRequest(
   }
 );
 
+/**
+ * Stripe webhook handler for payment intent events.
+ * Validates webhook signature and updates booking payment status based on:
+ * - payment_intent.succeeded: Payment fully captured
+ * - payment_intent.amount.capturably_held: Payment authorized (hold placed)
+ * 
+ * Uses idempotency tracking to prevent duplicate event processing.
+ * Stores all events in webhook_events collection for audit.
+ */
 exports.stripeWebhook = onRequest(
   {
     region: "asia-southeast1",
-    secrets: [STRIPE_SECRET_KEY],
+    secrets: [STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET],
   },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -261,7 +445,7 @@ exports.stripeWebhook = onRequest(
     }
 
     const stripe = new Stripe(secretKey);
-    const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+    const webhookSecret = STRIPE_WEBHOOK_SECRET.value();
     if (!webhookSecret) {
       logger.error("stripeWebhook called without STRIPE_WEBHOOK_SECRET configured");
       res.status(500).json({ error: "Stripe webhook secret not configured" });
@@ -272,14 +456,22 @@ exports.stripeWebhook = onRequest(
       const signature = req.headers["stripe-signature"];
       const event = stripe.webhooks.constructEvent(req.rawBody, signature, webhookSecret);
 
+      const eventId = String(event?.id || "unknown");
       const eventType = String(event?.type || "unknown");
       const payloadObject = event?.data?.object || {};
       const paymentIntentId = String(payloadObject.id || "");
       const status = String(payloadObject.status || "unknown");
       const orderNumber = String(payloadObject?.metadata?.orderNumber || "");
 
+      // Check idempotency: skip if already processed
+      if (!(await isWebhookEventNew(eventId))) {
+        res.status(200).json({ ok: true });
+        return;
+      }
+
       await db.collection("payment_webhooks").add({
         provider: "stripe",
+        eventId,
         eventType,
         paymentIntentId,
         status,
@@ -328,6 +520,11 @@ exports.stripeWebhook = onRequest(
   }
 );
 
+/**
+ * Notifies online operators of incoming booking requests.
+ * Triggered when a new booking is created with status "pending".
+ * Gets list of online operators and sends FCM notifications to their devices.
+ */
 exports.notifyOperatorsOnIncomingBooking = onDocumentCreated(
   {
     document: "bookings/{bookingId}",
@@ -375,6 +572,12 @@ exports.notifyOperatorsOnIncomingBooking = onDocumentCreated(
   }
 );
 
+/**
+ * Notifies passenger and operator when booking status changes.
+ * Handles transitions: pending→accepted→on_the_way→completed/cancelled/rejected.
+ * Sends localized status messages to both parties.
+ * Cleans up invalid FCM tokens from responses.
+ */
 exports.notifyBookingStatusChanged = onDocumentUpdated(
   {
     document: "bookings/{bookingId}",
@@ -399,7 +602,7 @@ exports.notifyBookingStatusChanged = onDocumentUpdated(
     const origin = after[BOOKING_FIELDS.origin] || "Unknown origin";
     const destination = after[BOOKING_FIELDS.destination] || "Unknown destination";
     const userId = after[BOOKING_FIELDS.userId];
-    const operatorId = after[BOOKING_FIELDS.operatorId];
+    const operatorUid = after[BOOKING_FIELDS.operatorUid] || after[BOOKING_FIELDS.operatorId];
      const passengerCount = String(after[BOOKING_FIELDS.passengerCount] || 1);
 
     const passengerToken = userId
@@ -425,10 +628,10 @@ exports.notifyBookingStatusChanged = onDocumentUpdated(
       });
     }
 
-    if (operatorId) {
+    if (operatorUid) {
       const operatorToken = await getDeviceToken(
         COLLECTIONS.operatorDevices,
-        operatorId,
+        operatorUid,
         "operator"
       );
 
@@ -688,55 +891,28 @@ async function cancelOrRefundPaymentIntent({ stripe, paymentIntentId, orderNumbe
       paymentIntentId,
       orderNumber,
       error: errorMsg,
+      errorCode: retrieveError?.code || "unknown",
     });
     throw retrieveError;
   }
 
-  // If already captured/succeeded, create a real refund so it appears in Stripe refunds.
+  // Already captured/succeeded: create a real refund
   if (intent.status === "succeeded") {
     try {
-      logger.debug("Creating Stripe refund for succeeded payment", { paymentIntentId, orderNumber });
-      const refund = await stripe.refunds.create({
-        payment_intent: paymentIntentId,
-        reason: "requested_by_customer",
-        metadata: {
-          orderNumber,
-          cancellationReason: reason || "requested_by_customer",
-        },
-      });
-      logger.debug("Refund created", { refundId: refund.id, status: refund.status });
-
-      await updateBookingPaymentState({
-        orderNumber,
-        paymentStatus: "refunded",
-        transactionId: paymentIntentId,
-        extra: {
-          refundedAt: new Date(),
-          refundId: refund.id,
-        },
-      });
-
-      logger.info("Stripe payment refunded", {
-        paymentIntentId,
-        refundId: refund.id,
-        orderNumber,
-        refundStatus: refund.status,
-      });
-
-      return {
-        status: "refunded",
-        paymentIntentId,
-        refundId: refund.id,
-        refundStatus: refund.status,
-      };
+      return await handleSucceededRefund(stripe, intent, orderNumber, reason);
     } catch (refundError) {
       const errorMsg = String(refundError?.message || refundError || "Unknown error");
-      logger.error("Failed to create refund", { paymentIntentId, orderNumber, error: errorMsg });
+      logger.error("Failed to create refund", { 
+        paymentIntentId, 
+        orderNumber, 
+        error: errorMsg,
+        errorCode: refundError?.code || "unknown",
+      });
       throw refundError;
     }
   }
 
-  // For uncaptured/manual intents, canceling releases the authorization hold.
+  // Uncaptured/authorized payment: cancel and release hold
   if (
     intent.status === "requires_capture" ||
     intent.status === "requires_payment_method" ||
@@ -745,38 +921,20 @@ async function cancelOrRefundPaymentIntent({ stripe, paymentIntentId, orderNumbe
     intent.status === "processing"
   ) {
     try {
-      const stripeCancellationReason = toStripeCancellationReason(reason);
-      logger.debug("Cancelling uncaptured payment intent", { paymentIntentId, status: intent.status });
-      const cancelledIntent = await stripe.paymentIntents.cancel(paymentIntentId, {
-        cancellation_reason: stripeCancellationReason,
-      });
-      logger.debug("Payment intent cancelled", { paymentIntentId: cancelledIntent.id, status: cancelledIntent.status });
-
-      await updateBookingPaymentState({
-        orderNumber,
-        paymentStatus: "cancelled",
-        transactionId: cancelledIntent.id,
-      });
-
-      logger.info("Stripe payment intent cancelled", {
-        paymentIntentId: cancelledIntent.id,
-        orderNumber,
-        reason: reason || "requested_by_customer",
-        stripeCancellationReason,
-        status: cancelledIntent.status,
-      });
-
-      return {
-        status: "cancelled",
-        paymentIntentId: cancelledIntent.id,
-      };
+      return await handleUncapturedCancel(stripe, intent, orderNumber, reason);
     } catch (cancelError) {
       const errorMsg = String(cancelError?.message || cancelError || "Unknown error");
-      logger.error("Failed to cancel payment intent", { paymentIntentId, orderNumber, error: errorMsg });
+      logger.error("Failed to cancel payment intent", { 
+        paymentIntentId, 
+        orderNumber, 
+        error: errorMsg,
+        errorCode: cancelError?.code || "unknown",
+      });
       throw cancelError;
     }
   }
 
+  // Already cancelled
   if (intent.status === "canceled") {
     await updateBookingPaymentState({
       orderNumber,
@@ -793,6 +951,11 @@ async function cancelOrRefundPaymentIntent({ stripe, paymentIntentId, orderNumbe
   throw new Error(`Unsupported PaymentIntent status for cancellation: ${intent.status}`);
 }
 
+/**
+ * Releases/refunds payment when a booking is rejected by all operators.
+ * Cancels the PaymentIntent to release the authorization hold.
+ * Updates booking payment_status to "cancelled".
+ */
 exports.releasePaymentOnBookingRejected = onDocumentUpdated(
   {
     document: "bookings/{bookingId}",
@@ -859,6 +1022,14 @@ exports.releasePaymentOnBookingRejected = onDocumentUpdated(
   }
 );
 
+/**
+ * Auto-captures payment when booking transitions to "completed".
+ * Handles manual capture workflow: earlier hold → now capture.
+ * Updates payment_status to "paid" upon successful capture.
+ * 
+ * Note: This is the companion to manual capture PaymentIntent creation.
+ * For e-hailing workflow: ride → capture → money to operator/platform.
+ */
 exports.capturePaymentOnBookingCompleted = onDocumentUpdated(
   {
     document: "bookings/{bookingId}",
@@ -925,6 +1096,11 @@ exports.capturePaymentOnBookingCompleted = onDocumentUpdated(
   }
 );
 
+/**
+ * Manually captures a PaymentIntent via callable function.
+ * Used for explicit capture control if auto-capture fails or is delayed.
+ * Only works on intents in "requires_capture" status.
+ */
 exports.capturePaymentIntent = onCall(
   {
     region: "asia-southeast1",
@@ -981,6 +1157,13 @@ exports.capturePaymentIntent = onCall(
   }
 );
 
+/**
+ * Manually cancels/refunds a PaymentIntent via callable function.
+ * Handles both captured (true refund) and uncaptured (authorization release) intents.
+ * 
+ * For uncaptured: Cancels to release hold.
+ * For captured: Creates a Refund object in Stripe.
+ */
 exports.cancelPaymentIntent = onCall(
   {
     region: "asia-southeast1",
@@ -1026,6 +1209,13 @@ exports.cancelPaymentIntent = onCall(
   }
 );
 
+/**
+ * Releases/refunds payment when a booking is cancelled by passenger.
+ * Cancels the PaymentIntent to release the authorization hold.
+ * Updates booking payment_status to "cancelled".
+ * 
+ * Logs detailed error context with alert type "PAYMENT_RELEASE_FAILED" for alerting.
+ */
 exports.releasePaymentOnBookingCancelled = onDocumentUpdated(
   {
     document: "bookings/{bookingId}",
@@ -1101,6 +1291,15 @@ exports.releasePaymentOnBookingCancelled = onDocumentUpdated(
   }
 );
 
+/**
+ * Scheduled reconciliation of stale authorized payments (every 30 minutes).
+ * Handles edge cases where automatic triggers may have failed:
+ * - Captures completed bookings with "authorized" payment
+ * - Releases cancelled/rejected bookings with "authorized" payment
+ * 
+ * Runs only on bookings with updatedAt <= 30 minutes ago.
+ * Logs summary stats for monitoring.
+ */
 exports.reconcileStaleAuthorizedPayments = onSchedule(
   {
     schedule: "every 30 minutes",

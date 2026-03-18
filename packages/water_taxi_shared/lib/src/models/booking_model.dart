@@ -30,14 +30,15 @@ class BookingModel {
     required this.paymentMethod,
     required this.paymentStatus,
     required this.status,
-    this.operatorId,
+    String? operatorUid,
+    @Deprecated('Use operatorUid instead.') String? operatorId,
     required this.rejectedBy,
     this.orderNumber,
     this.transactionId,
     this.createdAt,
     this.updatedAt,
     this.cancelledAt,
-  });
+  }) : operatorUid = operatorUid ?? operatorId;
 
   final String bookingId;
   final String userId;
@@ -61,7 +62,8 @@ class BookingModel {
   final String paymentMethod;
   final String paymentStatus;
   final BookingStatus status;
-  final String? operatorId;
+  final String? operatorUid;
+  String? get operatorId => operatorUid;
   final List<String> rejectedBy;
   final String? orderNumber;
   final String? transactionId;
@@ -106,7 +108,7 @@ class BookingModel {
       paymentMethod: _str(data['paymentMethod']),
       paymentStatus: _str(data['paymentStatus']),
       status: BookingStatus.fromString(_str(data['status'])),
-      operatorId: data['operatorId']?.toString(),
+      operatorUid: (data['operatorUid'] ?? data['operatorId'])?.toString(),
       rejectedBy: _strList(data['rejectedBy']),
       orderNumber: data['orderNumber']?.toString(),
       transactionId: data['transactionId']?.toString(),
@@ -139,7 +141,8 @@ class BookingModel {
     String? paymentMethod,
     String? paymentStatus,
     BookingStatus? status,
-    String? operatorId,
+    String? operatorUid,
+    @Deprecated('Use operatorUid instead.') String? operatorId,
     List<String>? rejectedBy,
     String? orderNumber,
     String? transactionId,
@@ -170,7 +173,7 @@ class BookingModel {
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       status: status ?? this.status,
-      operatorId: operatorId ?? this.operatorId,
+      operatorUid: operatorUid ?? operatorId ?? this.operatorUid,
       rejectedBy: rejectedBy ?? this.rejectedBy,
       orderNumber: orderNumber ?? this.orderNumber,
       transactionId: transactionId ?? this.transactionId,
