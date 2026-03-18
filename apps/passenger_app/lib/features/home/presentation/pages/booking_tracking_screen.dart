@@ -127,6 +127,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     final isRejected = status == BookingStatus.rejected;
     final paymentMethod = booking.paymentMethod;
     final paymentStatus = booking.paymentStatus;
+    final rejectedPaymentMessage =
+      isRejected ? _rejectedPaymentMessage(paymentStatus) : null;
 
     final originPoint = _latLngOrNull(booking.originLat, booking.originLng);
     final destinationPoint = _latLngOrNull(
@@ -239,6 +241,26 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                           color: Color(0xFF666666),
                         ),
                       ),
+                      if (rejectedPaymentMessage != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFFFF4E8),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: const Color(0xFFFFD7AE)),
+                          ),
+                          child: Text(
+                            rejectedPaymentMessage,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF8A4B08),
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(height: 14),
                       _buildStatusTimeline(status),
                       const SizedBox(height: 16),
@@ -653,6 +675,28 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       case BookingStatus.unknown:
         return null;
     }
+  }
+
+  String? _rejectedPaymentMessage(String paymentStatus) {
+    final normalized = paymentStatus.trim().toLowerCase();
+    if (normalized.isEmpty) {
+      return null;
+    }
+
+    if (normalized.contains('refunded')) {
+      return 'Payment refunded successfully. Funds will appear back in your account shortly.';
+    }
+    if (normalized.contains('cancelled')) {
+      return 'Payment authorization was released. No charge was captured for this rejected booking.';
+    }
+    if (normalized.contains('authorized')) {
+      return 'Payment is authorized and pending release. Please wait a moment for payment status to update.';
+    }
+    if (normalized.contains('paid')) {
+      return 'Payment was captured. A refund is being processed for this rejected booking.';
+    }
+
+    return 'Payment status: ${_formatStatusLabel(paymentStatus)}';
   }
 
   LatLng? _latLngOrNull(double lat, double lng) {

@@ -600,6 +600,157 @@ async function updateBookingPaymentState({ orderNumber, paymentStatus, transacti
   await snapshot.docs[0].ref.update(updatePayload);
 }
 
+async function cancelOrRefundPaymentIntent({ stripe, paymentIntentId, orderNumber, reason }) {
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+  // If already captured/succeeded, create a real refund so it appears in Stripe refunds.
+  if (intent.status === "succeeded") {
+    const refund = await stripe.refunds.create({
+      payment_intent: paymentIntentId,
+      reason: "requested_by_customer",
+      metadata: {
+        orderNumber,
+        cancellationReason: reason || "requested_by_customer",
+      },
+    });
+
+    await updateBookingPaymentState({
+      orderNumber,
+      paymentStatus: "refunded",
+      transactionId: paymentIntentId,
+      extra: {
+        refundedAt: new Date(),
+        refundId: refund.id,
+      },
+    });
+
+    logger.info("Stripe payment refunded", {
+      paymentIntentId,
+      refundId: refund.id,
+      orderNumber,
+      refundStatus: refund.status,
+    });
+
+    return {
+      status: "refunded",
+      paymentIntentId,
+      refundId: refund.id,
+      refundStatus: refund.status,
+    };
+  }
+
+  // For uncaptured/manual intents, canceling releases the authorization hold.
+  if (
+    intent.status === "requires_capture" ||
+    intent.status === "requires_payment_method" ||
+    intent.status === "requires_confirmation" ||
+    intent.status === "requires_action" ||
+    intent.status === "processing"
+  ) {
+    const cancelledIntent = await stripe.paymentIntents.cancel(paymentIntentId, {
+      cancellation_reason: reason || "requested_by_customer",
+    });
+
+    await updateBookingPaymentState({
+      orderNumber,
+      paymentStatus: "cancelled",
+      transactionId: cancelledIntent.id,
+    });
+
+    logger.info("Stripe payment intent cancelled", {
+      paymentIntentId: cancelledIntent.id,
+      orderNumber,
+      reason: reason || "requested_by_customer",
+      status: cancelledIntent.status,
+    });
+
+    return {
+      status: "cancelled",
+      paymentIntentId: cancelledIntent.id,
+    };
+  }
+
+  if (intent.status === "canceled") {
+    await updateBookingPaymentState({
+      orderNumber,
+      paymentStatus: "cancelled",
+      transactionId: intent.id,
+    });
+
+    return {
+      status: "cancelled",
+      paymentIntentId: intent.id,
+    };
+  }
+
+  throw new Error(`Unsupported PaymentIntent status for cancellation: ${intent.status}`);
+}
+
+exports.releasePaymentOnBookingRejected = onDocumentUpdated(
+  {
+    document: "bookings/{bookingId}",
+    region: "asia-southeast1",
+    secrets: [STRIPE_SECRET_KEY],
+  },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+
+    if (!before || !after) {
+      return;
+    }
+
+    const previousStatus = String(before[BOOKING_FIELDS.status] || "");
+    const newStatus = String(after[BOOKING_FIELDS.status] || "");
+    if (previousStatus === newStatus || newStatus !== "rejected") {
+      return;
+    }
+
+    const paymentIntentId = String(after[BOOKING_FIELDS.transactionId] || "").trim();
+    const orderNumber = String(after[BOOKING_FIELDS.orderNumber] || "").trim();
+
+    if (!paymentIntentId || !orderNumber) {
+      logger.warn("Skipping payment release/refund for rejected booking due to missing payment metadata", {
+        bookingId: event.params.bookingId,
+        paymentIntentId,
+        orderNumber,
+      });
+      return;
+    }
+
+    const secretKey = STRIPE_SECRET_KEY.value();
+    if (!secretKey || !secretKey.trim()) {
+      logger.error("releasePaymentOnBookingRejected missing STRIPE_SECRET_KEY");
+      return;
+    }
+
+    const stripe = new Stripe(secretKey);
+
+    try {
+      const result = await cancelOrRefundPaymentIntent({
+        stripe,
+        paymentIntentId,
+        orderNumber,
+        reason: "all_operators_rejected",
+      });
+
+      logger.info("Payment release/refund processed for rejected booking", {
+        bookingId: event.params.bookingId,
+        orderNumber,
+        paymentIntentId,
+        outcome: result.status,
+      });
+    } catch (error) {
+      logger.error("Failed to release/refund payment for rejected booking", {
+        bookingId: event.params.bookingId,
+        paymentIntentId,
+        orderNumber,
+        message: error?.message || "Unknown Stripe error",
+      });
+    }
+  }
+);
+
 exports.capturePaymentOnBookingCompleted = onDocumentUpdated(
   {
     document: "bookings/{bookingId}",
@@ -777,89 +928,12 @@ exports.cancelPaymentIntent = onCall(
     const stripe = new Stripe(secretKey);
 
     try {
-      const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-      // If already captured/succeeded, create a real refund so it appears in Stripe refunds.
-      if (intent.status === "succeeded") {
-        const refund = await stripe.refunds.create({
-          payment_intent: paymentIntentId,
-          reason: "requested_by_customer",
-          metadata: {
-            orderNumber,
-            cancellationReason: reason || "requested_by_customer",
-          },
-        });
-
-        await updateBookingPaymentState({
-          orderNumber,
-          paymentStatus: "refunded",
-          transactionId: paymentIntentId,
-          extra: {
-            refundedAt: new Date(),
-            refundId: refund.id,
-          },
-        });
-
-        logger.info("Stripe payment refunded", {
-          paymentIntentId,
-          refundId: refund.id,
-          orderNumber,
-          refundStatus: refund.status,
-        });
-
-        return {
-          status: "refunded",
-          paymentIntentId,
-          refundId: refund.id,
-          refundStatus: refund.status,
-        };
-      }
-
-      // For uncaptured/manual intents, canceling releases the authorization hold.
-      if (
-        intent.status === "requires_capture" ||
-        intent.status === "requires_payment_method" ||
-        intent.status === "requires_confirmation" ||
-        intent.status === "requires_action" ||
-        intent.status === "processing"
-      ) {
-        const cancelledIntent = await stripe.paymentIntents.cancel(paymentIntentId, {
-          cancellation_reason: reason || "requested_by_customer",
-        });
-
-        await updateBookingPaymentState({
-          orderNumber,
-          paymentStatus: "cancelled",
-          transactionId: cancelledIntent.id,
-        });
-
-        logger.info("Stripe payment intent cancelled", {
-          paymentIntentId: cancelledIntent.id,
-          orderNumber,
-          reason: reason || "requested_by_customer",
-          status: cancelledIntent.status,
-        });
-
-        return {
-          status: "cancelled",
-          paymentIntentId: cancelledIntent.id,
-        };
-      }
-
-      if (intent.status === "canceled") {
-        await updateBookingPaymentState({
-          orderNumber,
-          paymentStatus: "cancelled",
-          transactionId: intent.id,
-        });
-
-        return {
-          status: "cancelled",
-          paymentIntentId: intent.id,
-        };
-      }
-
-      throw new Error(`Unsupported PaymentIntent status for cancellation: ${intent.status}`);
+      return await cancelOrRefundPaymentIntent({
+        stripe,
+        paymentIntentId,
+        orderNumber,
+        reason,
+      });
     } catch (error) {
       logger.error("Stripe payment intent cancellation failed", {
         paymentIntentId,
