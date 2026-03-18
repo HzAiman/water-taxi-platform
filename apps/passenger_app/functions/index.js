@@ -45,7 +45,7 @@ exports.createStripePaymentIntent = onCall(
   {
     region: "asia-southeast1",
     secrets: [STRIPE_SECRET_KEY],
-    enforceAppCheck: false,
+    enforceAppCheck: true,
   },
   async (request) => {
     if (!request.auth) {
@@ -87,7 +87,7 @@ exports.createStripePaymentIntent = onCall(
         {
           amount: amountInMinorUnit,
           currency,
-          capture_method: 'manual',  // ← ADD THIS LINE
+          capture_method: "manual",
           receipt_email: payerEmail,
           description: description || `Water taxi booking ${orderNumber}`,
           automatic_payment_methods: { enabled: true },
@@ -261,15 +261,15 @@ exports.stripeWebhook = onRequest(
 
     const stripe = new Stripe(secretKey);
     const webhookSecret = String(process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+    if (!webhookSecret) {
+      logger.error("stripeWebhook called without STRIPE_WEBHOOK_SECRET configured");
+      res.status(500).json({ error: "Stripe webhook secret not configured" });
+      return;
+    }
 
     try {
-      let event;
-      if (webhookSecret) {
-        const signature = req.headers["stripe-signature"];
-        event = stripe.webhooks.constructEvent(req.rawBody, signature, webhookSecret);
-      } else {
-        event = req.body;
-      }
+      const signature = req.headers["stripe-signature"];
+      const event = stripe.webhooks.constructEvent(req.rawBody, signature, webhookSecret);
 
       const eventType = String(event?.type || "unknown");
       const payloadObject = event?.data?.object || {};
@@ -847,7 +847,7 @@ exports.capturePaymentIntent = onCall(
   {
     region: "asia-southeast1",
     secrets: [STRIPE_SECRET_KEY],
-    enforceAppCheck: false,
+    enforceAppCheck: true,
   },
   async (request) => {
     if (!request.auth) {
@@ -904,7 +904,7 @@ exports.cancelPaymentIntent = onCall(
   {
     region: "asia-southeast1",
     secrets: [STRIPE_SECRET_KEY],
-    enforceAppCheck: false,
+    enforceAppCheck: true,
   },
   async (request) => {
     if (!request.auth) {
@@ -941,6 +941,71 @@ exports.cancelPaymentIntent = onCall(
         orderNumber,
       });
       throw new HttpsError("internal", `Failed to cancel payment: ${error?.message || "Unknown error"}`);
+    }
+  }
+);
+
+exports.releasePaymentOnBookingCancelled = onDocumentUpdated(
+  {
+    document: "bookings/{bookingId}",
+    region: "asia-southeast1",
+    secrets: [STRIPE_SECRET_KEY],
+  },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+
+    if (!before || !after) {
+      return;
+    }
+
+    const previousStatus = String(before[BOOKING_FIELDS.status] || "");
+    const newStatus = String(after[BOOKING_FIELDS.status] || "");
+    if (previousStatus === newStatus || newStatus !== "cancelled") {
+      return;
+    }
+
+    const paymentIntentId = String(after[BOOKING_FIELDS.transactionId] || "").trim();
+    const orderNumber = String(after[BOOKING_FIELDS.orderNumber] || "").trim();
+
+    if (!paymentIntentId || !orderNumber) {
+      logger.warn("Skipping payment release/refund for cancelled booking due to missing payment metadata", {
+        bookingId: event.params.bookingId,
+        paymentIntentId,
+        orderNumber,
+      });
+      return;
+    }
+
+    const secretKey = STRIPE_SECRET_KEY.value();
+    if (!secretKey || !secretKey.trim()) {
+      logger.error("releasePaymentOnBookingCancelled missing STRIPE_SECRET_KEY");
+      return;
+    }
+
+    const stripe = new Stripe(secretKey);
+
+    try {
+      const result = await cancelOrRefundPaymentIntent({
+        stripe,
+        paymentIntentId,
+        orderNumber,
+        reason: "passenger_cancelled_booking",
+      });
+
+      logger.info("Payment release/refund processed for cancelled booking", {
+        bookingId: event.params.bookingId,
+        orderNumber,
+        paymentIntentId,
+        outcome: result.status,
+      });
+    } catch (error) {
+      logger.error("Failed to release/refund payment for cancelled booking", {
+        bookingId: event.params.bookingId,
+        paymentIntentId,
+        orderNumber,
+        message: error?.message || "Unknown Stripe error",
+      });
     }
   }
 );

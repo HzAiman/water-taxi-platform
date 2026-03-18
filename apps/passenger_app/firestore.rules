@@ -180,7 +180,14 @@ service cloud.firestore {
     }
 
     match /bookings/{bookingId} {
-      allow read: if isOwner(resource.data.userId) || isOperator();
+      allow read: if isOwner(resource.data.userId)
+        || (
+          isOperator()
+          && (
+            resource.data.status == 'pending'
+            || bookingOperatorId(resource.data) == request.auth.uid
+          )
+        );
 
       allow create: if isSignedIn()
         && request.resource.data.userId == request.auth.uid
