@@ -140,22 +140,34 @@ class PaymentViewModel extends ChangeNotifier {
             'Jetty error', 'Jetty "$destination" not found.');
       }
 
+      final paymentAttemptId = _buildPaymentAttemptId(
+        userId: userId,
+        origin: origin,
+        destination: destination,
+        adultCount: adultCount,
+        childCount: childCount,
+        amount: _fareBreakdown!.total,
+      );
+      final idempotencyKey = _buildIdempotencyKey(
+        userId: userId,
+        origin: origin,
+        destination: destination,
+        adultCount: adultCount,
+        childCount: childCount,
+        amount: _fareBreakdown!.total,
+        paymentAttemptId: paymentAttemptId,
+      );
+      final orderNumber = _buildOrderNumber(
+        userId: userId,
+        idempotencyKey: idempotencyKey,
+      );
+
       final paymentResult = await _paymentGateway.charge(
         PaymentGatewayRequest(
           userId: userId,
           amount: _fareBreakdown!.total,
           currency: 'MYR',
-          orderNumber: _buildOrderNumber(
-            userId: userId,
-            idempotencyKey: _buildIdempotencyKey(
-              userId: userId,
-              origin: origin,
-              destination: destination,
-              adultCount: adultCount,
-              childCount: childCount,
-              amount: _fareBreakdown!.total,
-            ),
-          ),
+          orderNumber: orderNumber,
           payerName: user?.name.trim().isNotEmpty == true
               ? user!.name
               : 'Passenger',
@@ -164,14 +176,7 @@ class PaymentViewModel extends ChangeNotifier {
               : 'passenger+$userId@water-taxi.local',
           payerTelephoneNumber: user?.phoneNumber,
           paymentMethod: _gatewayPaymentMethod,
-          idempotencyKey: _buildIdempotencyKey(
-            userId: userId,
-            origin: origin,
-            destination: destination,
-            adultCount: adultCount,
-            childCount: childCount,
-            amount: _fareBreakdown!.total,
-          ),
+          idempotencyKey: idempotencyKey,
           description:
               'Water taxi $origin to $destination for ${adultCount + childCount} passenger(s)',
         ),
@@ -193,18 +198,6 @@ class PaymentViewModel extends ChangeNotifier {
               'The payment gateway declined the transaction.',
         );
       }
-
-      final orderNumber = _buildOrderNumber(
-        userId: userId,
-        idempotencyKey: _buildIdempotencyKey(
-          userId: userId,
-          origin: origin,
-          destination: destination,
-          adultCount: adultCount,
-          childCount: childCount,
-          amount: _fareBreakdown!.total,
-        ),
-      );
 
       final bookingId = await _bookingRepo.createBooking(
         BookingCreationParams(
@@ -246,11 +239,27 @@ class PaymentViewModel extends ChangeNotifier {
     required int adultCount,
     required int childCount,
     required double amount,
+    required String paymentAttemptId,
   }) {
     final normalizedOrigin = origin.trim().toLowerCase();
     final normalizedDestination = destination.trim().toLowerCase();
     final amountCents = (amount * 100).toStringAsFixed(0);
-    return '$userId|$normalizedOrigin|$normalizedDestination|$adultCount|$childCount|$amountCents';
+    return '$userId|$normalizedOrigin|$normalizedDestination|$adultCount|$childCount|$amountCents|$paymentAttemptId';
+  }
+
+  static String _buildPaymentAttemptId({
+    required String userId,
+    required String origin,
+    required String destination,
+    required int adultCount,
+    required int childCount,
+    required double amount,
+  }) {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    final base =
+        '$userId|$origin|$destination|$adultCount|$childCount|${(amount * 100).round()}';
+    final fingerprint = base.hashCode.abs();
+    return '$now-$fingerprint';
   }
 
   static String _buildOrderNumber({
