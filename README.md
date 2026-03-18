@@ -79,7 +79,7 @@ River navigation future planning (14 jetties corridor) is also tracked in both T
 - Firebase Authentication
 - Cloud Firestore
 - Firebase Cloud Messaging (FCM)
-- Cloud Functions for Firebase (Node.js 20, Gen 2, region `asia-southeast1`)
+- Cloud Functions for Firebase (Node.js 22, Gen 2, region `asia-southeast1`)
 - `flutter_local_notifications` (in-app and OS-level notifications)
 - Google Maps Flutter
 - Geolocator / permission handling where needed
@@ -188,6 +188,24 @@ Recent verification highlights:
 - Passenger view model tests added and passing.
 - Operator view model tests added and passing.
 - Operator home widget tests added for signed-out and signed-in action flows (including accept/start/complete delegation) and passing.
+
+## Payment Ops Checklist
+
+Use this quick checklist before each release cut and after backend payment changes:
+
+- Hold/Capture flow:
+    - booking payment creates `authorized` state (`requires_capture` in Stripe)
+    - completed booking transitions to `paid` via capture
+- Release flow:
+    - cancelled booking transitions to `cancelled`/`refunded` (no stale uncaptured hold)
+    - rejected booking transitions to `cancelled`/`refunded`
+- Reconciliation:
+    - scheduled function `reconcileStaleAuthorizedPayments` runs every 30 minutes
+    - summary log includes `scanned`, `released`, `captured`, `failed`
+- Alerting signals (logs-based metrics recommended):
+    - `alertType == PAYMENT_RELEASE_FAILED`
+    - `alertType == PAYMENT_CAPTURE_FAILED`
+    - `alertType == PAYMENT_RECONCILE_FAILED`
 
 ## Documentation Map
 

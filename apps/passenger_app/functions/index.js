@@ -1,5 +1,6 @@
 const { onDocumentCreated, onDocumentUpdated } = require("firebase-functions/v2/firestore");
 const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https");
+const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { defineSecret, defineString } = require("firebase-functions/params");
 const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
@@ -613,6 +614,68 @@ function toStripeCancellationReason(reason) {
   return "requested_by_customer";
 }
 
+function toDateOrNull(value) {
+  if (!value) {
+    return null;
+  }
+
+  if (typeof value?.toDate === "function") {
+    return value.toDate();
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+async function captureOrMarkPaidPaymentIntent({ stripe, paymentIntentId, orderNumber }) {
+  const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+  if (intent.status === "requires_capture") {
+    const capturedIntent = await stripe.paymentIntents.capture(paymentIntentId);
+    await updateBookingPaymentState({
+      orderNumber,
+      paymentStatus: "paid",
+      transactionId: capturedIntent.id,
+    });
+
+    return {
+      status: "captured",
+      paymentIntentId: capturedIntent.id,
+      paymentIntentStatus: capturedIntent.status,
+    };
+  }
+
+  if (intent.status === "succeeded") {
+    await updateBookingPaymentState({
+      orderNumber,
+      paymentStatus: "paid",
+      transactionId: intent.id,
+    });
+
+    return {
+      status: "paid",
+      paymentIntentId: intent.id,
+      paymentIntentStatus: intent.status,
+    };
+  }
+
+  if (intent.status === "canceled") {
+    await updateBookingPaymentState({
+      orderNumber,
+      paymentStatus: "cancelled",
+      transactionId: intent.id,
+    });
+
+    return {
+      status: "cancelled",
+      paymentIntentId: intent.id,
+      paymentIntentStatus: intent.status,
+    };
+  }
+
+  throw new Error(`Unsupported PaymentIntent status for capture: ${intent.status}`);
+}
+
 async function cancelOrRefundPaymentIntent({ stripe, paymentIntentId, orderNumber, reason }) {
   let intent;
   try {
@@ -673,8 +736,7 @@ async function cancelOrRefundPaymentIntent({ stripe, paymentIntentId, orderNumbe
     }
   }
 
-  // Payment is automatically captured on successful confirmation.
-  // No manual capture needed; just mark as paid via webhook event.
+  // For uncaptured/manual intents, canceling releases the authorization hold.
   if (
     intent.status === "requires_capture" ||
     intent.status === "requires_payment_method" ||
@@ -787,6 +849,7 @@ exports.releasePaymentOnBookingRejected = onDocumentUpdated(
       });
     } catch (error) {
       logger.error("Failed to release/refund payment for rejected booking", {
+        alertType: "PAYMENT_RELEASE_FAILED",
         bookingId: event.params.bookingId,
         paymentIntentId,
         orderNumber,
@@ -837,48 +900,22 @@ exports.capturePaymentOnBookingCompleted = onDocumentUpdated(
     const stripe = new Stripe(secretKey);
 
     try {
-      const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-      if (intent.status === "requires_capture") {
-        const capturedIntent = await stripe.paymentIntents.capture(paymentIntentId);
-        await updateBookingPaymentState({
-          orderNumber,
-          paymentStatus: "paid",
-          transactionId: capturedIntent.id,
-        });
-
-        logger.info("Auto-captured payment for completed booking", {
-          bookingId: event.params.bookingId,
-          paymentIntentId: capturedIntent.id,
-          orderNumber,
-          status: capturedIntent.status,
-        });
-        return;
-      }
-
-      if (intent.status === "succeeded") {
-        await updateBookingPaymentState({
-          orderNumber,
-          paymentStatus: "paid",
-          transactionId: intent.id,
-        });
-
-        logger.info("Payment already captured for completed booking", {
-          bookingId: event.params.bookingId,
-          paymentIntentId: intent.id,
-          orderNumber,
-        });
-        return;
-      }
-
-      logger.warn("Completed booking has non-capturable payment status", {
-        bookingId: event.params.bookingId,
-        paymentIntentId: intent.id,
+      const result = await captureOrMarkPaidPaymentIntent({
+        stripe,
+        paymentIntentId,
         orderNumber,
-        paymentIntentStatus: intent.status,
+      });
+
+      logger.info("Payment reconciliation for completed booking succeeded", {
+        bookingId: event.params.bookingId,
+        paymentIntentId: result.paymentIntentId,
+        orderNumber,
+        outcome: result.status,
+        paymentIntentStatus: result.paymentIntentStatus,
       });
     } catch (error) {
       logger.error("Auto-capture on booking completion failed", {
+        alertType: "PAYMENT_CAPTURE_FAILED",
         bookingId: event.params.bookingId,
         paymentIntentId,
         orderNumber,
@@ -915,27 +952,26 @@ exports.capturePaymentIntent = onCall(
     const stripe = new Stripe(secretKey);
 
     try {
-      const intent = await stripe.paymentIntents.capture(paymentIntentId);
-
-      await updateBookingPaymentState({
+      const result = await captureOrMarkPaidPaymentIntent({
+        stripe,
+        paymentIntentId,
         orderNumber,
-        paymentStatus: "paid",
-        transactionId: intent.id,
       });
 
       logger.info("Stripe payment intent captured", {
-        paymentIntentId: intent.id,
+        paymentIntentId: result.paymentIntentId,
         orderNumber,
-        status: intent.status,
+        status: result.paymentIntentStatus,
+        outcome: result.status,
       });
 
       return {
         status: "captured",
-        paymentIntentId: intent.id,
-        amountCaptured: intent.amount_received,
+        paymentIntentId: result.paymentIntentId,
       };
     } catch (error) {
       logger.error("Stripe payment intent capture failed", {
+        alertType: "PAYMENT_CAPTURE_FAILED",
         paymentIntentId,
         message: error?.message || "Unknown Stripe error",
         orderNumber,
@@ -1054,6 +1090,7 @@ exports.releasePaymentOnBookingCancelled = onDocumentUpdated(
       const errorMessage = String(error?.message || error || "Unknown error");
       const errorCode = String(error?.code || error?.type || "UNKNOWN");
       logger.error("Failed to release/refund payment for cancelled booking", {
+        alertType: "PAYMENT_RELEASE_FAILED",
         bookingId: event.params.bookingId,
         paymentIntentId,
         orderNumber,
@@ -1061,5 +1098,95 @@ exports.releasePaymentOnBookingCancelled = onDocumentUpdated(
         errorMessage,
       });
     }
+  }
+);
+
+exports.reconcileStaleAuthorizedPayments = onSchedule(
+  {
+    schedule: "every 30 minutes",
+    timeZone: "Asia/Kuala_Lumpur",
+    region: "asia-southeast1",
+    secrets: [STRIPE_SECRET_KEY],
+  },
+  async () => {
+    const secretKey = STRIPE_SECRET_KEY.value();
+    if (!secretKey || !secretKey.trim()) {
+      logger.error("reconcileStaleAuthorizedPayments missing STRIPE_SECRET_KEY", {
+        alertType: "PAYMENT_RECONCILE_FAILED",
+      });
+      return;
+    }
+
+    const stripe = new Stripe(secretKey);
+    const staleCutoffMs = Date.now() - 30 * 60 * 1000;
+
+    const snapshot = await db
+      .collection(COLLECTIONS.bookings)
+      .where(BOOKING_FIELDS.paymentStatus, "==", "authorized")
+      .limit(200)
+      .get();
+
+    let released = 0;
+    let captured = 0;
+    let skipped = 0;
+    let failed = 0;
+
+    for (const doc of snapshot.docs) {
+      const booking = doc.data() || {};
+      const bookingId = doc.id;
+      const status = String(booking[BOOKING_FIELDS.status] || "").trim().toLowerCase();
+      const paymentIntentId = String(booking[BOOKING_FIELDS.transactionId] || "").trim();
+      const orderNumber = String(booking[BOOKING_FIELDS.orderNumber] || "").trim();
+      const updatedAt = toDateOrNull(booking[BOOKING_FIELDS.updatedAt]);
+      const isStale = updatedAt ? updatedAt.getTime() <= staleCutoffMs : true;
+
+      if (!paymentIntentId || !orderNumber || !isStale) {
+        skipped += 1;
+        continue;
+      }
+
+      try {
+        if (status === "cancelled" || status === "rejected") {
+          await cancelOrRefundPaymentIntent({
+            stripe,
+            paymentIntentId,
+            orderNumber,
+            reason: "requested_by_customer",
+          });
+          released += 1;
+          continue;
+        }
+
+        if (status === "completed") {
+          await captureOrMarkPaidPaymentIntent({
+            stripe,
+            paymentIntentId,
+            orderNumber,
+          });
+          captured += 1;
+          continue;
+        }
+
+        skipped += 1;
+      } catch (error) {
+        failed += 1;
+        logger.error("Payment reconciliation failed for booking", {
+          alertType: "PAYMENT_RECONCILE_FAILED",
+          bookingId,
+          orderNumber,
+          paymentIntentId,
+          status,
+          message: error?.message || "Unknown Stripe error",
+        });
+      }
+    }
+
+    logger.info("Payment reconciliation run completed", {
+      scanned: snapshot.size,
+      released,
+      captured,
+      skipped,
+      failed,
+    });
   }
 );
