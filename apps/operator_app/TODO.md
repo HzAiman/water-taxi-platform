@@ -24,7 +24,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
   - [x] Option B not adopted for current dispatch model
 - [x] Prevent booking race conditions when multiple operators tap Accept simultaneously
   - [x] Use transaction/atomic guard to ensure only one operator can claim `pending`
-- [x] Add clear â€œMy Active Bookingâ€ vs â€œAvailable Booking Queueâ€ sections
+- [x] Add clear "My Active Booking" vs "Available Booking Queue" sections
 
 ### P1: Firestore Contract + Rules (Critical)
 - [x] Finalize shared booking state machine used by both apps:
@@ -91,7 +91,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 
 ## Suggested Next Delivery Order
 
-1. Re-run end-to-end reliability validation under concurrent dispatch load.
+1. Re-run end-to-end reliability validation under concurrent dispatch load and payment reconciliation paths.
 2. Add production-safe admin operations path (server-authorized cleanup instead of client debug actions).
 3. Add release diagnostics policy (what telemetry is kept, where it is surfaced, and who can access it).
 4. Backfill additional integration scenarios for dispatch contention and intermittent network failures.
@@ -133,6 +133,8 @@ Plan: implement river navigation as a cross-app roadmap with Firestore-backed co
 - [x] Client-side stale cleanup writes removed from Firestore rules; debug page now provides preview-only guidance for server-admin cleanup.
 - [x] Operator Ride / Transaction Summary added with period metrics, searchable/filterable history, and saved statement management.
 - [x] Income statement export is PDF-only.
+- [x] Cross-app payment backend upgraded to Node.js 22 and latest Firebase Functions/Admin SDK track.
+- [x] Cross-app payment release path fixed for Stripe cancellation reason enums.
 
 ## Emulator Test Run (Optional)
 
@@ -154,7 +156,7 @@ Plan: implement river navigation as a cross-app roadmap with Firestore-backed co
 - [ ] Add configurable auto-pause policy after repeated reject/no-start behavior
 
 ### Reliability and Production Ops
-- [ ] Add Cloud Function/runtime dependency upgrade plan (Node runtime and firebase-functions latest)
+- [x] Add Cloud Function/runtime dependency upgrade plan (Node runtime and firebase-functions latest)
 - [ ] Add synthetic monitoring for push delivery and booking transition SLA breaches
 - [ ] Add incident dashboard for live queue health, stuck bookings, and retry outcomes
 

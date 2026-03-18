@@ -21,6 +21,7 @@ The app is now refactored to a repository + view model architecture with Provide
   - `pending -> accepted`
   - `accepted -> on_the_way`
   - `on_the_way -> completed`
+- Reject and cancel terminal paths are reconciled by backend payment release/refund triggers.
 - Shared top-card notifications for welcome, info, success, offline, and error states.
 
 ### Notifications
@@ -235,7 +236,7 @@ flutter test
 This app is functionally stable for core operator flow but not production-ready. Open work includes:
 
 - cross-app integration/E2E lifecycle tests with passenger app
-- stronger observability/logging for transition failures
+- stronger operator-facing observability for transition failures
 - hardened Firestore rule/index validation in production-like environments
 - queue UX polish under heavy concurrent demand
 

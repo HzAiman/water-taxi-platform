@@ -14,7 +14,7 @@ The codebase is organized around one cross-app goal: keep passenger and operator
 water-taxi-platform/
 |-- apps/
 |   |-- passenger_app/
-|   |   `-- functions/   # Cloud Functions backend (push notifications)
+|   |   `-- functions/   # Cloud Functions backend (payments, reconciliation, push notifications)
 |   `-- operator_app/
 |-- packages/
 |   `-- water_taxi_shared/
@@ -28,7 +28,8 @@ Each app is a standalone Flutter project with its own Firebase config and featur
 ### Passenger app
 - Phone number authentication with registration for new users.
 - Jetty-to-jetty booking flow with fare precheck.
-- Payment step that writes booking documents to Firestore.
+- Hold-first payment flow (Stripe manual capture).
+- Attempt-scoped idempotency to prevent stale PaymentIntent reuse.
 - Live tracking screen that reacts to booking status updates.
 - Current-booking resume card on the home screen.
 - Booking history and account management in profile.
@@ -62,6 +63,13 @@ Passenger cancellation is also supported:
 
 ```text
 pending/accepted/on_the_way -> cancelled
+```
+
+Payment lifecycle (shared backend contract):
+
+```text
+authorized (hold) -> paid (capture on completed)
+authorized -> cancelled/refunded (reject/cancel/reconciliation)
 ```
 
 Reject and dispatch behavior are implemented using `pending + rejectedBy[]`: the booking stays `pending` when an operator rejects it so that another operator can claim it. The full `BookingStatus` enum also covers `rejected` and `unknown` for edge-case handling.
@@ -219,7 +227,7 @@ Use this quick checklist before each release cut and after backend payment chang
 
 ## Status
 
-Core flows are implemented and refactored away from UI-embedded business logic. The full push notification pipeline is live: FCM token registration, two deployed Cloud Functions (Gen 2, `asia-southeast1`), in-app foreground alerts, background OS notifications, and notification tap deep-link navigation in both apps.
+Core flows are implemented and refactored away from UI-embedded business logic. The full push notification pipeline is live: FCM token registration, deployed Cloud Functions (Gen 2, `asia-southeast1`), in-app foreground alerts, background OS notifications, and notification tap deep-link navigation in both apps.
 
-The workspace is still not production-ready. Main unfinished areas are payment reliability, operator ID governance monitoring, runtime/dependency upgrades for functions, and full end-to-end integration testing across both apps.
+The workspace is still not production-ready. Main unfinished areas are alerting/dashboard polish for payment operations, operator ID governance monitoring, and full end-to-end integration testing across both apps.
 

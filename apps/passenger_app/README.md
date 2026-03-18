@@ -16,13 +16,15 @@ The app is now refactored to repository + view model layers with Provider, and u
 - Choose adult and child passenger counts.
 - Validate route and fare availability before payment.
 - Prevent duplicate bookings when the user already has an active booking.
-- Create booking documents in Firestore during the payment flow.
+- Authorize payment hold first, then create booking documents in Firestore.
+- Use attempt-scoped idempotency keys to avoid stale PaymentIntent reuse on retries.
 - Keep booking schema aligned with operator app via shared constants/models.
 
 ### Tracking and recovery
 - Reopen the active booking directly from the home screen.
 - Stream booking status updates from Firestore in real time.
 - Support passenger cancellation for active bookings.
+- Trigger backend release/refund path for cancelled and rejected bookings.
 - Show booking history with live updates and filters.
 
 ### Notifications
@@ -65,7 +67,7 @@ lib/
         `-- passenger_notification_coordinator.dart
 ```
 
-The `functions/` folder at the root of this app contains the Cloud Functions backend that sends FCM push notifications for booking events.
+The `functions/` folder at the root of this app contains the Cloud Functions backend for payment lifecycle, reconciliation, and FCM push notifications.
 
 Key screens:
 
@@ -120,6 +122,7 @@ Notes:
 - `operatorId` is the only assignment field used for booking ownership.
 - `routeKey` is deprecated and no longer written by passenger booking creation.
 - Booking creation expects hold-first payment state (`paymentStatus = authorized`).
+- Backend reconciles stale `authorized` bookings on schedule to release or capture terminal bookings safely.
 
 Current lifecycle states already handled in the passenger UI:
 
@@ -215,6 +218,7 @@ flutter run
 - `app.dart` routes authenticated users to the main shell and unauthenticated users to phone login.
 - Home/payment/tracking/profile screens now delegate business logic to view models and repositories.
 - Home screen booking is gated by route validity, passenger count, fare existence, and active-booking checks.
+- Payment idempotency keys are attempt-scoped and amount-aware to reduce duplicate/invalid reuse errors.
 - Top-of-screen in-app notifications are centralized in `core/widgets/top_alert.dart`.
 - `LocalNotificationService` manages OS-level notifications and exposes a tap handler for deep-link routing.
 - `PassengerNotificationCoordinator` seeds from the current booking snapshot and then diffs subsequent stream events to decide when to fire a notification.
@@ -247,7 +251,7 @@ flutter test
 
 This app is not production-ready yet. Remaining work includes:
 
-- payment reliability and idempotency hardening
+- payment observability dashboard and alert policy finalization
 - richer passenger UX for reject/requeue/assignment delay scenarios
 - stricter Firestore rules and indexes
 - broader widget and integration test coverage (beyond current view model suite)

@@ -34,16 +34,20 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 - [x] Add/verify Firestore indexes for passenger queries (`userId`, `status`, `createdAt`, `updatedAt`)
 
 ### P1: Payment and Booking Commit Reliability
-- [ ] Replace simulated payment completion with real payment integration strategy
-	- [ ] Success/failure/cancel states
-	- [ ] Retry and idempotency handling
-	- [ ] Post-payment reconciliation to avoid orphan bookings
-- [ ] Prevent duplicate booking document creation on repeated taps/network retries
+- [x] Replace simulated payment completion with real payment integration strategy
+	- [x] Success/failure/cancel states
+	- [x] Retry and idempotency handling
+	- [x] Post-payment reconciliation to avoid orphan bookings
+- [x] Prevent duplicate booking document creation on repeated taps/network retries
 
 Progress notes:
 - [x] Added gateway-ready payment abstraction (`PaymentGatewayService`) and wired it into `PaymentViewModel` before booking creation.
 - [x] Added temporary simulated external adapter (`SimulatedExternalPaymentGatewayService`) for current flows while real provider API/SDK is pending.
 - [x] Added payment outcome coverage in tests (success/failure/cancel) with booking-creation guard when payment is not successful.
+- [x] Switched to Stripe hold-first/manual capture flow (`authorized -> paid` on completion).
+- [x] Added attempt-scoped idempotency keys to avoid stale PaymentIntent reuse on retries.
+- [x] Added backend release/refund triggers for cancelled and rejected bookings.
+- [x] Added scheduled reconciliation (`reconcileStaleAuthorizedPayments`) every 30 minutes.
 
 ### P2: UX + Recovery Quality
 - [ ] Improve tracking screen resilience when booking doc is delayed/missing
@@ -82,11 +86,11 @@ Progress notes:
 
 ## Suggested Next Delivery Order
 
-1. Implement payment reliability and idempotent booking commit safeguards.
-2. Expand integration coverage for failure/retry branches.
-3. Complete release hardening for Android/iOS production builds.
-4. Harden account lifecycle handling (reauth + retention policy).
-5. Improve recovery UX for delayed assignment and transient network failures.
+1. Expand integration coverage for failure/retry and reconciliation branches.
+2. Complete release hardening for Android/iOS production builds.
+3. Harden account lifecycle handling (reauth + retention policy).
+4. Improve recovery UX for delayed assignment and transient network failures.
+5. Add production alert routing and on-call runbook for payment failures.
 
 ## Cross-App Roadmap: River Navigation Delivery (14 Jetties)
 
@@ -126,7 +130,7 @@ Plan: implement river navigation as a cross-app roadmap with Firestore-backed co
 
 ### Booking and Payment Governance
 - [ ] Add payment reconciliation dashboard for mismatches between booking status and provider status
-- [ ] Add automatic stale-authorization cleanup report for long-running uncaptured payments
+- [x] Add automatic stale-authorization cleanup report for long-running uncaptured payments
 - [ ] Add booking fraud/abuse heuristics (rapid repeat bookings, cancellation spikes)
 
 ### Reliability and Operations
