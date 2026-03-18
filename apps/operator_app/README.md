@@ -92,7 +92,7 @@ This app reads shared booking documents created by the passenger app and current
 
 ```text
 status
-driverId
+operatorId
 origin
 destination
 passengerCount

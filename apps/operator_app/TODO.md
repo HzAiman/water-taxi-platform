@@ -33,7 +33,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
   - [x] `pending -> rejected` not used; replaced by `pending + rejectedBy[]`
 - [x] Confirm ownership/permission model for each transition
 - [x] Extend Firestore rules safely for any new fields used by reject/dispatch flow
-- [x] Add indexes for production queries used by operator queue (status + driverId + createdAt)
+- [x] Add indexes for production queries used by operator queue (status + operatorId + createdAt)
 
 ### P1: Operator Home UX for Operations
 - [x] Show live queue stats (pending count, active trip count)

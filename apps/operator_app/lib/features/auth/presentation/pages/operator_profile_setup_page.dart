@@ -1,15 +1,21 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
+import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:provider/provider.dart';
 
 class OperatorProfileSetupPage extends StatefulWidget {
-  const OperatorProfileSetupPage({super.key, required this.uid, required this.email});
+  const OperatorProfileSetupPage({
+    super.key,
+    required this.uid,
+    required this.email,
+  });
 
   final String uid;
   final String email;
 
   @override
-  State<OperatorProfileSetupPage> createState() => _OperatorProfileSetupPageState();
+  State<OperatorProfileSetupPage> createState() =>
+      _OperatorProfileSetupPageState();
 }
 
 class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
@@ -30,16 +36,20 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
 
     setState(() => _isSaving = true);
     try {
-      await FirebaseFirestore.instance.collection('operators').doc(widget.uid).set({
-        'name': _nameController.text.trim(),
-        'operatorId': _idController.text.trim(),
-        'email': widget.email,
-        'createdAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final operatorRepo = context.read<OperatorRepository>();
+      await operatorRepo.saveProfile(
+        uid: widget.uid,
+        name: _nameController.text,
+        email: widget.email,
+        operatorId: _idController.text,
+      );
     } catch (e) {
       if (mounted) {
-        showTopError(context, message: 'Failed to save profile: ${e.toString()}', title: 'Profile setup failed');
+        showTopError(
+          context,
+          message: 'Failed to save profile: ${e.toString()}',
+          title: 'Profile setup failed',
+        );
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -89,17 +99,17 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
                   'First-time setup',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        color: const Color(0xFF1A1A1A),
-                      ),
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1A1A1A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'Please provide your operator details to continue.',
                   textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey[600],
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
                 ),
                 const SizedBox(height: 32),
                 TextFormField(
@@ -153,7 +163,9 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
                             width: 24,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
                             ),
                           )
                         : const Text(

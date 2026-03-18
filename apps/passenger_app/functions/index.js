@@ -29,7 +29,6 @@ const BOOKING_FIELDS = {
   origin: "origin",
   destination: "destination",
   operatorId: "operatorId",
-  legacyDriverId: "driverId",
   updatedAt: "updatedAt",
   passengerCount: "passengerCount",
   paymentStatus: "paymentStatus",
@@ -399,8 +398,7 @@ exports.notifyBookingStatusChanged = onDocumentUpdated(
     const origin = after[BOOKING_FIELDS.origin] || "Unknown origin";
     const destination = after[BOOKING_FIELDS.destination] || "Unknown destination";
     const userId = after[BOOKING_FIELDS.userId];
-    const operatorId =
-      after[BOOKING_FIELDS.operatorId] || after[BOOKING_FIELDS.legacyDriverId];
+    const operatorId = after[BOOKING_FIELDS.operatorId];
      const passengerCount = String(after[BOOKING_FIELDS.passengerCount] || 1);
 
     const passengerToken = userId

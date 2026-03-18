@@ -110,7 +110,7 @@ totalFare
 paymentMethod
 paymentStatus
 status
-driverId
+operatorId
 createdAt
 updatedAt
 ```

@@ -25,8 +25,6 @@ abstract final class BookingFields {
   static const String transactionId = 'transactionId';
   static const String status = 'status';
   static const String operatorId = 'operatorId';
-  @Deprecated('Use operatorId. Kept as legacy alias for old code paths.')
-  static const String driverId = operatorId;
   static const String rejectedBy = 'rejectedBy';
   static const String createdAt = 'createdAt';
   static const String updatedAt = 'updatedAt';
@@ -46,6 +44,7 @@ abstract final class UserFields {
 /// Field name constants for the `operators` Firestore collection.
 abstract final class OperatorFields {
   static const String operatorId = 'operatorId';
+  static const String operatorIdKey = 'operatorIdKey';
   static const String name = 'name';
   static const String email = 'email';
   static const String isOnline = 'isOnline';

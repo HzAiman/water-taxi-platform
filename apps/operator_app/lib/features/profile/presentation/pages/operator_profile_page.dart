@@ -1,10 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
+import 'package:operator_app/data/repositories/operator_repository.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_presence_debug_page.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_transaction_summary_page.dart';
@@ -36,14 +36,18 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
       return;
     }
     try {
-      final snap = await FirebaseFirestore.instance.collection('operators').doc(user.uid).get();
-      final data = snap.data() ?? {};
-      _nameController.text = (data['name'] as String?) ?? '';
-      _idController.text = (data['operatorId'] as String?) ?? '';
-      _email = user.email ?? (data['email'] as String? ?? '');
+      final operatorRepo = context.read<OperatorRepository>();
+      final op = await operatorRepo.getOperator(user.uid);
+      _nameController.text = op?.name ?? '';
+      _idController.text = op?.operatorId ?? '';
+      _email = user.email ?? op?.email ?? '';
     } catch (_) {
       if (!mounted) return;
-      showTopError(context, message: 'Failed to load profile', title: 'Profile error');
+      showTopError(
+        context,
+        message: 'Failed to load profile',
+        title: 'Profile error',
+      );
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -264,7 +268,9 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            _nameController.text.isNotEmpty ? _nameController.text : 'Operator',
+                            _nameController.text.isNotEmpty
+                                ? _nameController.text
+                                : 'Operator',
                             style: const TextStyle(
                               fontSize: 24,
                               fontWeight: FontWeight.bold,
@@ -281,7 +287,9 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            _idController.text.isNotEmpty ? 'ID: ${_idController.text}' : 'ID: N/A',
+                            _idController.text.isNotEmpty
+                                ? 'ID: ${_idController.text}'
+                                : 'ID: N/A',
                             style: const TextStyle(
                               fontSize: 14,
                               color: Colors.white70,
@@ -291,9 +299,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                       ),
                     ),
                   ),
-                  Expanded(
-                    child: _buildMainProfileMenu(),
-                  ),
+                  Expanded(child: _buildMainProfileMenu()),
                 ],
               ),
       ),
@@ -305,10 +311,12 @@ class _OperatorAccountManagementRoutePage extends StatefulWidget {
   const _OperatorAccountManagementRoutePage();
 
   @override
-  State<_OperatorAccountManagementRoutePage> createState() => _OperatorAccountManagementRoutePageState();
+  State<_OperatorAccountManagementRoutePage> createState() =>
+      _OperatorAccountManagementRoutePageState();
 }
 
-class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountManagementRoutePage> {
+class _OperatorAccountManagementRoutePageState
+    extends State<_OperatorAccountManagementRoutePage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _idController = TextEditingController();
@@ -328,17 +336,17 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
       return;
     }
 
-    final snap = await FirebaseFirestore.instance.collection('operators').doc(user.uid).get();
-    final data = snap.data() ?? {};
+    final operatorRepo = context.read<OperatorRepository>();
+    final op = await operatorRepo.getOperator(user.uid);
 
     if (!mounted) {
       return;
     }
 
     setState(() {
-      _nameController.text = (data['name'] as String?) ?? '';
-      _idController.text = (data['operatorId'] as String?) ?? '';
-      _emailController.text = user.email ?? (data['email'] as String? ?? '');
+      _nameController.text = op?.name ?? '';
+      _idController.text = op?.operatorId ?? '';
+      _emailController.text = user.email ?? op?.email ?? '';
     });
   }
 
@@ -357,12 +365,13 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
     });
 
     try {
-      await FirebaseFirestore.instance.collection('operators').doc(user.uid).set({
-        'name': _nameController.text.trim(),
-        'operatorId': _idController.text.trim(),
-        'email': _emailController.text.trim(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+      final operatorRepo = context.read<OperatorRepository>();
+      await operatorRepo.saveProfile(
+        uid: user.uid,
+        name: _nameController.text,
+        email: _emailController.text,
+        operatorId: _idController.text,
+      );
 
       if (!mounted) {
         return;
@@ -378,7 +387,11 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
         return;
       }
 
-      showTopError(context, message: 'Failed to update profile: ${e.toString()}', title: 'Profile update failed');
+      showTopError(
+        context,
+        message: 'Failed to update profile: ${e.toString()}',
+        title: 'Profile update failed',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -413,7 +426,11 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
               children: [
                 const Text(
                   'Full Name',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1A1A)),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A1A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -433,7 +450,11 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
                 const SizedBox(height: 20),
                 const Text(
                   'Operator ID',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1A1A)),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A1A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -453,7 +474,11 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
                 const SizedBox(height: 20),
                 const Text(
                   'Email Address',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF1A1A1A)),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF1A1A1A),
+                  ),
                 ),
                 const SizedBox(height: 8),
                 TextFormField(
@@ -467,10 +492,7 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
                 const SizedBox(height: 6),
                 const Text(
                   'Email is managed by your login account and cannot be changed here.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF666666),
-                  ),
+                  style: TextStyle(fontSize: 12, color: Color(0xFF666666)),
                 ),
                 const SizedBox(height: 28),
                 if (!_isEditing)
@@ -483,7 +505,10 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
                       },
                       child: const Text(
                         'Edit Profile',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   )
@@ -501,12 +526,17 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
                                   width: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
                                   ),
                                 )
                               : const Text(
                                   'Save Changes',
-                                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                         ),
                       ),
@@ -523,7 +553,11 @@ class _OperatorAccountManagementRoutePageState extends State<_OperatorAccountMan
                                 },
                           child: const Text(
                             'Cancel',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF0066CC)),
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF0066CC),
+                            ),
                           ),
                         ),
                       ),

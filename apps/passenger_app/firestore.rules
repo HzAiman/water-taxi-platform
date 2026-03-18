@@ -15,9 +15,24 @@ service cloud.firestore {
     }
 
     function bookingOperatorId(data) {
-      return data.keys().hasAny(['operatorId'])
-        ? data.operatorId
-        : data.driverId;
+      return data.operatorId;
+    }
+
+    function operatorClaimPath(operatorIdKey) {
+      return /databases/$(database)/documents/operator_id_claims/$(operatorIdKey);
+    }
+
+    function validOperatorProfile(data) {
+      return data.keys().hasAll(['name', 'operatorId', 'operatorIdKey', 'email'])
+        && data.operatorId is string
+        && data.operatorIdKey is string
+        && data.operatorIdKey == data.operatorId
+        && data.operatorIdKey.size() > 0;
+    }
+
+    function operatorClaimOwnedAfter(operatorIdKey) {
+      return existsAfter(operatorClaimPath(operatorIdKey))
+        && getAfter(operatorClaimPath(operatorIdKey)).data.uid == request.auth.uid;
     }
 
     function isAssignedOperator() {
@@ -50,7 +65,6 @@ service cloud.firestore {
         'transactionId',
         'status',
         'operatorId',
-        'driverId',
         'createdAt',
         'updatedAt'
       ]);
@@ -82,7 +96,6 @@ service cloud.firestore {
         'transactionId',
         'status',
         'operatorId',
-        'driverId',
         'rejectedBy',
         'createdAt',
         'updatedAt',
@@ -102,9 +115,33 @@ service cloud.firestore {
     match /operators/{operatorUid} {
       allow read: if isOwner(operatorUid);
       allow create: if isOwner(operatorUid)
-        && request.resource.data.keys().hasAll(['name', 'operatorId', 'email']);
-      allow update: if isOwner(operatorUid);
+        && validOperatorProfile(request.resource.data)
+        && operatorClaimOwnedAfter(request.resource.data.operatorIdKey);
+      allow update: if isOwner(operatorUid)
+        && validOperatorProfile(request.resource.data)
+        && operatorClaimOwnedAfter(request.resource.data.operatorIdKey);
       allow delete: if false;
+    }
+
+    match /operator_id_claims/{operatorIdKey} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && !exists(/databases/$(database)/documents/operator_id_claims/$(operatorIdKey))
+        && request.resource.data.keys().hasOnly(['uid', 'operatorId', 'operatorIdKey', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.operatorId is string
+        && request.resource.data.operatorIdKey is string
+        && request.resource.data.operatorIdKey == operatorIdKey
+        && request.resource.data.operatorIdKey == request.resource.data.operatorId;
+      allow update: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'operatorId', 'operatorIdKey', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.operatorIdKey == resource.data.operatorIdKey
+        && request.resource.data.operatorIdKey == operatorIdKey
+        && request.resource.data.operatorId is string
+        && request.resource.data.operatorIdKey == request.resource.data.operatorId;
+      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
     match /operator_presence/{operatorUid} {
@@ -165,7 +202,7 @@ service cloud.firestore {
         && request.resource.data.bookingId == resource.data.bookingId
         && (
           (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId', 'driverId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId'])
             &&
             resource.data.status == 'pending'
             && request.resource.data.status == 'accepted'
@@ -177,7 +214,7 @@ service cloud.firestore {
             )
           )
           || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId', 'driverId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId'])
             &&
             resource.data.status == 'accepted'
             && request.resource.data.status == 'on_the_way'
@@ -185,7 +222,7 @@ service cloud.firestore {
             && isAssignedOperator()
           )
           || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId', 'driverId', 'rejectedBy'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId', 'rejectedBy'])
             && resource.data.status == 'accepted'
             && request.resource.data.status == 'pending'
             && isAssignedOperator()
@@ -208,7 +245,7 @@ service cloud.firestore {
             )
           )
           || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId', 'driverId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorId'])
             &&
             resource.data.status == 'on_the_way'
             && request.resource.data.status == 'completed'

@@ -116,9 +116,8 @@ class BookingRepository {
         final status = BookingStatus.fromString(
           (data[BookingFields.status] ?? '').toString(),
         );
-        final assignedOperatorId =
-            (data[BookingFields.operatorId] ?? data['driverId'] ?? '')
-                .toString();
+        final assignedOperatorId = (data[BookingFields.operatorId] ?? '')
+            .toString();
         final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
         if (status != BookingStatus.pending) {
@@ -175,9 +174,8 @@ class BookingRepository {
         final status = BookingStatus.fromString(
           (data[BookingFields.status] ?? '').toString(),
         );
-        final assignedOperatorId =
-            (data[BookingFields.operatorId] ?? data['driverId'] ?? '')
-                .toString();
+        final assignedOperatorId = (data[BookingFields.operatorId] ?? '')
+            .toString();
         final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
         if (status != BookingStatus.pending || assignedOperatorId.isNotEmpty) {
@@ -241,9 +239,8 @@ class BookingRepository {
           final status = BookingStatus.fromString(
             (data[BookingFields.status] ?? '').toString(),
           );
-          final assignedOperatorId =
-              (data[BookingFields.operatorId] ?? data['driverId'] ?? '')
-                  .toString();
+          final assignedOperatorId = (data[BookingFields.operatorId] ?? '')
+              .toString();
           final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
           if (status != BookingStatus.accepted ||

@@ -30,15 +30,14 @@ class BookingModel {
     required this.paymentMethod,
     required this.paymentStatus,
     required this.status,
-    String? operatorId,
-    @Deprecated('Use operatorId instead.') String? driverId,
+    this.operatorId,
     required this.rejectedBy,
     this.orderNumber,
     this.transactionId,
     this.createdAt,
     this.updatedAt,
     this.cancelledAt,
-  }) : operatorId = operatorId ?? driverId;
+  });
 
   final String bookingId;
   final String userId;
@@ -69,9 +68,6 @@ class BookingModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? cancelledAt;
-
-  @Deprecated('Use operatorId instead.')
-  String? get driverId => operatorId;
 
   /// Creates a [BookingModel] from a raw Firestore document map.
   ///
@@ -110,8 +106,7 @@ class BookingModel {
       paymentMethod: _str(data['paymentMethod']),
       paymentStatus: _str(data['paymentStatus']),
       status: BookingStatus.fromString(_str(data['status'])),
-      operatorId:
-          data['operatorId']?.toString() ?? data['driverId']?.toString(),
+      operatorId: data['operatorId']?.toString(),
       rejectedBy: _strList(data['rejectedBy']),
       orderNumber: data['orderNumber']?.toString(),
       transactionId: data['transactionId']?.toString(),
@@ -145,7 +140,6 @@ class BookingModel {
     String? paymentStatus,
     BookingStatus? status,
     String? operatorId,
-    @Deprecated('Use operatorId instead.') String? driverId,
     List<String>? rejectedBy,
     String? orderNumber,
     String? transactionId,
@@ -176,7 +170,7 @@ class BookingModel {
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       status: status ?? this.status,
-      operatorId: operatorId ?? driverId ?? this.operatorId,
+      operatorId: operatorId ?? this.operatorId,
       rejectedBy: rejectedBy ?? this.rejectedBy,
       orderNumber: orderNumber ?? this.orderNumber,
       transactionId: transactionId ?? this.transactionId,

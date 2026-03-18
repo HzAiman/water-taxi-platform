@@ -14,7 +14,7 @@ This module contains the Cloud Functions backend that sends FCM push notificatio
 - **Condition:** booking `status` field changed
 - **Action:**
   - Send FCM to the passenger token in `user_devices/{userId}` with a data payload that includes `bookingId`, `status`, `origin`, `destination`, and `passengerCount` to support deep-link navigation.
-  - Send FCM to the assigned operator token in `operator_devices/{operatorUid}` if a `driverId` is present on the booking.
+  - Send FCM to the assigned operator token in `operator_devices/{operatorUid}` if an `operatorId` is present on the booking.
 
 ## Required Firestore collections
 
