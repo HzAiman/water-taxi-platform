@@ -6,6 +6,7 @@ abstract final class BookingFields {
   static const String userPhone = 'userPhone';
   static const String origin = 'origin';
   static const String destination = 'destination';
+  @Deprecated('No longer used for booking writes.')
   static const String routeKey = 'routeKey';
   static const String originCoords = 'originCoords';
   static const String destinationCoords = 'destinationCoords';
@@ -23,7 +24,9 @@ abstract final class BookingFields {
   static const String orderNumber = 'orderNumber';
   static const String transactionId = 'transactionId';
   static const String status = 'status';
-  static const String driverId = 'driverId';
+  static const String operatorId = 'operatorId';
+  @Deprecated('Use operatorId. Kept as legacy alias for old code paths.')
+  static const String driverId = operatorId;
   static const String rejectedBy = 'rejectedBy';
   static const String createdAt = 'createdAt';
   static const String updatedAt = 'updatedAt';

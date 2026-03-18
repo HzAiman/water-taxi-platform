@@ -9,7 +9,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 /// transactions. Start and complete use a lightweight retry wrapper.
 class BookingRepository {
   BookingRepository({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
@@ -20,26 +20,29 @@ class BookingRepository {
   Stream<List<BookingModel>> streamActiveBookings(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
-        .where(BookingFields.driverId, isEqualTo: operatorId)
+        .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(50)
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
-      final active = snap.docs
-          .map((d) => _fromDoc(d.id, d.data()))
-          .where((b) =>
-              b.status == BookingStatus.accepted ||
-              b.status == BookingStatus.onTheWay)
-          .toList()
-        ..sort((a, b) {
-          final at = a.updatedAt;
-          final bt = b.updatedAt;
-          if (at == null && bt == null) return 0;
-          if (at == null) return 1;
-          if (bt == null) return -1;
-          return bt.compareTo(at);
+          final active =
+              snap.docs
+                  .map((d) => _fromDoc(d.id, d.data()))
+                  .where(
+                    (b) =>
+                        b.status == BookingStatus.accepted ||
+                        b.status == BookingStatus.onTheWay,
+                  )
+                  .toList()
+                ..sort((a, b) {
+                  final at = a.updatedAt;
+                  final bt = b.updatedAt;
+                  if (at == null && bt == null) return 0;
+                  if (at == null) return 1;
+                  if (bt == null) return -1;
+                  return bt.compareTo(at);
+                });
+          return active;
         });
-      return active;
-    });
   }
 
   /// Streams all pending bookings (no driver assigned yet), ordered by
@@ -47,47 +50,50 @@ class BookingRepository {
   Stream<List<BookingModel>> streamPendingBookings() {
     return _db
         .collection(FirestoreCollections.bookings)
-        .where(BookingFields.status, isEqualTo: BookingStatus.pending.firestoreValue)
+        .where(
+          BookingFields.status,
+          isEqualTo: BookingStatus.pending.firestoreValue,
+        )
         .limit(100)
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
-      final pending = snap.docs
-          .map((d) => _fromDoc(d.id, d.data()))
-          .where((b) => b.driverId == null || b.driverId!.isEmpty)
-          .toList()
-        ..sort((a, b) {
-          final at = a.createdAt;
-          final bt = b.createdAt;
-          if (at == null && bt == null) return 0;
-          if (at == null) return 1;
-          if (bt == null) return -1;
-          return at.compareTo(bt);
+          final pending =
+              snap.docs
+                  .map((d) => _fromDoc(d.id, d.data()))
+                  .where((b) => b.operatorId == null || b.operatorId!.isEmpty)
+                  .toList()
+                ..sort((a, b) {
+                  final at = a.createdAt;
+                  final bt = b.createdAt;
+                  if (at == null && bt == null) return 0;
+                  if (at == null) return 1;
+                  if (bt == null) return -1;
+                  return at.compareTo(bt);
+                });
+          return pending;
         });
-      return pending;
-    });
   }
 
   /// Streams booking history associated with [operatorId], newest first.
   Stream<List<BookingModel>> streamOperatorBookingHistory(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
-        .where(BookingFields.driverId, isEqualTo: operatorId)
+        .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(500)
         .snapshots(includeMetadataChanges: true)
         .map((snap) {
-      final history = snap.docs
-          .map((d) => _fromDoc(d.id, d.data()))
-          .toList()
-        ..sort((a, b) {
-          final at = a.updatedAt ?? a.createdAt;
-          final bt = b.updatedAt ?? b.createdAt;
-          if (at == null && bt == null) return 0;
-          if (at == null) return 1;
-          if (bt == null) return -1;
-          return bt.compareTo(at);
+          final history =
+              snap.docs.map((d) => _fromDoc(d.id, d.data())).toList()
+                ..sort((a, b) {
+                  final at = a.updatedAt ?? a.createdAt;
+                  final bt = b.updatedAt ?? b.createdAt;
+                  if (at == null && bt == null) return 0;
+                  if (at == null) return 1;
+                  if (bt == null) return -1;
+                  return bt.compareTo(at);
+                });
+          return history;
         });
-      return history;
-    });
   }
 
   // ── Transactions ─────────────────────────────────────────────────────────
@@ -99,7 +105,9 @@ class BookingRepository {
   }) async {
     try {
       await _db.runTransaction((tx) async {
-        final ref = _db.collection(FirestoreCollections.bookings).doc(bookingId);
+        final ref = _db
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId);
         final snap = await tx.get(ref);
 
         if (!snap.exists) throw StateError('This booking no longer exists.');
@@ -108,14 +116,18 @@ class BookingRepository {
         final status = BookingStatus.fromString(
           (data[BookingFields.status] ?? '').toString(),
         );
-        final driverId = (data[BookingFields.driverId] ?? '').toString();
+        final assignedOperatorId =
+            (data[BookingFields.operatorId] ?? data['driverId'] ?? '')
+                .toString();
         final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
         if (status != BookingStatus.pending) {
           throw StateError('This booking is no longer pending.');
         }
-        if (driverId.isNotEmpty) {
-          throw StateError('This booking was already assigned to another operator.');
+        if (assignedOperatorId.isNotEmpty) {
+          throw StateError(
+            'This booking was already assigned to another operator.',
+          );
         }
         if (rejectedBy.contains(operatorId)) {
           throw StateError('You already rejected this booking.');
@@ -123,14 +135,18 @@ class BookingRepository {
 
         tx.update(ref, {
           BookingFields.status: BookingStatus.accepted.firestoreValue,
-          BookingFields.driverId: operatorId,
+          BookingFields.operatorId: operatorId,
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
         });
       });
 
       return const OperationSuccess('Booking accepted successfully.');
     } on StateError catch (e) {
-      return OperationFailure('Unable to accept booking', e.message, isInfo: true);
+      return OperationFailure(
+        'Unable to accept booking',
+        e.message,
+        isInfo: true,
+      );
     } catch (e) {
       return OperationFailure('Accept failed', 'Could not accept booking: $e');
     }
@@ -148,7 +164,9 @@ class BookingRepository {
       final onlineIds = await _loadOnlineOperatorIds();
 
       final fullyRejected = await _db.runTransaction<bool>((tx) async {
-        final ref = _db.collection(FirestoreCollections.bookings).doc(bookingId);
+        final ref = _db
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId);
         final snap = await tx.get(ref);
 
         if (!snap.exists) throw StateError('This booking no longer exists.');
@@ -157,10 +175,12 @@ class BookingRepository {
         final status = BookingStatus.fromString(
           (data[BookingFields.status] ?? '').toString(),
         );
-        final driverId = (data[BookingFields.driverId] ?? '').toString();
+        final assignedOperatorId =
+            (data[BookingFields.operatorId] ?? data['driverId'] ?? '')
+                .toString();
         final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
-        if (status != BookingStatus.pending || driverId.isNotEmpty) {
+        if (status != BookingStatus.pending || assignedOperatorId.isNotEmpty) {
           throw StateError('Only unassigned pending bookings can be rejected.');
         }
         if (rejectedBy.contains(operatorId)) {
@@ -191,7 +211,11 @@ class BookingRepository {
         'Booking rejected. It stays pending for other operators.',
       );
     } on StateError catch (e) {
-      return OperationFailure('Unable to reject booking', e.message, isInfo: true);
+      return OperationFailure(
+        'Unable to reject booking',
+        e.message,
+        isInfo: true,
+      );
     } catch (e) {
       return OperationFailure('Reject failed', 'Could not reject booking: $e');
     }
@@ -204,37 +228,50 @@ class BookingRepository {
     required String operatorId,
   }) async {
     try {
-      await _runWithRetry(() => _db.runTransaction((tx) async {
-            final ref =
-                _db.collection(FirestoreCollections.bookings).doc(bookingId);
-            final snap = await tx.get(ref);
+      await _runWithRetry(
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
 
-            if (!snap.exists) throw StateError('This booking no longer exists.');
+          if (!snap.exists) throw StateError('This booking no longer exists.');
 
-            final data = snap.data()!;
-            final status = BookingStatus.fromString(
-              (data[BookingFields.status] ?? '').toString(),
-            );
-            final driverId = (data[BookingFields.driverId] ?? '').toString();
-            final rejectedBy = _strList(data[BookingFields.rejectedBy]);
+          final data = snap.data()!;
+          final status = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          final assignedOperatorId =
+              (data[BookingFields.operatorId] ?? data['driverId'] ?? '')
+                  .toString();
+          final rejectedBy = _strList(data[BookingFields.rejectedBy]);
 
-            if (status != BookingStatus.accepted || driverId != operatorId) {
-              throw StateError('Only your accepted booking can be released.');
-            }
+          if (status != BookingStatus.accepted ||
+              assignedOperatorId != operatorId) {
+            throw StateError('Only your accepted booking can be released.');
+          }
 
-            tx.update(ref, {
-              BookingFields.status: BookingStatus.pending.firestoreValue,
-              BookingFields.driverId: null,
-              BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
-              BookingFields.updatedAt: FieldValue.serverTimestamp(),
-            });
-          }));
+          tx.update(ref, {
+            BookingFields.status: BookingStatus.pending.firestoreValue,
+            BookingFields.operatorId: null,
+            BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          });
+        }),
+      );
 
       return const OperationSuccess('Booking released back to the queue.');
     } on StateError catch (e) {
-      return OperationFailure('Unable to release booking', e.message, isInfo: true);
+      return OperationFailure(
+        'Unable to release booking',
+        e.message,
+        isInfo: true,
+      );
     } catch (e) {
-      return OperationFailure('Release failed', 'Could not release booking: $e');
+      return OperationFailure(
+        'Release failed',
+        'Could not release booking: $e',
+      );
     }
   }
 
@@ -242,23 +279,21 @@ class BookingRepository {
   Future<OperationResult> startTrip({
     required String bookingId,
     required String operatorId,
-  }) =>
-      _updateStatus(
-        bookingId: bookingId,
-        status: BookingStatus.onTheWay,
-        operatorId: operatorId,
-      );
+  }) => _updateStatus(
+    bookingId: bookingId,
+    status: BookingStatus.onTheWay,
+    operatorId: operatorId,
+  );
 
   /// Updates the booking status to `completed`.
   Future<OperationResult> completeTrip({
     required String bookingId,
     required String operatorId,
-  }) =>
-      _updateStatus(
-        bookingId: bookingId,
-        status: BookingStatus.completed,
-        operatorId: operatorId,
-      );
+  }) => _updateStatus(
+    bookingId: bookingId,
+    status: BookingStatus.completed,
+    operatorId: operatorId,
+  );
 
   // ── Batch operations ─────────────────────────────────────────────────────
 
@@ -267,7 +302,7 @@ class BookingRepository {
   Future<int> releaseAllAcceptedBookings(String operatorId) async {
     final snap = await _db
         .collection(FirestoreCollections.bookings)
-        .where(BookingFields.driverId, isEqualTo: operatorId)
+        .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(50)
         .get();
 
@@ -280,12 +315,14 @@ class BookingRepository {
 
     for (final doc in accepted) {
       final rejectedBy = _strList(doc.data()[BookingFields.rejectedBy]);
-      await _runWithRetry(() => doc.reference.update({
-            BookingFields.status: BookingStatus.pending.firestoreValue,
-            BookingFields.driverId: null,
-            BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
-            BookingFields.updatedAt: FieldValue.serverTimestamp(),
-          }));
+      await _runWithRetry(
+        () => doc.reference.update({
+          BookingFields.status: BookingStatus.pending.firestoreValue,
+          BookingFields.operatorId: null,
+          BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
+          BookingFields.updatedAt: FieldValue.serverTimestamp(),
+        }),
+      );
     }
 
     return accepted.length;
@@ -299,14 +336,16 @@ class BookingRepository {
     required String operatorId,
   }) async {
     try {
-      await _runWithRetry(() => _db
-          .collection(FirestoreCollections.bookings)
-          .doc(bookingId)
-          .update({
-        BookingFields.status: status.firestoreValue,
-        BookingFields.driverId: operatorId,
-        BookingFields.updatedAt: FieldValue.serverTimestamp(),
-      }));
+      await _runWithRetry(
+        () => _db
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId)
+            .update({
+              BookingFields.status: status.firestoreValue,
+              BookingFields.operatorId: operatorId,
+              BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            }),
+      );
 
       final label = status == BookingStatus.onTheWay ? 'started' : 'completed';
       return OperationSuccess('Trip $label successfully.');
@@ -335,7 +374,8 @@ class BookingRepository {
         if (attempt == maxAttempts) rethrow;
       } on FirebaseException catch (e) {
         lastError = e;
-        final retryable = e.code == 'unavailable' ||
+        final retryable =
+            e.code == 'unavailable' ||
             e.code == 'aborted' ||
             e.code == 'deadline-exceeded';
         if (!retryable || attempt == maxAttempts) rethrow;
@@ -351,8 +391,8 @@ class BookingRepository {
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
-    final cancelledAt =
-        (data[BookingFields.cancelledAt] as Timestamp?)?.toDate();
+    final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
+        ?.toDate();
 
     if (data[BookingFields.bookingId] == null) {
       data = {...data, BookingFields.bookingId: id};

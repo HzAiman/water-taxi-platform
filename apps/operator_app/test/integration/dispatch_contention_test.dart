@@ -6,66 +6,83 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
   group('Dispatch contention reliability', () {
-    test('concurrent accepts preserve a consistent claimed booking state', () async {
-      final firestore = FakeFirebaseFirestore();
-      final repo = BookingRepository(firestore: firestore);
-      const bookingId = 'booking-race-accept-1';
+    test(
+      'concurrent accepts preserve a consistent claimed booking state',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repo = BookingRepository(firestore: firestore);
+        const bookingId = 'booking-race-accept-1';
 
-      await _seedPendingBooking(
-        firestore,
-        bookingId: bookingId,
-        userId: 'user-race-1',
-      );
+        await _seedPendingBooking(
+          firestore,
+          bookingId: bookingId,
+          userId: 'user-race-1',
+        );
 
-      final results = await Future.wait([
-        repo.acceptBooking(bookingId: bookingId, operatorId: 'operator-A'),
-        repo.acceptBooking(bookingId: bookingId, operatorId: 'operator-B'),
-      ]);
+        final results = await Future.wait([
+          repo.acceptBooking(bookingId: bookingId, operatorId: 'operator-A'),
+          repo.acceptBooking(bookingId: bookingId, operatorId: 'operator-B'),
+        ]);
 
-      expect(results, hasLength(2));
+        expect(results, hasLength(2));
 
-      final snap = await firestore
-          .collection(FirestoreCollections.bookings)
-          .doc(bookingId)
-          .get();
+        final snap = await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId)
+            .get();
 
-      final data = snap.data()!;
-      expect(data[BookingFields.status], BookingStatus.accepted.firestoreValue);
-      expect(
-        data[BookingFields.driverId],
-        anyOf('operator-A', 'operator-B'),
-      );
-    });
+        final data = snap.data()!;
+        expect(
+          data[BookingFields.status],
+          BookingStatus.accepted.firestoreValue,
+        );
+        expect(
+          data[BookingFields.operatorId],
+          anyOf('operator-A', 'operator-B'),
+        );
+      },
+    );
 
-    test('all online operators rejecting transitions booking to rejected',
-        () async {
-      final firestore = FakeFirebaseFirestore();
-      final repo = BookingRepository(firestore: firestore);
-      const bookingId = 'booking-race-reject-1';
+    test(
+      'all online operators rejecting transitions booking to rejected',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repo = BookingRepository(firestore: firestore);
+        const bookingId = 'booking-race-reject-1';
 
-      await _seedPendingBooking(
-        firestore,
-        bookingId: bookingId,
-        userId: 'user-race-2',
-      );
-      await _seedOperatorPresence(firestore, 'operator-A', isOnline: true);
-      await _seedOperatorPresence(firestore, 'operator-B', isOnline: true);
+        await _seedPendingBooking(
+          firestore,
+          bookingId: bookingId,
+          userId: 'user-race-2',
+        );
+        await _seedOperatorPresence(firestore, 'operator-A', isOnline: true);
+        await _seedOperatorPresence(firestore, 'operator-B', isOnline: true);
 
-      await repo.rejectBooking(bookingId: bookingId, operatorId: 'operator-A');
-      await repo.rejectBooking(bookingId: bookingId, operatorId: 'operator-B');
+        await repo.rejectBooking(
+          bookingId: bookingId,
+          operatorId: 'operator-A',
+        );
+        await repo.rejectBooking(
+          bookingId: bookingId,
+          operatorId: 'operator-B',
+        );
 
-      final snap = await firestore
-          .collection(FirestoreCollections.bookings)
-          .doc(bookingId)
-          .get();
-      final data = snap.data()!;
+        final snap = await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId)
+            .get();
+        final data = snap.data()!;
 
-      expect(data[BookingFields.status], BookingStatus.rejected.firestoreValue);
-      expect(
-        (data[BookingFields.rejectedBy] as List).cast<String>(),
-        containsAll(['operator-A', 'operator-B']),
-      );
-    });
+        expect(
+          data[BookingFields.status],
+          BookingStatus.rejected.firestoreValue,
+        );
+        expect(
+          (data[BookingFields.rejectedBy] as List).cast<String>(),
+          containsAll(['operator-A', 'operator-B']),
+        );
+      },
+    );
 
     test('accept fails when booking is cancelled mid-dispatch', () async {
       final firestore = FakeFirebaseFirestore();
@@ -78,11 +95,14 @@ void main() {
         userId: 'user-race-3',
       );
 
-      await firestore.collection(FirestoreCollections.bookings).doc(bookingId).update({
-        BookingFields.status: BookingStatus.cancelled.firestoreValue,
-        BookingFields.updatedAt: FieldValue.serverTimestamp(),
-        BookingFields.cancelledAt: FieldValue.serverTimestamp(),
-      });
+      await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .update({
+            BookingFields.status: BookingStatus.cancelled.firestoreValue,
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            BookingFields.cancelledAt: FieldValue.serverTimestamp(),
+          });
 
       final result = await repo.acceptBooking(
         bookingId: bookingId,
@@ -109,7 +129,6 @@ Future<void> _seedPendingBooking(
     BookingFields.userPhone: '0123456789',
     BookingFields.origin: 'Jetty A',
     BookingFields.destination: 'Jetty B',
-    BookingFields.routeKey: 'jetty a__jetty b',
     BookingFields.originCoords: const GeoPoint(2.2000, 102.2500),
     BookingFields.destinationCoords: const GeoPoint(2.2100, 102.2600),
     BookingFields.adultCount: 1,
@@ -124,7 +143,7 @@ Future<void> _seedPendingBooking(
     BookingFields.paymentMethod: PaymentMethods.creditCard,
     BookingFields.paymentStatus: 'paid',
     BookingFields.status: BookingStatus.pending.firestoreValue,
-    BookingFields.driverId: null,
+    BookingFields.operatorId: null,
     BookingFields.rejectedBy: <String>[],
     BookingFields.createdAt: Timestamp.now(),
     BookingFields.updatedAt: Timestamp.now(),
@@ -140,7 +159,7 @@ Future<void> _seedOperatorPresence(
       .collection(FirestoreCollections.operatorPresence)
       .doc(operatorId)
       .set({
-    OperatorPresenceFields.isOnline: isOnline,
-    OperatorPresenceFields.updatedAt: Timestamp.now(),
-  });
+        OperatorPresenceFields.isOnline: isOnline,
+        OperatorPresenceFields.updatedAt: Timestamp.now(),
+      });
 }

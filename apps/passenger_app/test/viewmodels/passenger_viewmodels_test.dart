@@ -40,7 +40,9 @@ void main() {
       );
 
       await viewModel.init('user-1');
-      bookingRepo.emitActiveBooking(_sampleBooking(status: BookingStatus.pending));
+      bookingRepo.emitActiveBooking(
+        _sampleBooking(status: BookingStatus.pending),
+      );
       await Future<void>.delayed(Duration.zero);
 
       expect(viewModel.userName, 'Aiman');
@@ -72,14 +74,15 @@ void main() {
           childFare: 6.0,
         ),
       );
-      final viewModel = HomeViewModel(
-        userRepo: FakeUserRepository(),
-        jettyRepo: FakeJettyRepository(),
-        fareRepo: fareRepo,
-        bookingRepo: FakeBookingRepository(),
-      )
-        ..selectOrigin('Terminal A')
-        ..selectDestination('Terminal B');
+      final viewModel =
+          HomeViewModel(
+              userRepo: FakeUserRepository(),
+              jettyRepo: FakeJettyRepository(),
+              fareRepo: fareRepo,
+              bookingRepo: FakeBookingRepository(),
+            )
+            ..selectOrigin('Terminal A')
+            ..selectDestination('Terminal B');
 
       final fare = await viewModel.getFareForSelectedRoute();
 
@@ -225,53 +228,56 @@ void main() {
       expect(bookingRepo.lastCreatedParams, isNull);
     });
 
-    test('processPayment returns info failure when gateway is cancelled', () async {
-      final bookingRepo = FakeBookingRepository();
-      final viewModel = PaymentViewModel(
-        fareRepo: FakeFareRepository(
-          fare: const FareModel(
-            origin: 'Terminal A',
-            destination: 'Terminal B',
-            adultFare: 8,
-            childFare: 4,
+    test(
+      'processPayment returns info failure when gateway is cancelled',
+      () async {
+        final bookingRepo = FakeBookingRepository();
+        final viewModel = PaymentViewModel(
+          fareRepo: FakeFareRepository(
+            fare: const FareModel(
+              origin: 'Terminal A',
+              destination: 'Terminal B',
+              adultFare: 8,
+              childFare: 4,
+            ),
           ),
-        ),
-        jettyRepo: FakeJettyRepository(
-          jetties: const [
-            JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
-            JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
-          ],
-        ),
-        userRepo: FakeUserRepository(),
-        bookingRepo: bookingRepo,
-        paymentGateway: FakePaymentGatewayService(
-          result: const PaymentGatewayResult(
-            status: PaymentGatewayStatus.cancelled,
+          jettyRepo: FakeJettyRepository(
+            jetties: const [
+              JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+              JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+            ],
           ),
-        ),
-      );
+          userRepo: FakeUserRepository(),
+          bookingRepo: bookingRepo,
+          paymentGateway: FakePaymentGatewayService(
+            result: const PaymentGatewayResult(
+              status: PaymentGatewayStatus.cancelled,
+            ),
+          ),
+        );
 
-      await viewModel.loadFare(
-        origin: 'Terminal A',
-        destination: 'Terminal B',
-        adultCount: 1,
-        childCount: 0,
-      );
+        await viewModel.loadFare(
+          origin: 'Terminal A',
+          destination: 'Terminal B',
+          adultCount: 1,
+          childCount: 0,
+        );
 
-      final result = await viewModel.processPayment(
-        userId: 'user-1',
-        origin: 'Terminal A',
-        destination: 'Terminal B',
-        adultCount: 1,
-        childCount: 0,
-      );
+        final result = await viewModel.processPayment(
+          userId: 'user-1',
+          origin: 'Terminal A',
+          destination: 'Terminal B',
+          adultCount: 1,
+          childCount: 0,
+        );
 
-      expect(result, isA<OperationFailure>());
-      final failure = result as OperationFailure;
-      expect(failure.title, 'Payment cancelled');
-      expect(failure.isInfo, isTrue);
-      expect(bookingRepo.lastCreatedParams, isNull);
-    });
+        expect(result, isA<OperationFailure>());
+        final failure = result as OperationFailure;
+        expect(failure.title, 'Payment cancelled');
+        expect(failure.isInfo, isTrue);
+        expect(bookingRepo.lastCreatedParams, isNull);
+      },
+    );
   });
 
   group('BookingTrackingViewModel', () {
@@ -280,7 +286,9 @@ void main() {
       final viewModel = BookingTrackingViewModel(bookingRepo: bookingRepo);
 
       viewModel.startTracking('booking-1');
-      bookingRepo.emitTrackedBooking(_sampleBooking(status: BookingStatus.accepted));
+      bookingRepo.emitTrackedBooking(
+        _sampleBooking(status: BookingStatus.accepted),
+      );
       await Future<void>.delayed(Duration.zero);
 
       expect(viewModel.booking?.status, BookingStatus.accepted);
@@ -351,10 +359,7 @@ void main() {
       viewModel.startBookingHistoryStream('user-1');
       bookingRepo.emitHistory([
         _sampleBooking(status: BookingStatus.completed),
-        _sampleBooking(
-          id: 'booking-2',
-          status: BookingStatus.cancelled,
-        ),
+        _sampleBooking(id: 'booking-2', status: BookingStatus.cancelled),
       ]);
       await Future<void>.delayed(Duration.zero);
 
@@ -376,20 +381,10 @@ class FakeUserRepository extends UserRepository {
   Future<UserModel?> getUser(String uid) async => user;
 
   @override
-  Future<void> updateUser(
-    String uid, {
-    String? name,
-    String? email,
-  }) async {
+  Future<void> updateUser(String uid, {String? name, String? email}) async {
     updatedName = name;
     updatedEmail = email;
-    user = (user ??
-            UserModel(
-              uid: uid,
-              name: '',
-              email: '',
-              phoneNumber: '',
-            ))
+    user = (user ?? UserModel(uid: uid, name: '', email: '', phoneNumber: ''))
         .copyWith(name: name, email: email);
   }
 
@@ -401,13 +396,14 @@ class FakeUserRepository extends UserRepository {
 
 class FakeJettyRepository extends JettyRepository {
   FakeJettyRepository({List<JettyModel>? jetties})
-      : jetties = jetties ?? [],
-        super(firestore: FakeFirebaseFirestore());
+    : jetties = jetties ?? [],
+      super(firestore: FakeFirebaseFirestore());
 
   final List<JettyModel> jetties;
 
   @override
-  Future<List<JettyModel>> getAllJetties() async => List<JettyModel>.from(jetties);
+  Future<List<JettyModel>> getAllJetties() async =>
+      List<JettyModel>.from(jetties);
 
   @override
   Future<JettyModel?> getJettyByName(String name) async {
@@ -439,10 +435,10 @@ class FakeFareRepository extends FareRepository {
 
 class FakeBookingRepository extends BookingRepository {
   FakeBookingRepository()
-      : _trackedBookingController = StreamController<BookingModel?>.broadcast(),
-        _activeBookingController = StreamController<BookingModel?>.broadcast(),
-        _historyController = StreamController<List<BookingModel>>.broadcast(),
-        super(firestore: FakeFirebaseFirestore());
+    : _trackedBookingController = StreamController<BookingModel?>.broadcast(),
+      _activeBookingController = StreamController<BookingModel?>.broadcast(),
+      _historyController = StreamController<List<BookingModel>>.broadcast(),
+      super(firestore: FakeFirebaseFirestore());
 
   final StreamController<BookingModel?> _trackedBookingController;
   final StreamController<BookingModel?> _activeBookingController;
@@ -491,13 +487,13 @@ class FakeBookingRepository extends BookingRepository {
 }
 
 class FakePaymentGatewayService implements PaymentGatewayService {
-  FakePaymentGatewayService({
-    PaymentGatewayResult? result,
-  }) : _result = result ??
-            const PaymentGatewayResult(
-              status: PaymentGatewayStatus.success,
-              transactionId: 'txn-test-1',
-            );
+  FakePaymentGatewayService({PaymentGatewayResult? result})
+    : _result =
+          result ??
+          const PaymentGatewayResult(
+            status: PaymentGatewayStatus.success,
+            transactionId: 'txn-test-1',
+          );
 
   final PaymentGatewayResult _result;
   PaymentGatewayRequest? lastRequest;
@@ -559,7 +555,7 @@ BookingModel _sampleBooking({
     paymentMethod: PaymentMethods.creditCard,
     paymentStatus: 'paid',
     status: status,
-    driverId: null,
+    operatorId: null,
     rejectedBy: const [],
     createdAt: DateTime(2026, 3, 15, 10, 30),
     updatedAt: DateTime(2026, 3, 15, 10, 35),

@@ -13,167 +13,169 @@ import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
-  test('integration: booking lifecycle syncs across passenger viewmodels', () async {
-    final setup = await _createSetup();
-    final firestore = setup.firestore;
-    final homeVm = setup.homeVm;
-    final paymentVm = setup.paymentVm;
-    final trackingVm = setup.trackingVm;
-    final profileVm = setup.profileVm;
+  test(
+    'integration: booking lifecycle syncs across passenger viewmodels',
+    () async {
+      final setup = await _createSetup();
+      final firestore = setup.firestore;
+      final homeVm = setup.homeVm;
+      final paymentVm = setup.paymentVm;
+      final trackingVm = setup.trackingVm;
+      final profileVm = setup.profileVm;
 
-    await homeVm.init('user-1');
-    homeVm.selectOrigin('Jetty A');
-    homeVm.selectDestination('Jetty B');
+      await homeVm.init('user-1');
+      homeVm.selectOrigin('Jetty A');
+      homeVm.selectDestination('Jetty B');
 
-    await paymentVm.loadFare(
-      origin: 'Jetty A',
-      destination: 'Jetty B',
-      adultCount: 2,
-      childCount: 1,
-    );
+      await paymentVm.loadFare(
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        adultCount: 2,
+        childCount: 1,
+      );
 
-    final bookingResult = await paymentVm.processPayment(
-      userId: 'user-1',
-      origin: 'Jetty A',
-      destination: 'Jetty B',
-      adultCount: 2,
-      childCount: 1,
-    );
+      final bookingResult = await paymentVm.processPayment(
+        userId: 'user-1',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        adultCount: 2,
+        childCount: 1,
+      );
 
-    expect(bookingResult, isA<OperationSuccess>());
-    final bookingId = (bookingResult as OperationSuccess).message;
-    expect(bookingId, isNotEmpty);
+      expect(bookingResult, isA<OperationSuccess>());
+      final bookingId = (bookingResult as OperationSuccess).message;
+      expect(bookingId, isNotEmpty);
 
-    trackingVm.startTracking(bookingId);
-    profileVm.startBookingHistoryStream('user-1');
-    await Future<void>.delayed(Duration.zero);
+      trackingVm.startTracking(bookingId);
+      profileVm.startBookingHistoryStream('user-1');
+      await Future<void>.delayed(Duration.zero);
 
-    expect(trackingVm.booking, isNotNull);
-    expect(trackingVm.booking!.status, BookingStatus.pending);
-    expect(homeVm.activeBooking?.status, BookingStatus.pending);
-    expect(profileVm.bookingHistory, hasLength(1));
+      expect(trackingVm.booking, isNotNull);
+      expect(trackingVm.booking!.status, BookingStatus.pending);
+      expect(homeVm.activeBooking?.status, BookingStatus.pending);
+      expect(profileVm.bookingHistory, hasLength(1));
 
-    await _operatorUpdateStatus(
-      firestore: firestore,
-      bookingId: bookingId,
-      status: BookingStatus.accepted,
-      driverId: 'operator-1',
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(trackingVm.booking?.status, BookingStatus.accepted);
-    expect(homeVm.activeBooking?.status, BookingStatus.accepted);
+      await _operatorUpdateStatus(
+        firestore: firestore,
+        bookingId: bookingId,
+        status: BookingStatus.accepted,
+        operatorId: 'operator-1',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(trackingVm.booking?.status, BookingStatus.accepted);
+      expect(homeVm.activeBooking?.status, BookingStatus.accepted);
 
-    await _operatorUpdateStatus(
-      firestore: firestore,
-      bookingId: bookingId,
-      status: BookingStatus.onTheWay,
-      driverId: 'operator-1',
-    );
-    await Future<void>.delayed(Duration.zero);
-    expect(trackingVm.booking?.status, BookingStatus.onTheWay);
-    expect(homeVm.activeBooking?.status, BookingStatus.onTheWay);
+      await _operatorUpdateStatus(
+        firestore: firestore,
+        bookingId: bookingId,
+        status: BookingStatus.onTheWay,
+        operatorId: 'operator-1',
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(trackingVm.booking?.status, BookingStatus.onTheWay);
+      expect(homeVm.activeBooking?.status, BookingStatus.onTheWay);
 
-    await _operatorUpdateStatus(
-      firestore: firestore,
-      bookingId: bookingId,
-      status: BookingStatus.completed,
-      driverId: 'operator-1',
-    );
-    await Future<void>.delayed(Duration.zero);
+      await _operatorUpdateStatus(
+        firestore: firestore,
+        bookingId: bookingId,
+        status: BookingStatus.completed,
+        operatorId: 'operator-1',
+      );
+      await Future<void>.delayed(Duration.zero);
 
-    expect(trackingVm.booking?.status, BookingStatus.completed);
-    expect(homeVm.activeBooking, isNull);
-    expect(profileVm.bookingHistory, hasLength(1));
-    expect(profileVm.bookingHistory.first.status, BookingStatus.completed);
+      expect(trackingVm.booking?.status, BookingStatus.completed);
+      expect(homeVm.activeBooking, isNull);
+      expect(profileVm.bookingHistory, hasLength(1));
+      expect(profileVm.bookingHistory.first.status, BookingStatus.completed);
 
-    profileVm.stopBookingHistoryStream();
-    homeVm.dispose();
-    trackingVm.dispose();
-    profileVm.dispose();
-  });
+      profileVm.stopBookingHistoryStream();
+      homeVm.dispose();
+      trackingVm.dispose();
+      profileVm.dispose();
+    },
+  );
 
   for (final status in [
     BookingStatus.pending,
     BookingStatus.accepted,
     BookingStatus.onTheWay,
   ]) {
-    test(
-      'integration: passenger can cancel $status booking',
-      () async {
-        final setup = await _createSetup();
-        final firestore = setup.firestore;
-        final trackingVm = setup.trackingVm;
+    test('integration: passenger can cancel $status booking', () async {
+      final setup = await _createSetup();
+      final firestore = setup.firestore;
+      final trackingVm = setup.trackingVm;
 
-        final bookingId = await _createBookingAndTrack(
-          setup: setup,
+      final bookingId = await _createBookingAndTrack(setup: setup);
+
+      if (status != BookingStatus.pending) {
+        await _operatorUpdateStatus(
+          firestore: firestore,
+          bookingId: bookingId,
+          status: status,
+          operatorId: 'operator-1',
         );
-
-        if (status != BookingStatus.pending) {
-          await _operatorUpdateStatus(
-            firestore: firestore,
-            bookingId: bookingId,
-            status: status,
-            driverId: 'operator-1',
-          );
-          await Future<void>.delayed(Duration.zero);
-        }
-
-        final result = await trackingVm.cancelBooking(bookingId);
         await Future<void>.delayed(Duration.zero);
+      }
 
-        expect(result, isA<OperationSuccess>());
-        expect(trackingVm.booking?.status, BookingStatus.cancelled);
+      final result = await trackingVm.cancelBooking(bookingId);
+      await Future<void>.delayed(Duration.zero);
 
-        final snap = await firestore
-            .collection(FirestoreCollections.bookings)
-            .doc(bookingId)
-            .get();
-        expect(snap.data()?[BookingFields.status], BookingStatus.cancelled.firestoreValue);
-        expect(snap.data()?[BookingFields.cancelledAt], isNotNull);
+      expect(result, isA<OperationSuccess>());
+      expect(trackingVm.booking?.status, BookingStatus.cancelled);
 
-        setup.profileVm.stopBookingHistoryStream();
-        setup.homeVm.dispose();
-        setup.trackingVm.dispose();
-        setup.profileVm.dispose();
-      },
-    );
+      final snap = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      expect(
+        snap.data()?[BookingFields.status],
+        BookingStatus.cancelled.firestoreValue,
+      );
+      expect(snap.data()?[BookingFields.cancelledAt], isNotNull);
+
+      setup.profileVm.stopBookingHistoryStream();
+      setup.homeVm.dispose();
+      setup.trackingVm.dispose();
+      setup.profileVm.dispose();
+    });
   }
 
-  test('integration: completed booking cannot be cancelled by passenger', () async {
-    final setup = await _createSetup();
-    final firestore = setup.firestore;
-    final trackingVm = setup.trackingVm;
+  test(
+    'integration: completed booking cannot be cancelled by passenger',
+    () async {
+      final setup = await _createSetup();
+      final firestore = setup.firestore;
+      final trackingVm = setup.trackingVm;
 
-    final bookingId = await _createBookingAndTrack(
-      setup: setup,
-    );
+      final bookingId = await _createBookingAndTrack(setup: setup);
 
-    await _operatorUpdateStatus(
-      firestore: firestore,
-      bookingId: bookingId,
-      status: BookingStatus.completed,
-      driverId: 'operator-1',
-    );
-    await Future<void>.delayed(Duration.zero);
+      await _operatorUpdateStatus(
+        firestore: firestore,
+        bookingId: bookingId,
+        status: BookingStatus.completed,
+        operatorId: 'operator-1',
+      );
+      await Future<void>.delayed(Duration.zero);
 
-    final result = await trackingVm.cancelBooking(bookingId);
-    expect(result, isA<OperationFailure>());
-    expect((result as OperationFailure).title, 'Cancellation unavailable');
+      final result = await trackingVm.cancelBooking(bookingId);
+      expect(result, isA<OperationFailure>());
+      expect((result as OperationFailure).title, 'Cancellation unavailable');
 
-    final snap = await firestore
-        .collection(FirestoreCollections.bookings)
-        .doc(bookingId)
-        .get();
-    expect(
-      snap.data()?[BookingFields.status],
-      BookingStatus.completed.firestoreValue,
-    );
+      final snap = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      expect(
+        snap.data()?[BookingFields.status],
+        BookingStatus.completed.firestoreValue,
+      );
 
-    setup.profileVm.stopBookingHistoryStream();
-    setup.homeVm.dispose();
-    setup.trackingVm.dispose();
-    setup.profileVm.dispose();
-  });
+      setup.profileVm.stopBookingHistoryStream();
+      setup.homeVm.dispose();
+      setup.trackingVm.dispose();
+      setup.profileVm.dispose();
+    },
+  );
 }
 
 Future<_IntegrationSetup> _createSetup() async {
@@ -205,7 +207,10 @@ Future<_IntegrationSetup> _createSetup() async {
     bookingRepo: bookingRepo,
     paymentGateway: paymentGateway,
   );
-  final profileVm = ProfileViewModel(userRepo: userRepo, bookingRepo: bookingRepo);
+  final profileVm = ProfileViewModel(
+    userRepo: userRepo,
+    bookingRepo: bookingRepo,
+  );
 
   return _IntegrationSetup(
     firestore: firestore,
@@ -302,14 +307,14 @@ Future<void> _operatorUpdateStatus({
   required FakeFirebaseFirestore firestore,
   required String bookingId,
   required BookingStatus status,
-  required String driverId,
+  required String operatorId,
 }) async {
   await firestore
       .collection(FirestoreCollections.bookings)
       .doc(bookingId)
       .update({
-    BookingFields.status: status.firestoreValue,
-    BookingFields.driverId: driverId,
-    BookingFields.updatedAt: Timestamp.now(),
-  });
+        BookingFields.status: status.firestoreValue,
+        BookingFields.operatorId: operatorId,
+        BookingFields.updatedAt: Timestamp.now(),
+      });
 }

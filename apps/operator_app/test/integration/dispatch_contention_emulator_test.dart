@@ -34,7 +34,11 @@ void main() {
         final repo = BookingRepository(firestore: db);
         const bookingId = 'booking-emulator-accept-1';
 
-        await _seedPendingBooking(db, bookingId: bookingId, userId: 'user-em-1');
+        await _seedPendingBooking(
+          db,
+          bookingId: bookingId,
+          userId: 'user-em-1',
+        );
 
         final results = await Future.wait([
           repo.acceptBooking(bookingId: bookingId, operatorId: 'operator-A'),
@@ -56,8 +60,14 @@ void main() {
             .get();
         final data = snap.data()!;
 
-        expect(data[BookingFields.status], BookingStatus.accepted.firestoreValue);
-        expect(data[BookingFields.driverId], anyOf('operator-A', 'operator-B'));
+        expect(
+          data[BookingFields.status],
+          BookingStatus.accepted.firestoreValue,
+        );
+        expect(
+          data[BookingFields.operatorId],
+          anyOf('operator-A', 'operator-B'),
+        );
       },
       skip: !runEmulatorTests,
     );
@@ -69,12 +79,22 @@ void main() {
         final repo = BookingRepository(firestore: db);
         const bookingId = 'booking-emulator-reject-1';
 
-        await _seedPendingBooking(db, bookingId: bookingId, userId: 'user-em-2');
+        await _seedPendingBooking(
+          db,
+          bookingId: bookingId,
+          userId: 'user-em-2',
+        );
         await _seedOperatorPresence(db, 'operator-A', isOnline: true);
         await _seedOperatorPresence(db, 'operator-B', isOnline: true);
 
-        await repo.rejectBooking(bookingId: bookingId, operatorId: 'operator-A');
-        await repo.rejectBooking(bookingId: bookingId, operatorId: 'operator-B');
+        await repo.rejectBooking(
+          bookingId: bookingId,
+          operatorId: 'operator-A',
+        );
+        await repo.rejectBooking(
+          bookingId: bookingId,
+          operatorId: 'operator-B',
+        );
 
         final snap = await db
             .collection(FirestoreCollections.bookings)
@@ -82,7 +102,10 @@ void main() {
             .get();
         final data = snap.data()!;
 
-        expect(data[BookingFields.status], BookingStatus.rejected.firestoreValue);
+        expect(
+          data[BookingFields.status],
+          BookingStatus.rejected.firestoreValue,
+        );
         expect(
           (data[BookingFields.rejectedBy] as List).cast<String>(),
           containsAll(['operator-A', 'operator-B']),
@@ -98,7 +121,11 @@ void main() {
         final repo = BookingRepository(firestore: db);
         const bookingId = 'booking-emulator-network-1';
 
-        await _seedPendingBooking(db, bookingId: bookingId, userId: 'user-em-3');
+        await _seedPendingBooking(
+          db,
+          bookingId: bookingId,
+          userId: 'user-em-3',
+        );
 
         await db.disableNetwork();
         final offlineResult = await repo
@@ -125,8 +152,11 @@ void main() {
             .doc(bookingId)
             .get();
         final data = snap.data()!;
-        expect(data[BookingFields.status], BookingStatus.accepted.firestoreValue);
-        expect(data[BookingFields.driverId], 'operator-A');
+        expect(
+          data[BookingFields.status],
+          BookingStatus.accepted.firestoreValue,
+        );
+        expect(data[BookingFields.operatorId], 'operator-A');
       },
       skip: !runEmulatorTests,
     );
@@ -145,7 +175,6 @@ Future<void> _seedPendingBooking(
     BookingFields.userPhone: '0123456789',
     BookingFields.origin: 'Jetty A',
     BookingFields.destination: 'Jetty B',
-    BookingFields.routeKey: 'jetty a__jetty b',
     BookingFields.originCoords: const GeoPoint(2.2000, 102.2500),
     BookingFields.destinationCoords: const GeoPoint(2.2100, 102.2600),
     BookingFields.adultCount: 1,
@@ -160,7 +189,7 @@ Future<void> _seedPendingBooking(
     BookingFields.paymentMethod: PaymentMethods.creditCard,
     BookingFields.paymentStatus: 'paid',
     BookingFields.status: BookingStatus.pending.firestoreValue,
-    BookingFields.driverId: null,
+    BookingFields.operatorId: null,
     BookingFields.rejectedBy: <String>[],
     BookingFields.createdAt: FieldValue.serverTimestamp(),
     BookingFields.updatedAt: FieldValue.serverTimestamp(),
@@ -172,8 +201,11 @@ Future<void> _seedOperatorPresence(
   String operatorId, {
   required bool isOnline,
 }) async {
-  await db.collection(FirestoreCollections.operatorPresence).doc(operatorId).set({
-    OperatorPresenceFields.isOnline: isOnline,
-    OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
-  });
+  await db
+      .collection(FirestoreCollections.operatorPresence)
+      .doc(operatorId)
+      .set({
+        OperatorPresenceFields.isOnline: isOnline,
+        OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+      });
 }

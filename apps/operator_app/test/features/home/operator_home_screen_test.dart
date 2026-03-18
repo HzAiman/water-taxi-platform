@@ -89,13 +89,14 @@ void main() {
           testOperatorId: operatorId,
           testOperatorEmail: operatorEmail,
           skipRuntimeChecks: true,
-          mapBuilder: ({
-            required initialCameraPosition,
-            required hasLocationPermission,
-            required onMapCreated,
-          }) {
-            return const SizedBox(key: ValueKey('mock-map'));
-          },
+          mapBuilder:
+              ({
+                required initialCameraPosition,
+                required hasLocationPermission,
+                required onMapCreated,
+              }) {
+                return const SizedBox(key: ValueKey('mock-map'));
+              },
         ),
       ),
     );
@@ -379,7 +380,8 @@ class _FakeBookingRepository extends BookingRepository {
       _activeController.stream;
 
   @override
-  Stream<List<BookingModel>> streamPendingBookings() => _pendingController.stream;
+  Stream<List<BookingModel>> streamPendingBookings() =>
+      _pendingController.stream;
 
   @override
   Future<OperationResult> acceptBooking({
@@ -466,7 +468,7 @@ BookingModel _sampleBooking({
     paymentMethod: PaymentMethods.creditCard,
     paymentStatus: 'paid',
     status: status,
-    driverId: status == BookingStatus.pending ? null : 'operator-1',
+    operatorId: status == BookingStatus.pending ? null : 'operator-1',
     rejectedBy: const [],
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: DateTime(2026, 3, 15, 10, 5),

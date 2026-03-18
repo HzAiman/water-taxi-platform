@@ -9,7 +9,7 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "driverId",
+          "fieldPath": "operatorId",
           "order": "ASCENDING"
         },
         {
@@ -23,7 +23,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "driverId",
+          "fieldPath": "operatorId",
           "order": "ASCENDING"
         },
         {

@@ -43,7 +43,7 @@ class BookingCreationParams {
 /// Data-access layer for the `bookings` Firestore collection (passenger side).
 class BookingRepository {
   BookingRepository({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
@@ -65,9 +65,11 @@ class BookingRepository {
       BookingFields.userPhone: p.userPhone,
       BookingFields.origin: p.origin,
       BookingFields.destination: p.destination,
-      BookingFields.routeKey: _routeKey(p.origin, p.destination),
       BookingFields.originCoords: GeoPoint(p.originLat, p.originLng),
-      BookingFields.destinationCoords: GeoPoint(p.destinationLat, p.destinationLng),
+      BookingFields.destinationCoords: GeoPoint(
+        p.destinationLat,
+        p.destinationLng,
+      ),
       BookingFields.adultCount: p.adultCount,
       BookingFields.childCount: p.childCount,
       BookingFields.passengerCount: passengerCount,
@@ -83,7 +85,7 @@ class BookingRepository {
       if (p.orderNumber != null) BookingFields.orderNumber: p.orderNumber,
       if (p.transactionId != null) BookingFields.transactionId: p.transactionId,
       BookingFields.status: BookingStatus.pending.firestoreValue,
-      BookingFields.driverId: null,
+      BookingFields.operatorId: null,
       BookingFields.createdAt: FieldValue.serverTimestamp(),
       BookingFields.updatedAt: FieldValue.serverTimestamp(),
     });
@@ -93,10 +95,7 @@ class BookingRepository {
 
   /// Cancels a booking owned by the current passenger.
   Future<void> cancelBooking(String bookingId) async {
-    await _db
-        .collection(FirestoreCollections.bookings)
-        .doc(bookingId)
-        .update({
+    await _db.collection(FirestoreCollections.bookings).doc(bookingId).update({
       BookingFields.status: BookingStatus.cancelled.firestoreValue,
       BookingFields.updatedAt: FieldValue.serverTimestamp(),
       BookingFields.cancelledAt: FieldValue.serverTimestamp(),
@@ -113,9 +112,9 @@ class BookingRepository {
         .doc(bookingId)
         .snapshots()
         .map((snap) {
-      if (!snap.exists || snap.data() == null) return null;
-      return _fromDoc(snap.id, snap.data()!);
-    });
+          if (!snap.exists || snap.data() == null) return null;
+          return _fromDoc(snap.id, snap.data()!);
+        });
   }
 
   /// Streams the user's currently active booking (pending / accepted /
@@ -126,16 +125,16 @@ class BookingRepository {
         .where(BookingFields.userId, isEqualTo: userId)
         .snapshots()
         .map((snap) {
-      final activeDocs = snap.docs.where((d) {
-        final status = BookingStatus.fromString(
-          (d.data()[BookingFields.status] ?? '').toString(),
-        );
-        return status.isActive;
-      }).toList();
+          final activeDocs = snap.docs.where((d) {
+            final status = BookingStatus.fromString(
+              (d.data()[BookingFields.status] ?? '').toString(),
+            );
+            return status.isActive;
+          }).toList();
 
-      if (activeDocs.isEmpty) return null;
-      return _fromDoc(activeDocs.first.id, activeDocs.first.data());
-    });
+          if (activeDocs.isEmpty) return null;
+          return _fromDoc(activeDocs.first.id, activeDocs.first.data());
+        });
   }
 
   /// Streams the complete booking history for a user, sorted newest first.
@@ -145,19 +144,18 @@ class BookingRepository {
         .where(BookingFields.userId, isEqualTo: userId)
         .snapshots()
         .map((snap) {
-      final bookings = snap.docs
-          .map((d) => _fromDoc(d.id, d.data()))
-          .toList()
-        ..sort((a, b) {
-          final at = a.createdAt;
-          final bt = b.createdAt;
-          if (at == null && bt == null) return 0;
-          if (at == null) return 1;
-          if (bt == null) return -1;
-          return bt.compareTo(at);
+          final bookings =
+              snap.docs.map((d) => _fromDoc(d.id, d.data())).toList()
+                ..sort((a, b) {
+                  final at = a.createdAt;
+                  final bt = b.createdAt;
+                  if (at == null && bt == null) return 0;
+                  if (at == null) return 1;
+                  if (bt == null) return -1;
+                  return bt.compareTo(at);
+                });
+          return bookings;
         });
-      return bookings;
-    });
   }
 
   /// Returns `true` if the user has at least one active booking.
@@ -188,17 +186,13 @@ class BookingRepository {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  static String _routeKey(String origin, String destination) {
-    return '${origin.trim().toLowerCase()}__${destination.trim().toLowerCase()}';
-  }
-
   static BookingModel _fromDoc(String id, Map<String, dynamic> data) {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
-    final cancelledAt =
-        (data[BookingFields.cancelledAt] as Timestamp?)?.toDate();
+    final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
+        ?.toDate();
 
     // Ensure bookingId is present (fallback to document ID)
     if (data[BookingFields.bookingId] == null) {

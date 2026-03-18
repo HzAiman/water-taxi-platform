@@ -153,28 +153,31 @@ void main() {
       expect(bookingRepo.lastRejectedBookingId, isNull);
     });
 
-    test('permission-denied failures are normalized to user-friendly message', () async {
-      final bookingRepo = FakeOperatorBookingRepository()
-        ..rejectResult = const OperationFailure(
-          'Reject failed',
-          'Could not reject booking: [cloud_firestore/permission-denied] The caller does not have permission to execute the specified operation',
+    test(
+      'permission-denied failures are normalized to user-friendly message',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository()
+          ..rejectResult = const OperationFailure(
+            'Reject failed',
+            'Could not reject booking: [cloud_firestore/permission-denied] The caller does not have permission to execute the specified operation',
+          );
+        final viewModel = OperatorHomeViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: FakeOperatorRepository(),
         );
-      final viewModel = OperatorHomeViewModel(
-        bookingRepo: bookingRepo,
-        operatorRepo: FakeOperatorRepository(),
-      );
 
-      await viewModel.initialize('operator-1');
-      final result = await viewModel.rejectBooking('booking-2');
+        await viewModel.initialize('operator-1');
+        final result = await viewModel.rejectBooking('booking-2');
 
-      expect(result, isA<OperationFailure>());
-      final failure = result as OperationFailure;
-      expect(failure.title, 'Permission denied');
-      expect(
-        failure.message,
-        contains('You no longer have permission to perform this action'),
-      );
-    });
+        expect(result, isA<OperationFailure>());
+        final failure = result as OperationFailure;
+        expect(failure.title, 'Permission denied');
+        expect(
+          failure.message,
+          contains('You no longer have permission to perform this action'),
+        );
+      },
+    );
 
     test('toggleOnlineStatus reverts state on timeout', () async {
       final bookingRepo = FakeOperatorBookingRepository();
@@ -186,8 +189,7 @@ void main() {
           email: 'captain@example.com',
           isOnline: false,
         ),
-      )
-        ..setOnlineStatusDelay = const Duration(seconds: 7);
+      )..setOnlineStatusDelay = const Duration(seconds: 7);
       final viewModel = OperatorHomeViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: operatorRepo,
@@ -299,14 +301,17 @@ class FakeOperatorBookingRepository extends BookingRepository {
   String? lastAcceptedBookingId;
   String? lastAcceptedOperatorId;
   String? lastRejectedBookingId;
-    OperationResult acceptResult =
-      const OperationSuccess('Booking accepted successfully.');
-    OperationResult rejectResult = const OperationSuccess('Booking rejected.');
-    OperationResult releaseResult = const OperationSuccess('Booking released.');
-    OperationResult startResult =
-      const OperationSuccess('Trip started successfully.');
-    OperationResult completeResult =
-      const OperationSuccess('Trip completed successfully.');
+  OperationResult acceptResult = const OperationSuccess(
+    'Booking accepted successfully.',
+  );
+  OperationResult rejectResult = const OperationSuccess('Booking rejected.');
+  OperationResult releaseResult = const OperationSuccess('Booking released.');
+  OperationResult startResult = const OperationSuccess(
+    'Trip started successfully.',
+  );
+  OperationResult completeResult = const OperationSuccess(
+    'Trip completed successfully.',
+  );
   Completer<OperationResult>? acceptCompleter;
 
   @override
@@ -409,7 +414,7 @@ BookingModel _sampleBooking({
     paymentMethod: PaymentMethods.creditCard,
     paymentStatus: 'paid',
     status: status,
-    driverId: status == BookingStatus.pending ? null : 'operator-1',
+    operatorId: status == BookingStatus.pending ? null : 'operator-1',
     rejectedBy: rejectedBy,
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: updatedAt ?? DateTime(2026, 3, 15, 10, 5),

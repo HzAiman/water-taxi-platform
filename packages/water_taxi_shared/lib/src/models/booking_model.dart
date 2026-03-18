@@ -30,14 +30,15 @@ class BookingModel {
     required this.paymentMethod,
     required this.paymentStatus,
     required this.status,
-    this.driverId,
+    String? operatorId,
+    @Deprecated('Use operatorId instead.') String? driverId,
     required this.rejectedBy,
     this.orderNumber,
     this.transactionId,
     this.createdAt,
     this.updatedAt,
     this.cancelledAt,
-  });
+  }) : operatorId = operatorId ?? driverId;
 
   final String bookingId;
   final String userId;
@@ -61,13 +62,16 @@ class BookingModel {
   final String paymentMethod;
   final String paymentStatus;
   final BookingStatus status;
-  final String? driverId;
+  final String? operatorId;
   final List<String> rejectedBy;
   final String? orderNumber;
   final String? transactionId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? cancelledAt;
+
+  @Deprecated('Use operatorId instead.')
+  String? get driverId => operatorId;
 
   /// Creates a [BookingModel] from a raw Firestore document map.
   ///
@@ -106,7 +110,8 @@ class BookingModel {
       paymentMethod: _str(data['paymentMethod']),
       paymentStatus: _str(data['paymentStatus']),
       status: BookingStatus.fromString(_str(data['status'])),
-      driverId: data['driverId']?.toString(),
+      operatorId:
+          data['operatorId']?.toString() ?? data['driverId']?.toString(),
       rejectedBy: _strList(data['rejectedBy']),
       orderNumber: data['orderNumber']?.toString(),
       transactionId: data['transactionId']?.toString(),
@@ -139,7 +144,8 @@ class BookingModel {
     String? paymentMethod,
     String? paymentStatus,
     BookingStatus? status,
-    String? driverId,
+    String? operatorId,
+    @Deprecated('Use operatorId instead.') String? driverId,
     List<String>? rejectedBy,
     String? orderNumber,
     String? transactionId,
@@ -170,7 +176,7 @@ class BookingModel {
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       status: status ?? this.status,
-      driverId: driverId ?? this.driverId,
+      operatorId: operatorId ?? driverId ?? this.operatorId,
       rejectedBy: rejectedBy ?? this.rejectedBy,
       orderNumber: orderNumber ?? this.orderNumber,
       transactionId: transactionId ?? this.transactionId,

@@ -86,13 +86,14 @@ void main() {
               origin: 'Jetty A',
               destination: 'Jetty B',
               passengerCount: 2,
-              mapBuilder: ({
-                required initialCameraPosition,
-                required markers,
-                required polylines,
-              }) {
-                return const SizedBox(key: ValueKey('mock-tracking-map'));
-              },
+              mapBuilder:
+                  ({
+                    required initialCameraPosition,
+                    required markers,
+                    required polylines,
+                  }) {
+                    return const SizedBox(key: ValueKey('mock-tracking-map'));
+                  },
             ),
           ),
         ),
@@ -129,13 +130,14 @@ void main() {
               origin: 'Jetty A',
               destination: 'Jetty B',
               passengerCount: 2,
-              mapBuilder: ({
-                required initialCameraPosition,
-                required markers,
-                required polylines,
-              }) {
-                return const SizedBox(key: ValueKey('mock-tracking-map'));
-              },
+              mapBuilder:
+                  ({
+                    required initialCameraPosition,
+                    required markers,
+                    required polylines,
+                  }) {
+                    return const SizedBox(key: ValueKey('mock-tracking-map'));
+                  },
             ),
           ),
         ),
@@ -166,13 +168,14 @@ void main() {
               origin: 'Jetty A',
               destination: 'Jetty B',
               passengerCount: 1,
-              mapBuilder: ({
-                required initialCameraPosition,
-                required markers,
-                required polylines,
-              }) {
-                return const SizedBox(key: ValueKey('mock-tracking-map'));
-              },
+              mapBuilder:
+                  ({
+                    required initialCameraPosition,
+                    required markers,
+                    required polylines,
+                  }) {
+                    return const SizedBox(key: ValueKey('mock-tracking-map'));
+                  },
             ),
           ),
         ),
@@ -341,7 +344,7 @@ BookingModel _sampleBooking({
     paymentMethod: PaymentMethods.creditCard,
     paymentStatus: 'paid',
     status: status,
-    driverId: status == BookingStatus.pending ? null : 'operator-1',
+    operatorId: status == BookingStatus.pending ? null : 'operator-1',
     rejectedBy: const [],
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: DateTime(2026, 3, 15, 10, 5),
