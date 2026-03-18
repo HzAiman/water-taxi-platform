@@ -24,13 +24,16 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _hasInitialized = false;
   StreamSubscription<User?>? _authSubscription;
+  DateTime? _lastRecoveryAttempt;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+
     _authSubscription = FirebaseAuth.instance.idTokenChanges().listen((user) {
       if (!mounted || _hasInitialized || user == null) {
         return;
@@ -55,7 +58,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final last = _lastRecoveryAttempt;
+    if (last != null && now.difference(last) < const Duration(seconds: 6)) {
+      return;
+    }
+    _lastRecoveryAttempt = now;
+
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) {
+      return;
+    }
+
+    final vm = context.read<HomeViewModel>();
+    final needsRecovery =
+        !_hasInitialized ||
+        (vm.jetties.isEmpty && (vm.isLoadingJetties || vm.jettyError != null));
+
+    if (needsRecovery) {
+      _hasInitialized = true;
+      unawaited(vm.init(userId));
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
     super.dispose();
   }

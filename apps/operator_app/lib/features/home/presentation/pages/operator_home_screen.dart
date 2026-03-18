@@ -35,7 +35,8 @@ class OperatorHomeScreen extends StatefulWidget {
   State<OperatorHomeScreen> createState() => _OperatorHomeScreenState();
 }
 
-class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
+class _OperatorHomeScreenState extends State<OperatorHomeScreen>
+  with WidgetsBindingObserver {
   static const MethodChannel _mapsConfigChannel = MethodChannel(
     'operator_app/maps_config',
   );
@@ -49,6 +50,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   bool _isInitializingViewModel = false;
   bool _hasInitializedViewModel = false;
   StreamSubscription<User?>? _authSubscription;
+  DateTime? _lastRecoveryAttempt;
 
   late GoogleMapController _mapController;
   CameraPosition _initialCameraPosition = const CameraPosition(
@@ -67,6 +69,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
 
     _authSubscription = FirebaseAuth.instance.idTokenChanges().listen((user) {
       if (!mounted || _hasInitializedViewModel || user == null) {
@@ -103,13 +106,35 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed || !mounted) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final last = _lastRecoveryAttempt;
+    if (last != null && now.difference(last) < const Duration(seconds: 6)) {
+      return;
+    }
+    _lastRecoveryAttempt = now;
+
+    final operatorId = _operatorId;
+    if (operatorId == null || _isInitializingViewModel) {
+      return;
+    }
+
+    unawaited(_initializeViewModel(operatorId, force: true));
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
     super.dispose();
   }
 
-  Future<void> _initializeViewModel(String operatorId) async {
-    if (_hasInitializedViewModel || !mounted) {
+  Future<void> _initializeViewModel(String operatorId, {bool force = false}) async {
+    if ((_hasInitializedViewModel && !force) || !mounted) {
       return;
     }
 
