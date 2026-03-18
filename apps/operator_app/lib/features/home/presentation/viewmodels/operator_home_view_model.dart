@@ -64,11 +64,19 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _operatorId = operatorId;
 
     // Resolve current online status from Firestore.
-    final op = await _operatorRepo.getOperator(operatorId);
-    if (op != null) {
-      _isOnline = op.isOnline;
-      await _operatorRepo.syncPresence(operatorId, isOnline: op.isOnline);
-      notifyListeners();
+    try {
+      final op = await _operatorRepo
+          .getOperator(operatorId)
+          .timeout(const Duration(seconds: 10));
+      if (op != null) {
+        _isOnline = op.isOnline;
+        await _operatorRepo
+            .syncPresence(operatorId, isOnline: op.isOnline)
+            .timeout(const Duration(seconds: 8));
+        notifyListeners();
+      }
+    } catch (_) {
+      // Keep UI responsive even if initial profile/presence fetch stalls.
     }
 
     _startStreams(operatorId);
@@ -217,6 +225,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   // ── Private ──────────────────────────────────────────────────────────────
 
   void _startStreams(String operatorId) {
+    _stopStreams();
+
     _activeSubscription =
         _bookingRepo.streamActiveBookings(operatorId).listen((list) {
       _activeBookings = list;
@@ -225,11 +235,17 @@ class OperatorHomeViewModel extends ChangeNotifier {
       // We can't easily detect this here since we only get the filtered list.
       // The widget layer checks for cancelled bookings via the raw stream.
       notifyListeners();
+    }, onError: (_) {
+      _activeBookings = [];
+      notifyListeners();
     });
 
     _pendingSubscription =
         _bookingRepo.streamPendingBookings().listen((list) {
       _pendingBookings = list;
+      notifyListeners();
+    }, onError: (_) {
+      _pendingBookings = [];
       notifyListeners();
     });
   }

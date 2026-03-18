@@ -27,12 +27,16 @@ class AuthWrapper extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+      stream: FirebaseAuth.instance.idTokenChanges(),
       builder: (context, authSnap) {
         if (authSnap.connectionState == ConnectionState.waiting) {
           return const Scaffold(
             body: Center(child: CircularProgressIndicator()),
           );
+        }
+
+        if (authSnap.hasError) {
+          return const OperatorLoginPage();
         }
 
         if (!authSnap.hasData || authSnap.data == null) {
@@ -47,6 +51,10 @@ class AuthWrapper extends StatelessWidget {
               return const Scaffold(
                 body: Center(child: CircularProgressIndicator()),
               );
+            }
+
+            if (docSnap.hasError) {
+              return const OperatorLoginPage();
             }
 
             if (!docSnap.hasData || !docSnap.data!.exists) {

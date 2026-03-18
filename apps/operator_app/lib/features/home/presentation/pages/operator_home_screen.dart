@@ -48,6 +48,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   bool _isQueueSectionExpanded = false;
   bool _isInitializingViewModel = false;
   bool _hasInitializedViewModel = false;
+  StreamSubscription<User?>? _authSubscription;
 
   late GoogleMapController _mapController;
   CameraPosition _initialCameraPosition = const CameraPosition(
@@ -66,6 +67,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
   @override
   void initState() {
     super.initState();
+
+    _authSubscription = FirebaseAuth.instance.idTokenChanges().listen((user) {
+      if (!mounted || _hasInitializedViewModel || user == null) {
+        return;
+      }
+      unawaited(_initializeViewModel(user.uid));
+    });
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) {
@@ -92,6 +100,12 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen> {
     if (!widget.skipRuntimeChecks) {
       unawaited(_bootstrapLocation());
     }
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 
   Future<void> _initializeViewModel(String operatorId) async {

@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'dart:async';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/data/repositories/fare_repository.dart';
@@ -25,10 +26,19 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   bool _hasInitialized = false;
+  StreamSubscription<User?>? _authSubscription;
 
   @override
   void initState() {
     super.initState();
+    _authSubscription = FirebaseAuth.instance.idTokenChanges().listen((user) {
+      if (!mounted || _hasInitialized || user == null) {
+        return;
+      }
+      _hasInitialized = true;
+      unawaited(context.read<HomeViewModel>().init(user.uid));
+    });
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _hasInitialized) {
         return;
@@ -40,8 +50,14 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       _hasInitialized = true;
-      context.read<HomeViewModel>().init(userId);
+      unawaited(context.read<HomeViewModel>().init(userId));
     });
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    super.dispose();
   }
 
   void _showBookingError(String message) {

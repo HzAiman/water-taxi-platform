@@ -126,14 +126,22 @@ class HomeViewModel extends ChangeNotifier {
   // ── Private ──────────────────────────────────────────────────────────────
 
   Future<void> _loadUserName(String userId) async {
-    final user = await _userRepo.getUser(userId);
-    _userName = user?.name ?? 'Passenger';
+    try {
+      final user = await _userRepo
+          .getUser(userId)
+          .timeout(const Duration(seconds: 10));
+      _userName = user?.name ?? 'Passenger';
+    } catch (_) {
+      _userName = 'Passenger';
+    }
     notifyListeners();
   }
 
   Future<void> _loadJetties() async {
     try {
-      _jetties = await _jettyRepo.getAllJetties();
+      _jetties = await _jettyRepo
+          .getAllJetties()
+          .timeout(const Duration(seconds: 12));
     } catch (e) {
       _jettyError = 'Failed to load jetties';
     } finally {
@@ -147,6 +155,9 @@ class HomeViewModel extends ChangeNotifier {
     _activeBookingSubscription =
         _bookingRepo.streamUserActiveBooking(userId).listen((booking) {
       _activeBooking = booking;
+      notifyListeners();
+    }, onError: (_) {
+      _activeBooking = null;
       notifyListeners();
     });
   }
