@@ -41,24 +41,24 @@ The app now mirrors the passenger app structure.
 
 ```
 lib/
-â”œâ”€â”€ app.dart
-â”œâ”€â”€ main.dart
-â”œâ”€â”€ firebase_options.dart
-â”œâ”€â”€ core/
-â”‚   â”œâ”€â”€ constants/
-â”‚   â”œâ”€â”€ theme/
-â”‚   â””â”€â”€ widgets/
-â”œâ”€â”€ features/
-â”‚   â”œâ”€â”€ auth/presentation/pages/
-â”‚   â”œâ”€â”€ home/presentation/pages/
-â”‚   â””â”€â”€ profile/presentation/pages/
-â”œâ”€â”€ routes/
-â”‚   â”œâ”€â”€ app_routes.dart
-â”‚   â””â”€â”€ main_screen.dart
-â””â”€â”€ services/
-    â””â”€â”€ notifications/
-        â”œâ”€â”€ local_notification_service.dart
-        â””â”€â”€ operator_notification_coordinator.dart
+|-- app.dart
+|-- main.dart
+|-- firebase_options.dart
+|-- core/
+|   |-- constants/
+|   |-- theme/
+|   `-- widgets/
+|-- features/
+|   |-- auth/presentation/pages/
+|   |-- home/presentation/pages/
+|   `-- profile/presentation/pages/
+|-- routes/
+|   |-- app_routes.dart
+|   `-- main_screen.dart
+`-- services/
+  `-- notifications/
+    |-- local_notification_service.dart
+    `-- operator_notification_coordinator.dart
 ```
 
 Key screens:
@@ -240,4 +240,11 @@ This app is functionally stable for core operator flow but not production-ready.
 - queue UX polish under heavy concurrent demand
 
 The current task tracker is in `TODO.md`.
+
+## Future Planning: River Navigation Delivery (14 Jetties)
+
+- Phased delivery is planned in `TODO.md` under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
+- Corridor data will be Firestore-backed with ordered checkpoints and read-only client policy.
+- Operator MVP guidance target: progress, next checkpoint, remaining distance, and speed-based ETA.
+- Cross-app requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.
 

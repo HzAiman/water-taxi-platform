@@ -12,13 +12,13 @@ The codebase is organized around one cross-app goal: keep passenger and operator
 
 ```
 water-taxi-platform/
-├── apps/
-│   ├── passenger_app/
-│   │   └── functions/   # Cloud Functions backend (push notifications)
-│   └── operator_app/
-├── packages/
-│   └── water_taxi_shared/
-└── README.md
+|-- apps/
+|   |-- passenger_app/
+|   |   `-- functions/   # Cloud Functions backend (push notifications)
+|   `-- operator_app/
+|-- packages/
+|   `-- water_taxi_shared/
+`-- README.md
 ```
 
 Each app is a standalone Flutter project with its own Firebase config and feature-based `lib/` structure. Shared schema and model types are centralized in `water_taxi_shared` to avoid drift.
@@ -70,6 +70,8 @@ Remaining lifecycle hardening work is tracked in app TODO files:
 
 - `apps/passenger_app/TODO.md`
 - `apps/operator_app/TODO.md`
+
+River navigation future planning (14 jetties corridor) is also tracked in both TODO files under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
 
 ## Tech Stack
 

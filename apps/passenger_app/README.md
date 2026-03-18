@@ -43,26 +43,26 @@ The app was reorganized from a flat `lib/` layout into feature-based modules.
 
 ```
 lib/
-â”œâ”€â”€ app.dart
-â”œâ”€â”€ main.dart
-â”œâ”€â”€ firebase_options.dart
-â”œâ”€â”€ core/
-â”‚   â”œâ”€â”€ constants/
-â”‚   â”œâ”€â”€ theme/
-â”‚   â”œâ”€â”€ utils/
-â”‚   â””â”€â”€ widgets/
-â”œâ”€â”€ features/
-â”‚   â”œâ”€â”€ auth/presentation/pages/
-â”‚   â”œâ”€â”€ home/presentation/pages/
-â”‚   â””â”€â”€ profile/presentation/pages/
-â”œâ”€â”€ routes/
-â”‚   â”œâ”€â”€ app_routes.dart
-â”‚   â””â”€â”€ main_screen.dart
-â””â”€â”€ services/
-    â”œâ”€â”€ firebase/
-    â””â”€â”€ notifications/
-        â”œâ”€â”€ local_notification_service.dart
-        â””â”€â”€ passenger_notification_coordinator.dart
+|-- app.dart
+|-- main.dart
+|-- firebase_options.dart
+|-- core/
+|   |-- constants/
+|   |-- theme/
+|   |-- utils/
+|   `-- widgets/
+|-- features/
+|   |-- auth/presentation/pages/
+|   |-- home/presentation/pages/
+|   `-- profile/presentation/pages/
+|-- routes/
+|   |-- app_routes.dart
+|   `-- main_screen.dart
+`-- services/
+    |-- firebase/
+    `-- notifications/
+        |-- local_notification_service.dart
+        `-- passenger_notification_coordinator.dart
 ```
 
 The `functions/` folder at the root of this app contains the Cloud Functions backend that sends FCM push notifications for booking events.
@@ -254,4 +254,11 @@ This app is not production-ready yet. Remaining work includes:
 - Android and iOS release signing and build config verification
 
 The live task tracker is in `TODO.md`.
+
+## Future Planning: River Navigation Delivery (14 Jetties)
+
+- Phased delivery is planned in `TODO.md` under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
+- Corridor data will be Firestore-backed with ordered checkpoints and read-only client policy.
+- Operator MVP guidance target: progress, next checkpoint, remaining distance, and speed-based ETA.
+- Passenger tracking requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.
 

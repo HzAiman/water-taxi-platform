@@ -88,6 +88,35 @@ Progress notes:
 4. Harden account lifecycle handling (reauth + retention policy).
 5. Improve recovery UX for delayed assignment and transient network failures.
 
+## Cross-App Roadmap: River Navigation Delivery (14 Jetties)
+
+Plan: implement river navigation as a cross-app roadmap with Firestore-backed corridor data from day one. Operator MVP guidance stays intentionally simple (checkpoint progress, next jetty, remaining distance, speed-based ETA). Delivery is phased so shared contracts and backend policy are stable before deeper UX integration.
+
+### Phase A: Contract and data foundation (blocking)
+- [ ] Define canonical Firestore corridor schema for one river route with ordered checkpoints (14 jetties), including sequence constraints and read-only client policy.
+- [ ] Extend shared booking/domain contracts with corridor metadata needed for operator navigation while preserving existing booking lifecycle compatibility.
+- [ ] Update and deploy Firestore rules and indexes for corridor reads and corridor-linked booking queries.
+- [ ] Keep this roadmap synchronized with operator TODO for shared milestone visibility.
+
+### Phase B: Operator navigation engine (depends on Phase A)
+- [ ] Add operator corridor data access and origin/destination to checkpoint-sequence binding.
+- [ ] Implement navigation logic: nearest checkpoint resolution, progress detection, off-route tolerance, remaining distance, and speed-based ETA.
+- [ ] Integrate navigation lifecycle into operator home view model so it starts/stops with active bookings and respects existing refresh/reconnect behavior.
+- [ ] Add basic guidance UI in operator home (progress, next checkpoint, remaining distance, ETA) without turn-by-turn prompts.
+- [ ] Add lightweight checkpoint/off-route/resume event notifications via existing notification coordinator and channels.
+
+### Phase C: Cross-app visibility and resilience (depends on Phase B)
+- [ ] Add passenger/shared tracking alignment notes and minimal passenger metadata handling where required.
+- [ ] Implement graceful fallback when corridor config is unavailable so booking actions remain fully functional.
+- [ ] Regression-check dispatch contention, cancellation, and reject/release reliability paths to ensure no behavior drift.
+- [ ] Ensure passenger can track operator approach to pickup after status becomes `on_the_way`.
+
+### Phase D: Verification and rollout hardening (parallelizable after core integration)
+- [ ] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
+- [ ] Add view model/widget tests for guidance rendering and booking-state transitions.
+- [ ] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
+- [ ] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
+
 ## Future Backlog (Post-Stabilization)
 
 ### Platform and Product
