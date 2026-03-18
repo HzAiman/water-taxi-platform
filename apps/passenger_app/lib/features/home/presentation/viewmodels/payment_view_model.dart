@@ -153,6 +153,7 @@ class PaymentViewModel extends ChangeNotifier {
               destination: destination,
               adultCount: adultCount,
               childCount: childCount,
+              amount: _fareBreakdown!.total,
             ),
           ),
           payerName: user?.name.trim().isNotEmpty == true
@@ -169,6 +170,7 @@ class PaymentViewModel extends ChangeNotifier {
             destination: destination,
             adultCount: adultCount,
             childCount: childCount,
+            amount: _fareBreakdown!.total,
           ),
           description:
               'Water taxi $origin to $destination for ${adultCount + childCount} passenger(s)',
@@ -200,6 +202,7 @@ class PaymentViewModel extends ChangeNotifier {
           destination: destination,
           adultCount: adultCount,
           childCount: childCount,
+          amount: _fareBreakdown!.total,
         ),
       );
 
@@ -242,10 +245,12 @@ class PaymentViewModel extends ChangeNotifier {
     required String destination,
     required int adultCount,
     required int childCount,
+    required double amount,
   }) {
     final normalizedOrigin = origin.trim().toLowerCase();
     final normalizedDestination = destination.trim().toLowerCase();
-    return '$userId|$normalizedOrigin|$normalizedDestination|$adultCount|$childCount';
+    final amountCents = (amount * 100).toStringAsFixed(0);
+    return '$userId|$normalizedOrigin|$normalizedDestination|$adultCount|$childCount|$amountCents';
   }
 
   static String _buildOrderNumber({
