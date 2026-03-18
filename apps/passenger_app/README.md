@@ -1,4 +1,4 @@
-# Passenger App
+﻿# Passenger App
 
 `passenger_app` is the customer-facing Flutter app for creating and tracking water taxi bookings. It handles phone authentication, passenger registration, route selection, fare validation, booking creation, live booking tracking, and profile/history management.
 
@@ -43,26 +43,26 @@ The app was reorganized from a flat `lib/` layout into feature-based modules.
 
 ```
 lib/
-├── app.dart
-├── main.dart
-├── firebase_options.dart
-├── core/
-│   ├── constants/
-│   ├── theme/
-│   ├── utils/
-│   └── widgets/
-├── features/
-│   ├── auth/presentation/pages/
-│   ├── home/presentation/pages/
-│   └── profile/presentation/pages/
-├── routes/
-│   ├── app_routes.dart
-│   └── main_screen.dart
-└── services/
-    ├── firebase/
-    └── notifications/
-        ├── local_notification_service.dart
-        └── passenger_notification_coordinator.dart
+â”œâ”€â”€ app.dart
+â”œâ”€â”€ main.dart
+â”œâ”€â”€ firebase_options.dart
+â”œâ”€â”€ core/
+â”‚   â”œâ”€â”€ constants/
+â”‚   â”œâ”€â”€ theme/
+â”‚   â”œâ”€â”€ utils/
+â”‚   â””â”€â”€ widgets/
+â”œâ”€â”€ features/
+â”‚   â”œâ”€â”€ auth/presentation/pages/
+â”‚   â”œâ”€â”€ home/presentation/pages/
+â”‚   â””â”€â”€ profile/presentation/pages/
+â”œâ”€â”€ routes/
+â”‚   â”œâ”€â”€ app_routes.dart
+â”‚   â””â”€â”€ main_screen.dart
+â””â”€â”€ services/
+    â”œâ”€â”€ firebase/
+    â””â”€â”€ notifications/
+        â”œâ”€â”€ local_notification_service.dart
+        â””â”€â”€ passenger_notification_coordinator.dart
 ```
 
 The `functions/` folder at the root of this app contains the Cloud Functions backend that sends FCM push notifications for booking events.
@@ -114,6 +114,12 @@ operatorId
 createdAt
 updatedAt
 ```
+
+Notes:
+
+- `operatorId` is the only assignment field used for booking ownership.
+- `routeKey` is deprecated and no longer written by passenger booking creation.
+- Booking creation expects hold-first payment state (`paymentStatus = authorized`).
 
 Current lifecycle states already handled in the passenger UI:
 
@@ -179,7 +185,7 @@ firebase deploy --only firestore:rules,firestore:indexes
 The existing rules currently cover:
 
 - owner-only access for `users/{uid}`
-- owner-only create and update for `operators/{uid}`
+- owner-only create and update for `operators/{uid}` with `operator_id_claims/{operatorIdKey}` ownership checks
 - signed-in read access for `jetties` and `fares`
 - passenger booking creation restricted to the signed-in user with `status == pending`
 - passenger cancellation for active bookings
@@ -248,3 +254,4 @@ This app is not production-ready yet. Remaining work includes:
 - Android and iOS release signing and build config verification
 
 The live task tracker is in `TODO.md`.
+

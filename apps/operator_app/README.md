@@ -1,4 +1,4 @@
-# Operator App
+﻿# Operator App
 
 `operator_app` is the operator-facing Flutter app for handling the supply side of the water taxi platform. It manages operator authentication, profile bootstrap, online availability, current-location map behavior, and booking lifecycle transitions.
 
@@ -10,6 +10,8 @@ The app is now refactored to a repository + view model architecture with Provide
 - Firebase email/password sign-in.
 - Operator profile bootstrap in Firestore under `operators/{uid}`.
 - Profile edit flow for operator name and operator ID.
+- Operator ID uniqueness enforced transactionally via `operator_id_claims/{operatorIdKey}`.
+- Automatic profile claim repair on app startup for legacy operator records.
 
 ### Operations dashboard
 - Online/offline toggle synced to Firestore.
@@ -39,24 +41,24 @@ The app now mirrors the passenger app structure.
 
 ```
 lib/
-├── app.dart
-├── main.dart
-├── firebase_options.dart
-├── core/
-│   ├── constants/
-│   ├── theme/
-│   └── widgets/
-├── features/
-│   ├── auth/presentation/pages/
-│   ├── home/presentation/pages/
-│   └── profile/presentation/pages/
-├── routes/
-│   ├── app_routes.dart
-│   └── main_screen.dart
-└── services/
-    └── notifications/
-        ├── local_notification_service.dart
-        └── operator_notification_coordinator.dart
+â”œâ”€â”€ app.dart
+â”œâ”€â”€ main.dart
+â”œâ”€â”€ firebase_options.dart
+â”œâ”€â”€ core/
+â”‚   â”œâ”€â”€ constants/
+â”‚   â”œâ”€â”€ theme/
+â”‚   â””â”€â”€ widgets/
+â”œâ”€â”€ features/
+â”‚   â”œâ”€â”€ auth/presentation/pages/
+â”‚   â”œâ”€â”€ home/presentation/pages/
+â”‚   â””â”€â”€ profile/presentation/pages/
+â”œâ”€â”€ routes/
+â”‚   â”œâ”€â”€ app_routes.dart
+â”‚   â””â”€â”€ main_screen.dart
+â””â”€â”€ services/
+    â””â”€â”€ notifications/
+        â”œâ”€â”€ local_notification_service.dart
+        â””â”€â”€ operator_notification_coordinator.dart
 ```
 
 Key screens:
@@ -80,8 +82,20 @@ Key logic layers:
 operators/{uid}
 name
 operatorId
+operatorIdKey
 email
 isOnline
+createdAt
+updatedAt
+```
+
+### Operator ID claim collection
+
+```text
+operator_id_claims/{operatorIdKey}
+uid
+operatorId
+operatorIdKey
 createdAt
 updatedAt
 ```
@@ -151,6 +165,7 @@ The current rules already allow operators to:
 - accept an unclaimed pending booking
 - start a trip on their assigned booking
 - complete a trip on their assigned booking
+- create/update their own operator profile only when the matching `operator_id_claims/{operatorIdKey}` is owned by their UID
 
 To deploy the shared Firestore config used by this app:
 
@@ -225,3 +240,4 @@ This app is functionally stable for core operator flow but not production-ready.
 - queue UX polish under heavy concurrent demand
 
 The current task tracker is in `TODO.md`.
+

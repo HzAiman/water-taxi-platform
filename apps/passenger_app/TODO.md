@@ -1,4 +1,4 @@
-# Passenger App TODO
+﻿# Passenger App TODO
 
 ## Goal
 Prepare `passenger_app` for stable production-like booking flows and reliable synchronization with `operator_app`.
@@ -87,3 +87,20 @@ Progress notes:
 3. Complete release hardening for Android/iOS production builds.
 4. Harden account lifecycle handling (reauth + retention policy).
 5. Improve recovery UX for delayed assignment and transient network failures.
+
+## Future Backlog (Post-Stabilization)
+
+### Platform and Product
+- [ ] Add configurable service window/cutoff rules (night closures, holidays, weather disruption mode)
+- [ ] Add promo/referral and fare campaign support with server-authoritative validation
+- [ ] Add multilingual copy strategy and localization for BM/EN passenger-facing flows
+
+### Booking and Payment Governance
+- [ ] Add payment reconciliation dashboard for mismatches between booking status and provider status
+- [ ] Add automatic stale-authorization cleanup report for long-running uncaptured payments
+- [ ] Add booking fraud/abuse heuristics (rapid repeat bookings, cancellation spikes)
+
+### Reliability and Operations
+- [ ] Add app-level telemetry for booking lifecycle latency (pending -> accepted -> completed)
+- [ ] Add offline-first retry queue for key passenger actions with dedupe tokens
+- [ ] Add runbook docs for incident handling (payment outage, push outage, rule regression)

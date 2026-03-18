@@ -1,4 +1,4 @@
-# Operator App TODO
+﻿# Operator App TODO
 
 ## Goal
 Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger_app`.
@@ -24,7 +24,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
   - [x] Option B not adopted for current dispatch model
 - [x] Prevent booking race conditions when multiple operators tap Accept simultaneously
   - [x] Use transaction/atomic guard to ensure only one operator can claim `pending`
-- [x] Add clear “My Active Booking” vs “Available Booking Queue” sections
+- [x] Add clear â€œMy Active Bookingâ€ vs â€œAvailable Booking Queueâ€ sections
 
 ### P1: Firestore Contract + Rules (Critical)
 - [x] Finalize shared booking state machine used by both apps:
@@ -111,3 +111,21 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
   - `firebase emulators:start --only firestore --project melaka-water-taxi`
 - Run contention tests against emulator:
   - `set FIREBASE_EMULATOR_TESTS=1 && flutter test test/integration/dispatch_contention_emulator_test.dart`
+
+## Future Backlog (Post-Stabilization)
+
+### Operator Identity and Security
+- [ ] Add admin review tool for operator ID claim conflicts and manual reassignment approvals
+- [ ] Add signed audit trail for profile identity changes (`operatorId`, `name`, `email`)
+- [ ] Add optional stronger auth policy for sensitive profile edits (recent-login or second factor)
+
+### Dispatch and Fleet Operations
+- [ ] Add fairness strategy for queue distribution under heavy demand (round-robin/score-based)
+- [ ] Add operator performance analytics (accept latency, completion rate, cancellation ratio)
+- [ ] Add configurable auto-pause policy after repeated reject/no-start behavior
+
+### Reliability and Production Ops
+- [ ] Add Cloud Function/runtime dependency upgrade plan (Node runtime and firebase-functions latest)
+- [ ] Add synthetic monitoring for push delivery and booking transition SLA breaches
+- [ ] Add incident dashboard for live queue health, stuck bookings, and retry outcomes
+
