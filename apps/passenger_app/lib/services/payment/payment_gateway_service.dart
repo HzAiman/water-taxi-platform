@@ -289,7 +289,8 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
           });
 
       final data = result.data as Map<String, dynamic>?;
-      if (data?['status'] == 'cancelled') {
+      final status = (data?['status'] ?? '').toString();
+      if (status == 'cancelled' || status == 'refunded') {
         return PaymentGatewayResult(
           status: PaymentGatewayStatus.cancelled,
           transactionId: paymentIntentId,

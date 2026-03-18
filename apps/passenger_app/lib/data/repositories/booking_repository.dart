@@ -78,7 +78,8 @@ class BookingRepository {
       BookingFields.fare: total,
       BookingFields.totalFare: total,
       BookingFields.paymentMethod: p.paymentMethod,
-      BookingFields.paymentStatus: 'paid',
+      // Payment is authorized/held first and captured after trip completion.
+      BookingFields.paymentStatus: 'authorized',
       if (p.orderNumber != null) BookingFields.orderNumber: p.orderNumber,
       if (p.transactionId != null) BookingFields.transactionId: p.transactionId,
       BookingFields.status: BookingStatus.pending.firestoreValue,
