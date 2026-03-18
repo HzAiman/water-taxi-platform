@@ -201,7 +201,10 @@ Future<_IntegrationSetup> _createSetup() async {
     bookingRepo: bookingRepo,
     paymentGateway: paymentGateway,
   );
-  final trackingVm = BookingTrackingViewModel(bookingRepo: bookingRepo);
+  final trackingVm = BookingTrackingViewModel(
+    bookingRepo: bookingRepo,
+    paymentGateway: paymentGateway,
+  );
   final profileVm = ProfileViewModel(userRepo: userRepo, bookingRepo: bookingRepo);
 
   return _IntegrationSetup(

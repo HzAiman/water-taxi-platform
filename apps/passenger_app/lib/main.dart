@@ -45,7 +45,8 @@ void main() async {
       Stripe.merchantIdentifier = stripeMerchantIdentifier;
     }
     Stripe.urlScheme = stripeUrlScheme;
-    await Stripe.instance.applySettings();
+    // Do not block first frame on Stripe SDK setup.
+    Stripe.instance.applySettings().catchError((_) {});
   }
 
   try {
@@ -53,6 +54,15 @@ void main() async {
       await Firebase.initializeApp(
         options: DefaultFirebaseOptions.currentPlatform,
       );
+
+      // App Check helps reduce callable token fetch failures.
+      // For development, we skip App Check to avoid provider compatibility issues.
+      // In production, configure:
+      // await FirebaseAppCheck.instance.activate(
+      //   providerAndroid: AndroidAppCheckProvider.safetyNet(),
+      //   providerApple: AppleAppCheckProvider.appAttest(),
+      // );
+
       FirebaseFirestore.instance.settings = const Settings(
         persistenceEnabled: true,
         cacheSizeBytes: Settings.CACHE_SIZE_UNLIMITED,

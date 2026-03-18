@@ -9,10 +9,11 @@ import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
 import 'package:passenger_app/features/home/presentation/pages/home_screen.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/booking_tracking_view_model.dart';
-import 'package:passenger_app/features/profile/presentation/pages/profile_screen.dart';
 import 'package:passenger_app/services/notifications/local_notification_service.dart';
 import 'package:passenger_app/services/notifications/passenger_notification_coordinator.dart';
 import 'package:passenger_app/services/notifications/push_notification_service.dart';
+import 'package:passenger_app/services/payment/payment_gateway_service.dart';
+import 'package:passenger_app/features/profile/presentation/pages/profile_screen.dart';
 import 'package:provider/provider.dart';
 
 class MainScreen extends StatefulWidget {
@@ -181,10 +182,14 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   }) {
     if (!mounted) return;
     final bookingRepo = context.read<BookingRepository>();
+    final paymentGateway = context.read<PaymentGatewayService>();
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => ChangeNotifierProvider(
-          create: (_) => BookingTrackingViewModel(bookingRepo: bookingRepo),
+          create: (_) => BookingTrackingViewModel(
+            bookingRepo: bookingRepo,
+            paymentGateway: paymentGateway,
+          ),
           child: BookingTrackingScreen(
             bookingId: bookingId,
             origin: origin,

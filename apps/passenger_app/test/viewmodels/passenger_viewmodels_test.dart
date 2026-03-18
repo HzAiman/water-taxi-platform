@@ -507,6 +507,29 @@ class FakePaymentGatewayService implements PaymentGatewayService {
     lastRequest = request;
     return _result;
   }
+
+  @override
+  Future<PaymentGatewayResult> capturePayment({
+    required String paymentIntentId,
+    required String orderNumber,
+  }) async {
+    return const PaymentGatewayResult(
+      status: PaymentGatewayStatus.success,
+      transactionId: 'txn-capture-1',
+    );
+  }
+
+  @override
+  Future<PaymentGatewayResult> cancelPayment({
+    required String paymentIntentId,
+    required String orderNumber,
+    String reason = 'requested_by_customer',
+  }) async {
+    return const PaymentGatewayResult(
+      status: PaymentGatewayStatus.cancelled,
+      transactionId: 'txn-cancel-1',
+    );
+  }
 }
 
 BookingModel _sampleBooking({

@@ -3,6 +3,7 @@ const { onCall, onRequest, HttpsError } = require("firebase-functions/v2/https")
 const { defineSecret, defineString } = require("firebase-functions/params");
 const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
+const { getAuth } = require("firebase-admin/auth");
 const { getFirestore } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const Stripe = require("stripe");
@@ -44,6 +45,7 @@ exports.createStripePaymentIntent = onCall(
   {
     region: "asia-southeast1",
     secrets: [STRIPE_SECRET_KEY],
+    enforceAppCheck: false,
   },
   async (request) => {
     if (!request.auth) {
@@ -85,6 +87,7 @@ exports.createStripePaymentIntent = onCall(
         {
           amount: amountInMinorUnit,
           currency,
+          capture_method: 'manual',  // ← ADD THIS LINE
           receipt_email: payerEmail,
           description: description || `Water taxi booking ${orderNumber}`,
           automatic_payment_methods: { enabled: true },
@@ -119,6 +122,120 @@ exports.createStripePaymentIntent = onCall(
         orderNumber,
       });
       throw new HttpsError("internal", "Unable to initialize Stripe payment.");
+    }
+  }
+);
+
+exports.createStripePaymentIntentHttp = onRequest(
+  {
+    region: "asia-southeast1",
+    secrets: [STRIPE_SECRET_KEY],
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    try {
+      const authHeader = String(req.headers.authorization || "");
+      if (!authHeader.startsWith("Bearer ")) {
+        res.status(401).json({ status: "failed", message: "Unauthorized" });
+        return;
+      }
+
+      const idToken = authHeader.substring("Bearer ".length).trim();
+      let decoded;
+      try {
+        decoded = await getAuth().verifyIdToken(idToken);
+      } catch (authError) {
+        logger.warn("createStripePaymentIntentHttp invalid Firebase ID token", {
+          message: authError?.message || "Unknown auth verification error",
+        });
+        res.status(401).json({
+          status: "failed",
+          message: "Invalid authentication token. Please sign in again.",
+        });
+        return;
+      }
+
+      const data = req.body || {};
+      const amount = Number(data.amount || 0);
+      const currencyRaw = String(data.currency || "").trim().toLowerCase();
+      const defaultCurrency = String(STRIPE_CURRENCY.value() || "myr").trim().toLowerCase();
+      const currency = currencyRaw || defaultCurrency || "myr";
+      const orderNumber = String(data.orderNumber || "").trim();
+      const payerName = String(data.payerName || "").trim();
+      const payerEmail = String(data.payerEmail || "").trim();
+      const payerTelephoneNumber = String(data.payerTelephoneNumber || "").trim();
+      const idempotencyKey = String(data.idempotencyKey || "").trim();
+      const description = String(data.description || "").trim();
+
+      if (!(amount > 0) || !currency || !orderNumber || !payerName || !payerEmail || !idempotencyKey) {
+        res.status(400).json({
+          status: "failed",
+          message:
+            "amount, currency, orderNumber, payerName, payerEmail, and idempotencyKey are required.",
+        });
+        return;
+      }
+
+      const secretKey = STRIPE_SECRET_KEY.value();
+      if (!secretKey || !secretKey.trim()) {
+        res.status(500).json({ status: "failed", message: "STRIPE_SECRET_KEY is not configured." });
+        return;
+      }
+
+      const stripe = new Stripe(secretKey);
+      const amountInMinorUnit = Math.round(amount * 100);
+      if (!(amountInMinorUnit > 0)) {
+        res.status(400).json({ status: "failed", message: "amount must be at least 0.01." });
+        return;
+      }
+
+      const intent = await stripe.paymentIntents.create(
+        {
+          amount: amountInMinorUnit,
+          currency,
+          receipt_email: payerEmail,
+          description: description || `Water taxi booking ${orderNumber}`,
+          automatic_payment_methods: { enabled: true },
+          metadata: {
+            userId: decoded.uid,
+            orderNumber,
+            payerName,
+            payerTelephoneNumber,
+            idempotencyKey,
+          },
+        },
+        {
+          idempotencyKey,
+        }
+      );
+
+      res.status(200).json({
+        status: "ready",
+        paymentIntentId: intent.id,
+        clientSecret: intent.client_secret,
+      });
+    } catch (error) {
+      const message =
+        error?.raw?.message ||
+        error?.message ||
+        (typeof error === "string" ? error : "Unknown error");
+      const type = error?.type || "unknown";
+      const code = error?.code || "unknown";
+
+      logger.error("createStripePaymentIntentHttp failed", {
+        message,
+        type,
+        code,
+        stack: error?.stack || null,
+      });
+      res.status(500).json({
+        status: "failed",
+        message: `Unable to initialize Stripe payment: ${message}`,
+      });
     }
   }
 );
@@ -179,6 +296,22 @@ exports.stripeWebhook = onRequest(
         if (!snapshot.empty) {
           await snapshot.docs[0].ref.update({
             [BOOKING_FIELDS.paymentStatus]: "paid",
+            [BOOKING_FIELDS.transactionId]: paymentIntentId,
+            [BOOKING_FIELDS.updatedAt]: new Date(),
+          });
+        }
+      }
+
+      if (eventType === "payment_intent.amount.capturably_held" && orderNumber) {
+        const snapshot = await db
+          .collection(COLLECTIONS.bookings)
+          .where(BOOKING_FIELDS.orderNumber, "==", orderNumber)
+          .limit(1)
+          .get();
+
+        if (!snapshot.empty) {
+          await snapshot.docs[0].ref.update({
+            [BOOKING_FIELDS.paymentStatus]: "authorized",
             [BOOKING_FIELDS.transactionId]: paymentIntentId,
             [BOOKING_FIELDS.updatedAt]: new Date(),
           });
@@ -433,3 +566,107 @@ function statusLabel(status) {
       return String(status).replaceAll("_", " ");
   }
 }
+
+exports.capturePaymentIntent = onCall(
+  {
+    region: "asia-southeast1",
+    secrets: [STRIPE_SECRET_KEY],
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in is required.");
+    }
+
+    const data = request.data || {};
+    const paymentIntentId = String(data.paymentIntentId || "").trim();
+    const orderNumber = String(data.orderNumber || "").trim();
+
+    if (!paymentIntentId) {
+      throw new HttpsError("invalid-argument", "paymentIntentId is required.");
+    }
+
+    const secretKey = STRIPE_SECRET_KEY.value();
+    if (!secretKey || !secretKey.trim()) {
+      throw new HttpsError("failed-precondition", "STRIPE_SECRET_KEY is not configured.");
+    }
+
+    const stripe = new Stripe(secretKey);
+
+    try {
+      const intent = await stripe.paymentIntents.capture(paymentIntentId);
+
+      logger.info("Stripe payment intent captured", {
+        paymentIntentId: intent.id,
+        orderNumber,
+        status: intent.status,
+      });
+
+      return {
+        status: "captured",
+        paymentIntentId: intent.id,
+        amountCaptured: intent.amount_received,
+      };
+    } catch (error) {
+      logger.error("Stripe payment intent capture failed", {
+        paymentIntentId,
+        message: error?.message || "Unknown Stripe error",
+        orderNumber,
+      });
+      throw new HttpsError("internal", `Failed to capture payment: ${error?.message || "Unknown error"}`);
+    }
+  }
+);
+
+exports.cancelPaymentIntent = onCall(
+  {
+    region: "asia-southeast1",
+    secrets: [STRIPE_SECRET_KEY],
+    enforceAppCheck: false,
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in is required.");
+    }
+
+    const data = request.data || {};
+    const paymentIntentId = String(data.paymentIntentId || "").trim();
+    const orderNumber = String(data.orderNumber || "").trim();
+    const reason = String(data.reason || "").trim();
+
+    if (!paymentIntentId) {
+      throw new HttpsError("invalid-argument", "paymentIntentId is required.");
+    }
+
+    const secretKey = STRIPE_SECRET_KEY.value();
+    if (!secretKey || !secretKey.trim()) {
+      throw new HttpsError("failed-precondition", "STRIPE_SECRET_KEY is not configured.");
+    }
+
+    const stripe = new Stripe(secretKey);
+
+    try {
+      const intent = await stripe.paymentIntents.cancel(paymentIntentId, {
+        cancellation_reason: reason || "requested_by_customer",
+      });
+
+      logger.info("Stripe payment intent cancelled", {
+        paymentIntentId: intent.id,
+        orderNumber,
+        reason: reason || "requested_by_customer",
+      });
+
+      return {
+        status: "cancelled",
+        paymentIntentId: intent.id,
+      };
+    } catch (error) {
+      logger.error("Stripe payment intent cancellation failed", {
+        paymentIntentId,
+        message: error?.message || "Unknown Stripe error",
+        orderNumber,
+      });
+      throw new HttpsError("internal", `Failed to cancel payment: ${error?.message || "Unknown error"}`);
+    }
+  }
+);

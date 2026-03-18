@@ -32,6 +32,8 @@ class BookingModel {
     required this.status,
     this.driverId,
     required this.rejectedBy,
+    this.orderNumber,
+    this.transactionId,
     this.createdAt,
     this.updatedAt,
     this.cancelledAt,
@@ -61,6 +63,8 @@ class BookingModel {
   final BookingStatus status;
   final String? driverId;
   final List<String> rejectedBy;
+  final String? orderNumber;
+  final String? transactionId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? cancelledAt;
@@ -104,6 +108,8 @@ class BookingModel {
       status: BookingStatus.fromString(_str(data['status'])),
       driverId: data['driverId']?.toString(),
       rejectedBy: _strList(data['rejectedBy']),
+      orderNumber: data['orderNumber']?.toString(),
+      transactionId: data['transactionId']?.toString(),
       createdAt: createdAt,
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
@@ -135,6 +141,8 @@ class BookingModel {
     BookingStatus? status,
     String? driverId,
     List<String>? rejectedBy,
+    String? orderNumber,
+    String? transactionId,
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? cancelledAt,
@@ -164,6 +172,8 @@ class BookingModel {
       status: status ?? this.status,
       driverId: driverId ?? this.driverId,
       rejectedBy: rejectedBy ?? this.rejectedBy,
+      orderNumber: orderNumber ?? this.orderNumber,
+      transactionId: transactionId ?? this.transactionId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       cancelledAt: cancelledAt ?? this.cancelledAt,

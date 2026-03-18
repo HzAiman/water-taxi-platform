@@ -65,6 +65,15 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
     switch (result) {
       case OperationSuccess(:final message):
+        // Show "Payment Held" info
+        if (!mounted) return;
+        showTopInfo(
+          context,
+          title: 'Payment Authorized',
+          message: 'Your payment has been held. Proceed to confirm your ride.',
+        );
+
+        // Navigate to booking tracking (payment will be captured when ride completes)
         if (!mounted) return;
         final bookingRepo = context.read<BookingRepository>();
         final passengerCount = widget.adultCount + widget.childCount;

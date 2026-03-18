@@ -175,7 +175,8 @@ class PaymentViewModel extends ChangeNotifier {
         ),
       );
 
-      if (!paymentResult.isSuccess) {
+      if (paymentResult.status != PaymentGatewayStatus.authorized &&
+          paymentResult.status != PaymentGatewayStatus.success) {
         if (paymentResult.status == PaymentGatewayStatus.cancelled) {
           return const OperationFailure(
             'Payment cancelled',
@@ -253,13 +254,63 @@ class PaymentViewModel extends ChangeNotifier {
   }) {
     final compactUid = userId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final compactKey = idempotencyKey.hashCode.abs();
-    return 'WT-${compactUid.takeLast(6)}-$compactKey';
+    final last6 = compactUid.length <= 6 ? compactUid : compactUid.substring(compactUid.length - 6);
+    return 'WT-$last6-$compactKey';
   }
-}
 
-extension on String {
-  String takeLast(int count) {
-    if (length <= count) return this;
-    return substring(length - count);
+  /// Captures a held payment (call after ride completion)
+  Future<OperationResult> capturePayment({
+    required String paymentIntentId,
+    required String orderNumber,
+  }) async {
+    try {
+      final result = await _paymentGateway.capturePayment(
+        paymentIntentId: paymentIntentId,
+        orderNumber: orderNumber,
+      );
+
+      if (result.isSuccess) {
+        return const OperationSuccess('Payment captured successfully');
+      }
+
+      return OperationFailure(
+        'Capture failed',
+        result.errorMessage ?? 'Could not capture payment.',
+      );
+    } catch (e) {
+      return OperationFailure(
+        'Capture error',
+        'Error capturing payment: ${e.toString()}',
+      );
+    }
+  }
+
+  /// Cancels a held payment (call if ride is cancelled)
+  Future<OperationResult> cancelPayment({
+    required String paymentIntentId,
+    required String orderNumber,
+    String reason = 'requested_by_customer',
+  }) async {
+    try {
+      final result = await _paymentGateway.cancelPayment(
+        paymentIntentId: paymentIntentId,
+        orderNumber: orderNumber,
+        reason: reason,
+      );
+
+      if (result.status == PaymentGatewayStatus.cancelled) {
+        return const OperationSuccess('Payment cancelled, funds released');
+      }
+
+      return OperationFailure(
+        'Cancellation failed',
+        result.errorMessage ?? 'Could not cancel payment.',
+      );
+    } catch (e) {
+      return OperationFailure(
+        'Cancellation error',
+        'Error cancelling payment: ${e.toString()}',
+      );
+    }
   }
 }

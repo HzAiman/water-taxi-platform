@@ -757,6 +757,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     builder: (_) => ChangeNotifierProvider(
                       create: (_) => BookingTrackingViewModel(
                         bookingRepo: context.read<BookingRepository>(),
+                        paymentGateway: context.read<PaymentGatewayService>(),
                       ),
                       child: BookingTrackingScreen(
                         bookingId: booking.bookingId,
