@@ -31,6 +31,9 @@ Each app is a standalone Flutter project with its own Firebase config and featur
 - Hold-first payment flow (Stripe manual capture).
 - Attempt-scoped idempotency to prevent stale PaymentIntent reuse.
 - Live tracking screen that reacts to booking status updates.
+- Live operator tracking after `on_the_way` using booking-stream coordinates (`operatorLat`, `operatorLng`).
+- Tracking map route rendering from Firestore polyline coordinates (with legacy key compatibility).
+- Tracking map auto-fit to route and operator recenter behavior during active trip.
 - Current-booking resume card on the home screen.
 - Booking history and account management in profile.
 - Refactored UI logic into repositories + view models using Provider.
@@ -44,6 +47,7 @@ Each app is a standalone Flutter project with its own Firebase config and featur
 - Transactional operator ID uniqueness enforcement via `operator_id_claims/{operatorIdKey}`.
 - Online/offline availability toggle.
 - Booking workflow: reject, accept, start trip, complete trip.
+- Live operator coordinate publishing after `startTrip` with throttled writes and terminal-state stop conditions.
 - Operator map with current-location support.
 - Profile management and shared top-card notifications.
 - Refactored UI logic into repositories + view models using Provider.
@@ -129,6 +133,8 @@ Current rules already enforce these core behaviors:
 - passengers can create their own `pending` bookings with `paymentStatus == authorized`
 - passengers can cancel their own active bookings
 - operators can transition bookings through `accepted`, `on_the_way`, and `completed`
+- assigned operators can publish live coordinates on `on_the_way` bookings (`operatorLat`, `operatorLng`)
+- booking schema allow-list accepts Firestore route polyline fields used by tracking map (`routePolyline` and legacy variants)
 - passengers can write their own FCM token to `user_devices/{uid}`
 - operators can write their own FCM token to `operator_devices/{uid}`
 - operators can read `operator_presence/{uid}` (used by Cloud Functions to target online operators)
@@ -196,6 +202,9 @@ Recent verification highlights:
 - Passenger view model tests added and passing.
 - Operator view model tests added and passing.
 - Operator home widget tests added for signed-out and signed-in action flows (including accept/start/complete delegation) and passing.
+- Passenger tracking widget tests now validate route polyline rendering and operator marker visibility gating.
+- Passenger integration tests now validate operator location stream propagation and legacy polyline key compatibility.
+- Operator view model tests now validate location publish throttling guard (time/distance thresholds).
 
 ## Payment Ops Checklist
 
@@ -228,6 +237,8 @@ Use this quick checklist before each release cut and after backend payment chang
 ## Status
 
 Core flows are implemented and refactored away from UI-embedded business logic. The full push notification pipeline is live: FCM token registration, deployed Cloud Functions (Gen 2, `asia-southeast1`), in-app foreground alerts, background OS notifications, and notification tap deep-link navigation in both apps.
+
+Live passenger tracking after `on_the_way` is now implemented end-to-end: operator coordinates are published with throttling, passenger tracking renders Firestore route polylines, and operator marker visibility is status-gated.
 
 The workspace is still not production-ready. Main unfinished areas are alerting/dashboard polish for payment operations, operator ID governance monitoring, and full end-to-end integration testing across both apps.
 

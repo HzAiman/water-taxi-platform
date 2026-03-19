@@ -21,6 +21,8 @@ The app is now refactored to a repository + view model architecture with Provide
   - `pending -> accepted`
   - `accepted -> on_the_way`
   - `on_the_way -> completed`
+- Trip start now seeds first operator coordinate update, then publishes throttled live location updates while booking is `on_the_way`.
+- Location publishing automatically stops when booking leaves `on_the_way`, is released, or operator goes offline.
 - Reject and cancel terminal paths are reconciled by backend payment release/refund triggers.
 - Shared top-card notifications for welcome, info, success, offline, and error states.
 
@@ -108,6 +110,10 @@ This app reads shared booking documents created by the passenger app and current
 ```text
 status
 operatorId
+operatorUid
+operatorLat
+operatorLng
+routePolyline (or legacy variants normalized by repository)
 origin
 destination
 passengerCount
@@ -166,6 +172,7 @@ The current rules already allow operators to:
 - accept an unclaimed pending booking
 - start a trip on their assigned booking
 - complete a trip on their assigned booking
+- publish live coordinates on assigned `on_the_way` bookings
 - create/update their own operator profile only when the matching `operator_id_claims/{operatorIdKey}` is owned by their UID
 
 To deploy the shared Firestore config used by this app:
@@ -212,6 +219,7 @@ flutter run
 Current automated coverage includes:
 
 - View model tests for initialization, filters, busy guard, timeout rollback, refresh, and helper formatting.
+- View model tests for location publish throttling helper (interval/distance guard).
 - Widget tests for:
   - signed-out fallback
   - signed-in offline/online state
@@ -241,6 +249,8 @@ This app is functionally stable for core operator flow but not production-ready.
 - queue UX polish under heavy concurrent demand
 
 The current task tracker is in `TODO.md`.
+
+Documentation sync: March 2026 (includes live tracking + route polyline compatibility rollout).
 
 ## Future Planning: River Navigation Delivery (14 Jetties)
 

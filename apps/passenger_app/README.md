@@ -23,6 +23,9 @@ The app is now refactored to repository + view model layers with Provider, and u
 ### Tracking and recovery
 - Reopen the active booking directly from the home screen.
 - Stream booking status updates from Firestore in real time.
+- Show live operator marker after booking reaches `on_the_way`.
+- Render route from Firestore polyline coordinates (with legacy key compatibility).
+- Auto-fit map camera to route and gently recenter during live operator movement.
 - Support passenger cancellation for active bookings.
 - Trigger backend release/refund path for cancelled and rejected bookings.
 - Show booking history with live updates and filters.
@@ -112,15 +115,20 @@ totalFare
 paymentMethod
 paymentStatus
 status
+operatorUid
 operatorId
+operatorLat
+operatorLng
+routePolyline
 createdAt
 updatedAt
 ```
 
 Notes:
 
-- `operatorId` is the only assignment field used for booking ownership.
+- Booking ownership is represented with `operatorUid` and `operatorId` for compatibility across old/new documents.
 - `routeKey` is deprecated and no longer written by passenger booking creation.
+- Tracking parser normalizes route polyline from `routePolyline` and legacy keys (`routeCoordinates`, `polylineCoordinates`, `routePoints`).
 - Booking creation expects hold-first payment state (`paymentStatus = authorized`).
 - Backend reconciles stale `authorized` bookings on schedule to release or capture terminal bookings safely.
 
@@ -193,6 +201,8 @@ The existing rules currently cover:
 - passenger booking creation restricted to the signed-in user with `status == pending`
 - passenger cancellation for active bookings
 - operator status transitions for `pending -> accepted -> on_the_way -> completed`
+- assigned operator live coordinate writes for `on_the_way` (`operatorLat`, `operatorLng`)
+- booking allow-list compatibility for route polyline fields used by tracking map
 
 The current index file includes the fare lookup index used by route pricing queries. Additional booking-history and operator-queue indexes are still pending.
 
@@ -234,6 +244,12 @@ Current automated coverage includes passenger view model tests for:
 - tracking stream updates and cancellation
 - profile load/update and booking history streaming
 
+Additional coverage now includes:
+
+- tracking widget regression for route polyline rendering and operator marker status gating
+- integration validation for operator location stream propagation to passenger tracking
+- integration regression for legacy route polyline key variants
+
 Run from this folder:
 
 ```bash
@@ -256,6 +272,8 @@ This app is not production-ready yet. Remaining work includes:
 - stricter Firestore rules and indexes
 - broader widget and integration test coverage (beyond current view model suite)
 - Android and iOS release signing and build config verification
+
+Documentation sync: March 2026 (includes live operator tracking + Firestore route polyline rollout).
 
 The live task tracker is in `TODO.md`.
 

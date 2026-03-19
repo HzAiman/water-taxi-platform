@@ -62,6 +62,10 @@ Assignment note:
 
 - Booking assignment now relies on `operatorId` only; legacy `driverId` is no longer used in function logic.
 
+Schema compatibility note:
+
+- Booking documents may now include live tracking fields (`operatorLat`, `operatorLng`) and route polyline fields (`routePolyline` or legacy aliases). These are consumed by clients for map rendering and do not change existing payment trigger conditions.
+
 ## Observability Signals
 
 Error logs include alert tags to support logs-based metrics and alerting:
@@ -112,4 +116,6 @@ firebase deploy --only firestore:rules,firestore:indexes,functions
 - The functions are deployed to `asia-southeast1` to match the Firebase project region (`melaka-water-taxi`).
 - This project uses Node.js 22 as specified in `functions/package.json`.
 - Cloud artifact cleanup is set to 7 days to avoid stale build artifacts accumulating in Artifact Registry.
+
+Documentation sync: March 2026.
 
