@@ -290,9 +290,174 @@ void main() {
       setup.profileVm.dispose();
     },
   );
+
+  test(
+    'integration: payment failure can be retried and only successful attempt creates booking',
+    () async {
+      final setup = await _createSetup(
+        paymentGateway: _ScriptedPaymentGatewayService(
+          chargeResponses: [
+            const PaymentGatewayResult(
+              status: PaymentGatewayStatus.failed,
+              errorMessage: 'Gateway timeout',
+            ),
+            const PaymentGatewayResult(
+              status: PaymentGatewayStatus.authorized,
+              transactionId: 'pi-retry-success-1',
+            ),
+          ],
+        ),
+      );
+
+      await setup.homeVm.init('user-1');
+      await setup.paymentVm.loadFare(
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        adultCount: 1,
+        childCount: 0,
+      );
+
+      final firstAttempt = await setup.paymentVm.processPayment(
+        userId: 'user-1',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        adultCount: 1,
+        childCount: 0,
+      );
+
+      expect(firstAttempt, isA<OperationFailure>());
+      final failedDocs = await setup.firestore
+          .collection(FirestoreCollections.bookings)
+          .where(BookingFields.userId, isEqualTo: 'user-1')
+          .get();
+      expect(failedDocs.docs, isEmpty);
+
+      final retryAttempt = await setup.paymentVm.processPayment(
+        userId: 'user-1',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        adultCount: 1,
+        childCount: 0,
+      );
+
+      expect(retryAttempt, isA<OperationSuccess>());
+      final retryBookingId = (retryAttempt as OperationSuccess).message;
+      expect(retryBookingId, isNotEmpty);
+
+      final createdSnap = await setup.firestore
+          .collection(FirestoreCollections.bookings)
+          .where(BookingFields.userId, isEqualTo: 'user-1')
+          .get();
+      expect(createdSnap.docs, hasLength(1));
+
+      setup.profileVm.stopBookingHistoryStream();
+      setup.homeVm.dispose();
+      setup.trackingVm.dispose();
+      setup.profileVm.dispose();
+    },
+  );
+
+  test(
+    'integration: cancellation continues when payment cancel returns NOT_FOUND reconciliation signal',
+    () async {
+      final setup = await _createSetup(
+        paymentGateway: _ScriptedPaymentGatewayService(
+          chargeResponses: const [
+            PaymentGatewayResult(
+              status: PaymentGatewayStatus.authorized,
+              transactionId: 'pi-not-found-1',
+            ),
+          ],
+          cancelResponse: const PaymentGatewayResult(
+            status: PaymentGatewayStatus.failed,
+            errorMessage: 'NOT_FOUND: PaymentIntent does not exist',
+          ),
+        ),
+      );
+
+      final bookingId = await _createBookingAndTrack(setup: setup);
+      await _operatorUpdateStatus(
+        firestore: setup.firestore,
+        bookingId: bookingId,
+        status: BookingStatus.accepted,
+        operatorId: 'operator-1',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final result = await setup.trackingVm.cancelBooking(bookingId);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(result, isA<OperationSuccess>());
+
+      final snap = await setup.firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      expect(
+        snap.data()?[BookingFields.status],
+        BookingStatus.cancelled.firestoreValue,
+      );
+
+      setup.profileVm.stopBookingHistoryStream();
+      setup.homeVm.dispose();
+      setup.trackingVm.dispose();
+      setup.profileVm.dispose();
+    },
+  );
+
+  test(
+    'integration: cancellation is blocked when payment cancellation fails without reconciliation override',
+    () async {
+      final setup = await _createSetup(
+        paymentGateway: _ScriptedPaymentGatewayService(
+          chargeResponses: const [
+            PaymentGatewayResult(
+              status: PaymentGatewayStatus.authorized,
+              transactionId: 'pi-fail-cancel-1',
+            ),
+          ],
+          cancelResponse: const PaymentGatewayResult(
+            status: PaymentGatewayStatus.failed,
+            errorMessage: 'Gateway timeout',
+          ),
+        ),
+      );
+
+      final bookingId = await _createBookingAndTrack(setup: setup);
+      await _operatorUpdateStatus(
+        firestore: setup.firestore,
+        bookingId: bookingId,
+        status: BookingStatus.accepted,
+        operatorId: 'operator-1',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      final result = await setup.trackingVm.cancelBooking(bookingId);
+
+      expect(result, isA<OperationFailure>());
+      final failure = result as OperationFailure;
+      expect(failure.title, 'Refund failed');
+
+      final snap = await setup.firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      expect(
+        snap.data()?[BookingFields.status],
+        BookingStatus.accepted.firestoreValue,
+      );
+
+      setup.profileVm.stopBookingHistoryStream();
+      setup.homeVm.dispose();
+      setup.trackingVm.dispose();
+      setup.profileVm.dispose();
+    },
+  );
 }
 
-Future<_IntegrationSetup> _createSetup() async {
+Future<_IntegrationSetup> _createSetup({
+  PaymentGatewayService? paymentGateway,
+}) async {
   final firestore = FakeFirebaseFirestore();
   await _seedFirestore(firestore);
 
@@ -300,7 +465,7 @@ Future<_IntegrationSetup> _createSetup() async {
   final jettyRepo = JettyRepository(firestore: firestore);
   final fareRepo = FareRepository(firestore: firestore);
   final bookingRepo = BookingRepository(firestore: firestore);
-  final paymentGateway = SimulatedExternalPaymentGatewayService(
+  final gateway = paymentGateway ?? SimulatedExternalPaymentGatewayService(
     simulatedLatency: Duration.zero,
   );
 
@@ -315,11 +480,11 @@ Future<_IntegrationSetup> _createSetup() async {
     jettyRepo: jettyRepo,
     userRepo: userRepo,
     bookingRepo: bookingRepo,
-    paymentGateway: paymentGateway,
+    paymentGateway: gateway,
   );
   final trackingVm = BookingTrackingViewModel(
     bookingRepo: bookingRepo,
-    paymentGateway: paymentGateway,
+    paymentGateway: gateway,
   );
   final profileVm = ProfileViewModel(
     userRepo: userRepo,
@@ -383,6 +548,47 @@ class _IntegrationSetup {
   final PaymentViewModel paymentVm;
   final BookingTrackingViewModel trackingVm;
   final ProfileViewModel profileVm;
+}
+
+class _ScriptedPaymentGatewayService implements PaymentGatewayService {
+  _ScriptedPaymentGatewayService({
+    required List<PaymentGatewayResult> chargeResponses,
+    PaymentGatewayResult? cancelResponse,
+  })  : _chargeResponses = List<PaymentGatewayResult>.from(chargeResponses),
+        _cancelResponse =
+            cancelResponse ??
+            const PaymentGatewayResult(status: PaymentGatewayStatus.cancelled);
+
+  final List<PaymentGatewayResult> _chargeResponses;
+  final PaymentGatewayResult _cancelResponse;
+
+  @override
+  Future<PaymentGatewayResult> charge(PaymentGatewayRequest request) async {
+    if (_chargeResponses.isEmpty) {
+      return const PaymentGatewayResult(
+        status: PaymentGatewayStatus.failed,
+        errorMessage: 'No scripted charge response available',
+      );
+    }
+    return _chargeResponses.removeAt(0);
+  }
+
+  @override
+  Future<PaymentGatewayResult> capturePayment({
+    required String paymentIntentId,
+    required String orderNumber,
+  }) async {
+    return const PaymentGatewayResult(status: PaymentGatewayStatus.success);
+  }
+
+  @override
+  Future<PaymentGatewayResult> cancelPayment({
+    required String paymentIntentId,
+    required String orderNumber,
+    String reason = 'requested_by_customer',
+  }) async {
+    return _cancelResponse;
+  }
 }
 
 Future<void> _seedFirestore(FakeFirebaseFirestore firestore) async {

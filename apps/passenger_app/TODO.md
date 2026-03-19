@@ -23,7 +23,7 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 - [x] Ensure profile/account management screens handle partial Firestore data safely.
 
 #### Validation and Test Expansion
-- [ ] Expand integration coverage for failure, retry, and reconciliation branches.
+- [x] Expand integration coverage for failure, retry, and reconciliation branches.
 
 ### P2: River Navigation Cross-App Roadmap (14 Jetties)
 
