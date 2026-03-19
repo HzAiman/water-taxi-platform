@@ -49,7 +49,7 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 #### Phase D: Verification and Rollout Hardening (Parallelizable After Core Integration)
 - [x] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
 - [x] Add view model/widget tests for guidance rendering and booking-state transitions.
-- [ ] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
+- [x] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
 - [ ] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
 
 ## Completed Milestones

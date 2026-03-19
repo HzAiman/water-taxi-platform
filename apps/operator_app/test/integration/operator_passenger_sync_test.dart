@@ -117,6 +117,109 @@ void main() {
         expect(activeSnapshots.last, isNot(contains(bookingId)));
       },
     );
+
+    test(
+      'integration flow covers accept start progression off-route recover complete',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repo = BookingRepository(firestore: firestore);
+        const bookingId = 'booking-nav-flow-1';
+
+        await _seedCanonicalCorridor(firestore);
+        await _seedPendingBooking(
+          firestore,
+          bookingId: bookingId,
+          userId: 'user-3',
+        );
+
+        final trackingStatuses = <String>[];
+        final seenLng = <double>[];
+        final trackingSub = firestore
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId)
+            .snapshots()
+            .listen((snap) {
+              final data = snap.data();
+              if (data == null) return;
+              trackingStatuses.add((data[BookingFields.status] ?? '').toString());
+              final lng = data[BookingFields.operatorLng];
+              if (lng is num) {
+                seenLng.add(lng.toDouble());
+              }
+            });
+
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        final accepted = await repo.acceptBooking(
+          bookingId: bookingId,
+          operatorId: 'operator-1',
+        );
+        expect(accepted, isA<OperationSuccess>());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        final started = await repo.startTrip(
+          bookingId: bookingId,
+          operatorId: 'operator-1',
+        );
+        expect(started, isA<OperationSuccess>());
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        final progressed = await repo.updateOperatorLocation(
+          bookingId: bookingId,
+          operatorId: 'operator-1',
+          operatorLat: 2.2010,
+          operatorLng: 102.2510,
+        );
+        expect(progressed, isA<OperationSuccess>());
+
+        final offRoute = await repo.updateOperatorLocation(
+          bookingId: bookingId,
+          operatorId: 'operator-1',
+          operatorLat: 2.2010,
+          operatorLng: 102.2550,
+        );
+        expect(offRoute, isA<OperationSuccess>());
+
+        final recovered = await repo.updateOperatorLocation(
+          bookingId: bookingId,
+          operatorId: 'operator-1',
+          operatorLat: 2.2020,
+          operatorLng: 102.2520,
+        );
+        expect(recovered, isA<OperationSuccess>());
+
+        final completed = await repo.completeTrip(
+          bookingId: bookingId,
+          operatorId: 'operator-1',
+        );
+        expect(completed, isA<OperationSuccess>());
+
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+        await trackingSub.cancel();
+
+        final bookingSnap = await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId)
+            .get();
+        final data = bookingSnap.data()!;
+
+        expect(
+          trackingStatuses,
+          containsAllInOrder([
+            BookingStatus.pending.firestoreValue,
+            BookingStatus.accepted.firestoreValue,
+            BookingStatus.onTheWay.firestoreValue,
+            BookingStatus.completed.firestoreValue,
+          ]),
+        );
+        expect(data[BookingFields.corridorId], 'melaka_main_01');
+        expect(data[BookingFields.originCheckpointSeq], 1);
+        expect(data[BookingFields.destinationCheckpointSeq], 4);
+        expect(data[BookingFields.status], BookingStatus.completed.firestoreValue);
+        expect(seenLng.any((lng) => lng > 102.254), isTrue);
+        expect(seenLng.any((lng) => lng >= 102.2515 && lng <= 102.2525), isTrue);
+      },
+    );
   });
 }
 
@@ -134,6 +237,12 @@ Future<void> _seedPendingBooking(
     BookingFields.destination: 'Jetty B',
     BookingFields.originCoords: const GeoPoint(2.2000, 102.2500),
     BookingFields.destinationCoords: const GeoPoint(2.2100, 102.2600),
+    BookingFields.routePolyline: const [
+      {'lat': 2.2000, 'lng': 102.2500},
+      {'lat': 2.2010, 'lng': 102.2510},
+      {'lat': 2.2020, 'lng': 102.2520},
+      {'lat': 2.2030, 'lng': 102.2530},
+    ],
     BookingFields.adultCount: 1,
     BookingFields.childCount: 0,
     BookingFields.passengerCount: 1,
@@ -151,4 +260,37 @@ Future<void> _seedPendingBooking(
     BookingFields.createdAt: Timestamp.now(),
     BookingFields.updatedAt: Timestamp.now(),
   });
+}
+
+Future<void> _seedCanonicalCorridor(FirebaseFirestore firestore) async {
+  await firestore
+      .collection(FirestoreCollections.navigationCorridors)
+      .doc('melaka_main_01')
+      .set({
+        NavigationCorridorFields.corridorId: 'melaka_main_01',
+        NavigationCorridorFields.corridorName: 'Sungai Melaka Main',
+        NavigationCorridorFields.riverName: 'Sungai Melaka',
+        NavigationCorridorFields.isActive: true,
+        NavigationCorridorFields.version: 1,
+        NavigationCorridorFields.checkpointCount: 14,
+        NavigationCorridorFields.checkpointOrder: const [
+          'JETTY_01',
+          'JETTY_02',
+          'JETTY_03',
+          'JETTY_04',
+        ],
+        NavigationCorridorFields.checkpoints: const [
+          {'checkpointId': 'JETTY_01', 'seq': 1, 'name': 'Jetty A', 'lat': 2.2000, 'lng': 102.2500},
+          {'checkpointId': 'JETTY_02', 'seq': 2, 'name': 'Jetty Mid 1', 'lat': 2.2010, 'lng': 102.2510},
+          {'checkpointId': 'JETTY_03', 'seq': 3, 'name': 'Jetty Mid 2', 'lat': 2.2020, 'lng': 102.2520},
+          {'checkpointId': 'JETTY_04', 'seq': 4, 'name': 'Jetty B', 'lat': 2.2100, 'lng': 102.2600},
+        ],
+        NavigationCorridorFields.polyline: const [
+          {'lat': 2.2000, 'lng': 102.2500},
+          {'lat': 2.2010, 'lng': 102.2510},
+          {'lat': 2.2020, 'lng': 102.2520},
+          {'lat': 2.2030, 'lng': 102.2530},
+        ],
+        NavigationCorridorFields.updatedAt: Timestamp.now(),
+      });
 }
