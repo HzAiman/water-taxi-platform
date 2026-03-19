@@ -828,6 +828,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                         compassEnabled: true,
                         zoomControlsEnabled: false,
                         mapToolbarEnabled: false,
+                        markers: _buildMarkers(viewModel),
+                        polylines: _buildPolylines(viewModel),
                         onMapCreated: (GoogleMapController controller) {
                           _mapController = controller;
                           _mapReady = true;
@@ -920,5 +922,127 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
               ],
             ),
     );
+  }
+
+  Set<Marker> _buildMarkers(OperatorHomeViewModel viewModel) {
+    final markers = <Marker>{};
+    final activeBooking = viewModel.activeBookings.isNotEmpty
+        ? viewModel.activeBookings.first
+        : null;
+
+    if (activeBooking == null) {
+      return markers;
+    }
+
+    // Origin marker
+    final originLat = activeBooking.originLat;
+    final originLng = activeBooking.originLng;
+    if (originLat != null && originLng != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('origin'),
+          position: LatLng(originLat, originLng),
+          infoWindow: InfoWindow(
+            title: 'Pick-up',
+            snippet: activeBooking.origin,
+          ),
+        ),
+      );
+    }
+
+    // Destination marker (blue)
+    final destLat = activeBooking.destinationLat;
+    final destLng = activeBooking.destinationLng;
+    if (destLat != null && destLng != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('destination'),
+          position: LatLng(
+            destLat,
+            destLng,
+          ),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
+          infoWindow: InfoWindow(
+            title: 'Drop-off',
+            snippet: activeBooking.destination,
+          ),
+        ),
+      );
+    }
+
+    // Operator current location marker (green) for on-the-way bookings
+    if (activeBooking.status == BookingStatus.onTheWay) {
+      final opLat = activeBooking.operatorLat;
+      final opLng = activeBooking.operatorLng;
+      if (opLat != null && opLng != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('operator_location'),
+            position: LatLng(opLat, opLng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
+          infoWindow: const InfoWindow(
+            title: 'Your Location',
+            snippet: 'Current operator position',
+          ),
+        ),
+      );
+      }
+    }
+
+    return markers;
+  }
+
+  Set<Polyline> _buildPolylines(OperatorHomeViewModel viewModel) {
+    final activeBooking = viewModel.activeBookings.isNotEmpty
+        ? viewModel.activeBookings.first
+        : null;
+
+    if (activeBooking == null) {
+      return const <Polyline>{};
+    }
+
+    final routePoints = activeBooking.routePolyline
+        .map((p) => LatLng(p.lat, p.lng))
+        .toList(growable: false);
+
+    if (routePoints.length >= 2) {
+      return {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: routePoints,
+          color: const Color(0xFF0066CC),
+          width: 4,
+        ),
+      };
+    }
+
+    // Fallback: draw direct line if no polyline available
+    final originLat = activeBooking.originLat;
+    final originLng = activeBooking.originLng;
+    final destLat = activeBooking.destinationLat;
+    final destLng = activeBooking.destinationLng;
+    
+    if (originLat != null &&
+        originLng != null &&
+        destLat != null &&
+        destLng != null) {
+      return {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: [
+            LatLng(originLat, originLng),
+            LatLng(destLat, destLng),
+          ],
+          color: const Color(0xFF0066CC),
+          width: 4,
+        ),
+      };
+    }
+
+    return const <Polyline>{};
   }
 }

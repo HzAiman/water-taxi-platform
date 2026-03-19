@@ -591,12 +591,25 @@ class BookingRepository {
       return null;
     }
 
-    return <String, dynamic>{
+    final existingRoutePolyline = _normaliseRoutePolyline(
+      _extractRoutePolylineRaw(bookingData),
+    );
+    final corridorRoutePolyline = _normaliseRoutePolyline(
+      corridor[NavigationCorridorFields.polyline],
+    );
+
+    final payload = <String, dynamic>{
       BookingFields.corridorId: _canonicalCorridorId,
       BookingFields.corridorVersion: version,
       BookingFields.originCheckpointSeq: originSeq,
       BookingFields.destinationCheckpointSeq: destinationSeq,
     };
+
+    if (existingRoutePolyline == null && corridorRoutePolyline != null) {
+      payload[BookingFields.routePolyline] = corridorRoutePolyline;
+    }
+
+    return payload;
   }
 
   static int? _findCheckpointSeq(

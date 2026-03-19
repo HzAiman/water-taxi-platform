@@ -46,6 +46,7 @@ class BookingRepository {
     : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
+  static const String _canonicalCorridorId = 'melaka_main_01';
 
   // ── Write ────────────────────────────────────────────────────────────────
 
@@ -57,6 +58,7 @@ class BookingRepository {
     final adultSubtotal = p.adultFare * p.adultCount;
     final childSubtotal = p.childFare * p.childCount;
     final total = adultSubtotal + childSubtotal;
+    final corridorPayload = await _loadCanonicalCorridorPayload();
 
     await ref.set({
       BookingFields.bookingId: id,
@@ -87,6 +89,7 @@ class BookingRepository {
       BookingFields.status: BookingStatus.pending.firestoreValue,
       BookingFields.operatorUid: null,
       BookingFields.operatorId: null,
+      ...corridorPayload,
       BookingFields.createdAt: FieldValue.serverTimestamp(),
       BookingFields.updatedAt: FieldValue.serverTimestamp(),
     });
@@ -187,6 +190,37 @@ class BookingRepository {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
+  Future<Map<String, dynamic>> _loadCanonicalCorridorPayload() async {
+    try {
+      final corridorSnap = await _db
+          .collection(FirestoreCollections.navigationCorridors)
+          .doc(_canonicalCorridorId)
+          .get();
+      final corridor = corridorSnap.data();
+      if (corridor == null) {
+        return const <String, dynamic>{};
+      }
+
+      final payload = <String, dynamic>{};
+      final version = _asInt(corridor[NavigationCorridorFields.version]);
+      if (version != null && version > 0) {
+        payload[BookingFields.corridorId] = _canonicalCorridorId;
+        payload[BookingFields.corridorVersion] = version;
+      }
+
+      final routePolyline = _normaliseRoutePolyline(
+        corridor[NavigationCorridorFields.polyline],
+      );
+      if (routePolyline != null) {
+        payload[BookingFields.routePolyline] = routePolyline;
+      }
+
+      return payload;
+    } catch (_) {
+      return const <String, dynamic>{};
+    }
+  }
+
   static BookingModel _fromDoc(String id, Map<String, dynamic> data) {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
@@ -269,5 +303,11 @@ class BookingRepository {
     if (value is double) return value;
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
+  }
+
+  static int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    return int.tryParse(value?.toString() ?? '');
   }
 }
