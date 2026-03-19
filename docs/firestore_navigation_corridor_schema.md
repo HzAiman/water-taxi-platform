@@ -59,6 +59,13 @@ Constraints:
 - `corridorId` must equal `melaka_main_01`.
 - `originCheckpointSeq < destinationCheckpointSeq`.
 
+## Cross-App Tracking Alignment Notes
+
+- Passenger tracking treats corridor linkage fields as optional metadata.
+- Missing or partial corridor linkage fields must not block map rendering, status timeline updates, or cancellation flows.
+- When all corridor linkage fields are present, passenger UI may display a lightweight corridor segment hint (`corridorId`, `corridorVersion`, `originCheckpointSeq`, `destinationCheckpointSeq`).
+- Operator navigation logic remains authoritative for progression and off-route decisions; passenger app only reflects booking-stream metadata.
+
 ## Read-Only Client Policy
 
 Client apps may read `navigation_corridors/*` when authenticated.

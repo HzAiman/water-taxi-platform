@@ -196,6 +196,58 @@ void main() {
       );
     });
 
+    testWidgets('renders corridor metadata notice when available', (
+      tester,
+    ) async {
+      final bookingRepo = _FakeBookingRepository();
+      final vm = BookingTrackingViewModel(bookingRepo: bookingRepo);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<BookingTrackingViewModel>.value(
+          value: vm,
+          child: MaterialApp(
+            home: BookingTrackingScreen(
+              bookingId: 'booking-3a',
+              origin: 'Jetty A',
+              destination: 'Jetty B',
+              passengerCount: 1,
+              mapBuilder:
+                  ({
+                    required initialCameraPosition,
+                    required markers,
+                    required polylines,
+                  }) {
+                    return const SizedBox(key: ValueKey('mock-tracking-map'));
+                  },
+            ),
+          ),
+        ),
+      );
+
+      bookingRepo.emitTrackedBooking(
+        _sampleBooking(
+          id: 'booking-3a',
+          status: BookingStatus.onTheWay,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 3,
+          destinationCheckpointSeq: 10,
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.byType(ListView).first, const Offset(0, -240));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Route Corridor'), findsOneWidget);
+      expect(
+        find.text(
+          'Corridor melaka_main_01 (v1) - Segment checkpoint 3 to 10.',
+        ),
+        findsOneWidget,
+      );
+    });
+
     testWidgets(
       'uses route polyline and gates operator marker to on_the_way',
       (tester) async {
@@ -426,6 +478,10 @@ BookingModel _sampleBooking({
   required BookingStatus status,
   double? operatorLat,
   double? operatorLng,
+  String? corridorId,
+  int? corridorVersion,
+  int? originCheckpointSeq,
+  int? destinationCheckpointSeq,
   List<BookingRoutePoint> routePolyline = const <BookingRoutePoint>[],
 }) {
   return BookingModel(
@@ -435,6 +491,10 @@ BookingModel _sampleBooking({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
+    corridorId: corridorId,
+    corridorVersion: corridorVersion,
+    originCheckpointSeq: originCheckpointSeq,
+    destinationCheckpointSeq: destinationCheckpointSeq,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,

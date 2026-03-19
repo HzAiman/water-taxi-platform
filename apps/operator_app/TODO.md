@@ -31,7 +31,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 - [x] Add lightweight checkpoint/off-route/resume event notifications via existing notification coordinator and channels.
 
 #### Phase C: Cross-App Visibility and Resilience (Depends on Phase B)
-- [ ] Add passenger/shared tracking alignment notes and minimal passenger metadata handling where required.
+- [x] Add passenger/shared tracking alignment notes and minimal passenger metadata handling where required.
 - [ ] Implement graceful fallback when corridor config is unavailable so booking actions remain fully functional.
 - [ ] Regression-check dispatch contention, cancellation, and reject/release reliability paths to ensure no behavior drift.
 - [x] Ensure passenger can track operator approach to pickup after status becomes `on_the_way`.

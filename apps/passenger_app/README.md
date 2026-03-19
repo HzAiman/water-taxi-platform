@@ -249,6 +249,7 @@ Additional coverage now includes:
 - tracking widget regression for route polyline rendering and operator marker status gating
 - integration validation for operator location stream propagation to passenger tracking
 - integration regression for legacy route polyline key variants
+- tracking metadata alignment for optional corridor linkage fields (`corridorId`, `corridorVersion`, `originCheckpointSeq`, `destinationCheckpointSeq`)
 
 Run from this folder:
 

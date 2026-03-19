@@ -369,6 +369,10 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       ],
                       const SizedBox(height: 14),
                       _buildStatusTimeline(status),
+                      if (_hasCorridorMetadata(booking)) ...[
+                        const SizedBox(height: 12),
+                        _buildCorridorMetadataNotice(booking),
+                      ],
                       if (isLocatingOperator || isOperatorLocationStale) ...[
                         const SizedBox(height: 12),
                         _buildLocationStatusNotice(
@@ -999,6 +1003,52 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                 color: Color(0xFF0E4A8A),
                 fontWeight: FontWeight.w600,
               ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  bool _hasCorridorMetadata(BookingModel booking) {
+    return booking.corridorId != null &&
+        booking.corridorVersion != null &&
+        booking.originCheckpointSeq != null &&
+        booking.destinationCheckpointSeq != null;
+  }
+
+  Widget _buildCorridorMetadataNotice(BookingModel booking) {
+    final corridorId = booking.corridorId ?? 'unknown';
+    final corridorVersion = booking.corridorVersion ?? 0;
+    final originSeq = booking.originCheckpointSeq ?? 0;
+    final destinationSeq = booking.destinationCheckpointSeq ?? 0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF4FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFBFD9FF)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Route Corridor',
+            style: TextStyle(
+              fontSize: 12,
+              color: Color(0xFF0E4A8A),
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Corridor $corridorId (v$corridorVersion) - Segment checkpoint $originSeq to $destinationSeq.',
+            style: const TextStyle(
+              fontSize: 12,
+              color: Color(0xFF0E4A8A),
+              fontWeight: FontWeight.w600,
             ),
           ),
         ],

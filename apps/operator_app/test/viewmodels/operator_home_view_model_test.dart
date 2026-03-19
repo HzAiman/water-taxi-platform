@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
@@ -9,6 +10,14 @@ import 'package:operator_app/services/notifications/operator_navigation_alert_bu
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
+  final originalDebugPrint = debugPrint;
+  setUpAll(() {
+    debugPrint = (String? message, {int? wrapWidth}) {};
+  });
+  tearDownAll(() {
+    debugPrint = originalDebugPrint;
+  });
+
   group('OperatorHomeViewModel', () {
     test(
       'initialize loads operator status and subscribes to streams',
