@@ -48,26 +48,9 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 
 #### Phase D: Verification and Rollout Hardening (Parallelizable After Core Integration)
 - [x] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
-- [ ] Add view model/widget tests for guidance rendering and booking-state transitions.
+- [x] Add view model/widget tests for guidance rendering and booking-state transitions.
 - [ ] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
 - [ ] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
-
-### P3: Future Backlog (Post-Stabilization)
-
-#### Platform and Product
-- [ ] Add configurable service window/cutoff rules (night closures, holidays, weather disruption mode).
-- [ ] Add promo/referral and fare campaign support with server-authoritative validation.
-- [ ] Add multilingual copy strategy and localization for BM/EN passenger-facing flows.
-
-#### Booking and Payment Governance
-- [ ] Add payment reconciliation dashboard for mismatches between booking status and provider status.
-- [x] Add automatic stale-authorization cleanup report for long-running uncaptured payments.
-- [ ] Add booking fraud/abuse heuristics (rapid repeat bookings, cancellation spikes).
-
-#### Reliability and Operations
-- [ ] Add app-level telemetry for booking lifecycle latency (pending -> accepted -> completed).
-- [ ] Add offline-first retry queue for key passenger actions with dedupe tokens.
-- [ ] Add runbook docs for incident handling (payment outage, push outage, rule regression).
 
 ## Completed Milestones
 

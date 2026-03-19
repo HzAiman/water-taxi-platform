@@ -539,6 +539,57 @@ void main() {
       expect(alertTitles, contains('Off-route detected'));
       expect(alertTitles, contains('Route resumed'));
     });
+
+    test('navigation guidance follows booking status transitions', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      await viewModel.initialize('operator-1');
+
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'trip-transition-1', status: BookingStatus.accepted),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(viewModel.navigationGuidance, isNull);
+
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-transition-1',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2011,
+          operatorLng: 102.2511,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 1,
+          destinationCheckpointSeq: 3,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(viewModel.navigationGuidance, isNotNull);
+
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'trip-transition-1', status: BookingStatus.completed),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(viewModel.navigationGuidance, isNull);
+    });
   });
 
   group('Operator home helpers', () {

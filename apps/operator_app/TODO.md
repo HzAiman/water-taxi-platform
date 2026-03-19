@@ -38,7 +38,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 
 #### Phase D: Verification and Rollout Hardening (Parallelizable After Core Integration)
 - [x] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
-- [ ] Add view model/widget tests for guidance rendering and booking-state transitions.
+- [x] Add view model/widget tests for guidance rendering and booking-state transitions.
 - [ ] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
 - [ ] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
 
