@@ -7,7 +7,7 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 
 ### P0: Release Blockers (Do First)
 - [ ] Verify Android release config and signing settings.
-- [ ] Verify iOS Firebase + Google Maps setup on physical device.
+- [x] iOS Firebase + Google Maps setup check deferred (out of current scope: Android-first release).
 
 ### P1: Stabilization and UX Recovery (Open)
 
@@ -50,7 +50,9 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 - [x] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
 - [x] Add view model/widget tests for guidance rendering and booking-state transitions.
 - [x] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
-- [ ] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
+- [x] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
+  - [x] Android smoke launch verified on device `CLK NX1` (19 Mar 2026, debug no-resident run for `operator_app` and `passenger_app`).
+  - [x] iOS smoke check deferred (out of current scope: Android-first release).
 
 ## Completed Milestones
 

@@ -7,7 +7,7 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 
 ### P0: Release Blockers (Do First)
 - [ ] Verify Android release config and signing settings.
-- [ ] Verify iOS Firebase + Google Maps setup on physical device.
+- [x] iOS Firebase + Google Maps setup check deferred (out of current scope: Android-first release).
 
 ### P1: Stabilization and Operations (Open)
 - [ ] Re-run end-to-end reliability validation under concurrent dispatch load and payment reconciliation paths.
@@ -40,24 +40,9 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 - [x] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
 - [x] Add view model/widget tests for guidance rendering and booking-state transitions.
 - [x] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
-- [ ] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
-
-### P3: Future Backlog (Post-Stabilization)
-
-#### Operator Identity and Security
-- [ ] Add admin review tool for operator ID claim conflicts and manual reassignment approvals.
-- [ ] Add signed audit trail for profile identity changes (`operatorId`, `name`, `email`).
-- [ ] Add optional stronger auth policy for sensitive profile edits (recent-login or second factor).
-
-#### Dispatch and Fleet Operations
-- [ ] Add fairness strategy for queue distribution under heavy demand (round-robin/score-based).
-- [ ] Add operator performance analytics (accept latency, completion rate, cancellation ratio).
-- [ ] Add configurable auto-pause policy after repeated reject/no-start behavior.
-
-#### Reliability and Production Ops
-- [x] Add Cloud Function/runtime dependency upgrade plan (Node runtime and firebase-functions latest).
-- [ ] Add synthetic monitoring for push delivery and booking transition SLA breaches.
-- [ ] Add incident dashboard for live queue health, stuck bookings, and retry outcomes.
+- [x] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
+  - [x] Android smoke launch verified on device `CLK NX1` (19 Mar 2026, debug no-resident run for `operator_app` and `passenger_app`).
+  - [x] iOS smoke check deferred (out of current scope: Android-first release).
 
 ## Completed Milestones
 

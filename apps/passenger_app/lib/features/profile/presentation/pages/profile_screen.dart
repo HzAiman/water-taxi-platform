@@ -499,6 +499,10 @@ class _AccountManagementRoutePageState
       return;
     }
 
+    if (!mounted) {
+      return;
+    }
+
     final result = await context.read<ProfileViewModel>().deleteAccount(
       currentUser.uid,
     );
