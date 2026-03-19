@@ -12,10 +12,10 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 ### P1: Stabilization and UX Recovery (Open)
 
 #### Tracking and Recovery UX
-- [ ] Improve tracking screen resilience when booking doc is delayed or temporarily missing.
-- [ ] Improve error states when network disconnects during status transitions.
-- [ ] Add explicit messaging when operator assignment is delayed.
-- [ ] Add fallback actions in history/tracking for stale bookings.
+- [x] Improve tracking screen resilience when booking doc is delayed or temporarily missing.
+- [x] Improve error states when network disconnects during status transitions.
+- [x] Add explicit messaging when operator assignment is delayed.
+- [x] Add fallback actions in history/tracking for stale bookings.
 
 #### Account and Data Lifecycle
 - [ ] Harden account deletion flow with reauthentication support.

@@ -22,10 +22,15 @@ class BookingTrackingViewModel extends ChangeNotifier {
 
   BookingModel? _booking;
   bool _isCancelling = false;
+  bool _isLoading = false;
+  String? _trackingError;
+  String? _trackingBookingId;
   StreamSubscription<BookingModel?>? _subscription;
 
   BookingModel? get booking => _booking;
   bool get isCancelling => _isCancelling;
+  bool get isLoading => _isLoading;
+  String? get trackingError => _trackingError;
 
   void _debugLog(String message) {
     if (kDebugMode) {
@@ -35,11 +40,37 @@ class BookingTrackingViewModel extends ChangeNotifier {
 
   /// Subscribes to real-time updates for [bookingId].
   void startTracking(String bookingId) {
+    _trackingBookingId = bookingId;
     _subscription?.cancel();
+    _isLoading = true;
+    _trackingError = null;
+    notifyListeners();
+
+    var receivedFirstEvent = false;
     _subscription = _bookingRepo.streamBooking(bookingId).listen((b) {
+      if (!receivedFirstEvent) {
+        receivedFirstEvent = true;
+        _isLoading = false;
+      }
       _booking = b;
+      _trackingError = null;
+      notifyListeners();
+    }, onError: (Object error, StackTrace stackTrace) {
+      _isLoading = false;
+      _trackingError =
+          'Unable to load booking updates. Please check your connection and retry.';
+      _debugLog('startTracking error: $error');
       notifyListeners();
     });
+  }
+
+  /// Retries the active tracking subscription using the last booking ID.
+  void retryTracking() {
+    final bookingId = _trackingBookingId;
+    if (bookingId == null || bookingId.isEmpty) {
+      return;
+    }
+    startTracking(bookingId);
   }
 
   /// Cancels the tracked booking.

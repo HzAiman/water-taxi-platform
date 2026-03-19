@@ -33,6 +33,8 @@ class BookingTrackingScreen extends StatefulWidget {
 }
 
 class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
+  final DateTime _openedAt = DateTime.now();
+
   GoogleMapController? _mapController;
   String? _lastFittedBookingId;
   LatLng? _lastFocusedOperatorPoint;
@@ -112,13 +114,70 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     final booking = viewModel.booking;
 
     if (booking == null) {
+      final slowLoad =
+          viewModel.isLoading &&
+          DateTime.now().difference(_openedAt) > const Duration(seconds: 6);
+
       return Scaffold(
         appBar: AppBar(
           title: const Text('Booking Status'),
           centerTitle: true,
           elevation: 0,
         ),
-        body: const Center(child: CircularProgressIndicator()),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                if (viewModel.trackingError != null) ...[
+                  const Icon(
+                    Icons.wifi_off,
+                    size: 36,
+                    color: Color(0xFFD64545),
+                  ),
+                  const SizedBox(height: 12),
+                  Text(
+                    viewModel.trackingError!,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: Color(0xFF444444),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+                  ElevatedButton.icon(
+                    onPressed: viewModel.retryTracking,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry'),
+                  ),
+                ] else if (slowLoad) ...[
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Loading booking details is taking longer than expected.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 14, color: Color(0xFF444444)),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'You can retry now or keep waiting for sync.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(fontSize: 12, color: Color(0xFF666666)),
+                  ),
+                  const SizedBox(height: 14),
+                  OutlinedButton.icon(
+                    onPressed: viewModel.retryTracking,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Retry Sync'),
+                  ),
+                ] else ...[
+                  const CircularProgressIndicator(),
+                ],
+              ],
+            ),
+          ),
+        ),
       );
     }
 
@@ -393,7 +452,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                         ],
                       ),
                       const SizedBox(height: 12),
-                      _buildStateGuidance(status),
+                      _buildStateGuidance(booking),
                       const SizedBox(height: 20),
                       SizedBox(
                         width: double.infinity,
@@ -892,8 +951,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     );
   }
 
-  Widget _buildStateGuidance(BookingStatus status) {
-    final guidance = _guidanceText(status);
+  Widget _buildStateGuidance(BookingModel booking) {
+    final guidance = _guidanceText(booking);
     if (guidance == null) {
       return const SizedBox.shrink();
     }
@@ -964,9 +1023,14 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     }
   }
 
-  String? _guidanceText(BookingStatus status) {
-    switch (status) {
+  String? _guidanceText(BookingModel booking) {
+    switch (booking.status) {
       case BookingStatus.pending:
+        final createdAt = booking.createdAt;
+        if (createdAt != null &&
+            DateTime.now().difference(createdAt) > const Duration(minutes: 1)) {
+          return 'Operator assignment is taking longer than usual. You can keep waiting, or cancel and try another route/time.';
+        }
         return 'Looking for an available operator. You may keep waiting or cancel if your plans changed.';
       case BookingStatus.rejected:
         return 'No operator accepted this request. Tap Book Again to return and create a new booking.';

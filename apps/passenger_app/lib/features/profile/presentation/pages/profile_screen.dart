@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/features/auth/presentation/pages/phone_login_page.dart';
+import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
 import 'package:passenger_app/features/profile/presentation/viewmodels/profile_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -736,7 +737,12 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
 
     _profileViewModel = context.read<ProfileViewModel>();
     _hasStartedStream = true;
-    _profileViewModel!.startBookingHistoryStream(uid);
+    Future.microtask(() {
+      if (!mounted) {
+        return;
+      }
+      _profileViewModel?.startBookingHistoryStream(uid);
+    });
   }
 
   @override
@@ -749,17 +755,36 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
   Widget build(BuildContext context) {
     final currentUser = FirebaseAuth.instance.currentUser;
     final hasUser = widget.testUserId != null || currentUser != null;
-    final bookings = context.watch<ProfileViewModel>().bookingHistory;
+    final viewModel = context.watch<ProfileViewModel>();
+    final bookings = viewModel.bookingHistory;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Booking History'), centerTitle: true),
-        body: hasUser
-          ? _buildContent(bookings)
+      body: hasUser
+          ? _buildContent(viewModel, bookings)
           : const Center(child: Text('Please sign in to view your bookings.')),
     );
   }
 
-  Widget _buildContent(List<BookingModel> bookings) {
+  Widget _buildContent(ProfileViewModel viewModel, List<BookingModel> bookings) {
+    if (viewModel.historyError != null) {
+      return _buildHistoryState(
+        icon: Icons.wifi_off,
+        title: 'Unable to load booking history',
+        message: viewModel.historyError!,
+        actionLabel: 'Retry',
+        onAction: viewModel.retryBookingHistoryStream,
+      );
+    }
+
+    if (viewModel.isHistoryLoading && bookings.isEmpty) {
+      return _buildHistoryState(
+        icon: Icons.sync,
+        title: 'Syncing your bookings',
+        message: 'Please wait while we load your latest booking history.',
+      );
+    }
+
     if (bookings.isEmpty) {
       return _buildHistoryState(
         icon: Icons.directions_boat,
@@ -851,6 +876,8 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     required IconData icon,
     required String title,
     required String message,
+    String? actionLabel,
+    VoidCallback? onAction,
   }) {
     return Center(
       child: Padding(
@@ -882,6 +909,14 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 13, color: Color(0xFF666666)),
               ),
+              if (actionLabel != null && onAction != null) ...[
+                const SizedBox(height: 12),
+                ElevatedButton.icon(
+                  onPressed: onAction,
+                  icon: const Icon(Icons.refresh),
+                  label: Text(actionLabel),
+                ),
+              ],
             ],
           ),
         ),
@@ -889,7 +924,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     );
   }
 
-  static Widget _buildBookingCard(BookingModel booking) {
+  Widget _buildBookingCard(BookingModel booking) {
     final totalFare = booking.totalFare > 0 ? booking.totalFare : booking.fare;
     final statusColor = _statusColor(booking.status);
     final paymentMethod = PaymentMethods.label(booking.paymentMethod);
@@ -899,6 +934,11 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     final bookingTitle = booking.bookingId.isNotEmpty
         ? booking.bookingId
         : 'Booking';
+    final showStaleAction =
+      booking.status.isActive &&
+      booking.updatedAt != null &&
+      DateTime.now().difference(booking.updatedAt!) >
+        const Duration(minutes: 5);
 
     return Container(
       width: double.infinity,
@@ -987,6 +1027,43 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
           const SizedBox(height: 8),
           _buildHistoryRow(Icons.schedule, 'Booked At', createdAt),
           const SizedBox(height: 12),
+          if (showStaleAction) ...[
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEAF4FF),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFBFD9FF)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.info_outline, size: 16, color: Color(0xFF0066CC)),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'This active booking looks stale. Open live tracking to sync latest status.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF0E4A8A),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: () => _openTrackingFromHistory(booking),
+                icon: const Icon(Icons.map),
+                label: const Text('Open Live Tracking'),
+              ),
+            ),
+          ],
+          const SizedBox(height: 2),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1009,6 +1086,19 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
             ],
           ),
         ],
+      ),
+    );
+  }
+
+  void _openTrackingFromHistory(BookingModel booking) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => BookingTrackingScreen(
+          bookingId: booking.bookingId,
+          origin: booking.origin,
+          destination: booking.destination,
+          passengerCount: booking.passengerCount,
+        ),
       ),
     );
   }

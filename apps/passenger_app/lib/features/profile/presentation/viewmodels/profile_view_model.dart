@@ -24,6 +24,9 @@ class ProfileViewModel extends ChangeNotifier {
   UserModel? _user;
   bool _isLoading = false;
   bool _isSaving = false;
+  bool _isHistoryLoading = false;
+  String? _historyError;
+  String? _lastHistoryUserId;
 
   List<BookingModel> _bookingHistory = [];
   StreamSubscription<List<BookingModel>>? _historySubscription;
@@ -33,6 +36,8 @@ class ProfileViewModel extends ChangeNotifier {
   UserModel? get user => _user;
   bool get isLoading => _isLoading;
   bool get isSaving => _isSaving;
+  bool get isHistoryLoading => _isHistoryLoading;
+  String? get historyError => _historyError;
   List<BookingModel> get bookingHistory => _bookingHistory;
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -50,12 +55,32 @@ class ProfileViewModel extends ChangeNotifier {
   }
 
   void startBookingHistoryStream(String userId) {
+    _lastHistoryUserId = userId;
     _historySubscription?.cancel();
+    _isHistoryLoading = true;
+    _historyError = null;
+    notifyListeners();
+
     _historySubscription =
         _bookingRepo.streamUserBookingHistory(userId).listen((bookings) {
       _bookingHistory = bookings;
+      _isHistoryLoading = false;
+      _historyError = null;
+      notifyListeners();
+    }, onError: (Object error, StackTrace stackTrace) {
+      _isHistoryLoading = false;
+      _historyError =
+          'Unable to load booking history. Please check your connection and retry.';
       notifyListeners();
     });
+  }
+
+  void retryBookingHistoryStream() {
+    final userId = _lastHistoryUserId;
+    if (userId == null || userId.isEmpty) {
+      return;
+    }
+    startBookingHistoryStream(userId);
   }
 
   void stopBookingHistoryStream() {
