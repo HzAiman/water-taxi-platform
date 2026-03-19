@@ -7,7 +7,6 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 
 ### P0: Release Blockers (Do First)
 - [ ] Verify Android release config and signing settings.
-- [x] iOS Firebase + Google Maps setup check deferred (out of current scope: Android-first release).
 
 ### P1: Stabilization and Operations (Open)
 - [ ] Re-run end-to-end reliability validation under concurrent dispatch load and payment reconciliation paths.
