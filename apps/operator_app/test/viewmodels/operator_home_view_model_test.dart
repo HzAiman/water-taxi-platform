@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
 import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
+import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
@@ -231,6 +232,303 @@ void main() {
       viewModel.markCancellationNoticeShown('booking-x');
 
       expect(viewModel.lastCancelledNoticeBookingId, 'booking-x');
+    });
+
+    test('navigation lifecycle initializes guidance from on-the-way active booking', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-1',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2015,
+          operatorLng: 102.2515,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 1,
+          destinationCheckpointSeq: 4,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+          ],
+        ),
+      ]);
+
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(viewModel.navigationGuidance, isNotNull);
+      expect(
+        viewModel.navigationGuidance!.destinationCheckpointSeq,
+        equals(4),
+      );
+    });
+
+    test('navigation lifecycle clears guidance when on-the-way booking disappears', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-2',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2010,
+          operatorLng: 102.2510,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 1,
+          destinationCheckpointSeq: 3,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(viewModel.navigationGuidance, isNotNull);
+
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'trip-2', status: BookingStatus.accepted),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(viewModel.navigationGuidance, isNull);
+    });
+
+    test('navigation lifecycle resumes after refresh stream restart', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-3',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2012,
+          operatorLng: 102.2512,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 2,
+          destinationCheckpointSeq: 5,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(viewModel.navigationGuidance, isNotNull);
+
+      await viewModel.refresh('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-3',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2013,
+          operatorLng: 102.2513,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 2,
+          destinationCheckpointSeq: 5,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      expect(viewModel.streamVersion, equals(1));
+      expect(viewModel.navigationGuidance, isNotNull);
+      expect(
+        viewModel.navigationGuidance!.destinationCheckpointSeq,
+        equals(5),
+      );
+    });
+
+    test('navigation lifecycle emits checkpoint progress alert', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      final alerts = <OperatorNavigationAlert>[];
+      final sub = OperatorNavigationAlertBus.stream.listen(alerts.add);
+
+      await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-alert-1',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2010,
+          operatorLng: 102.2510,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 1,
+          destinationCheckpointSeq: 4,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+          ],
+        ),
+      ]);
+
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+      await sub.cancel();
+
+      expect(
+        alerts.any((a) => a.bookingId == 'trip-alert-1' && a.title == 'Checkpoint progress'),
+        isTrue,
+      );
+    });
+
+    test('navigation lifecycle emits off-route and resume alerts', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      final alerts = <OperatorNavigationAlert>[];
+      final sub = OperatorNavigationAlertBus.stream.listen(alerts.add);
+
+      await viewModel.initialize('operator-1');
+
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-alert-2',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2010,
+          operatorLng: 102.2500,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 1,
+          destinationCheckpointSeq: 2,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2500),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-alert-2',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2010,
+          operatorLng: 102.2550,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 1,
+          destinationCheckpointSeq: 2,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2500),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-alert-2',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2020,
+          operatorLng: 102.2500,
+          corridorId: 'melaka_main_01',
+          corridorVersion: 1,
+          originCheckpointSeq: 1,
+          destinationCheckpointSeq: 2,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2500),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
+      await sub.cancel();
+
+      final alertTitles = alerts
+          .where((a) => a.bookingId == 'trip-alert-2')
+          .map((a) => a.title)
+          .toList();
+
+      expect(alertTitles, contains('Off-route detected'));
+      expect(alertTitles, contains('Route resumed'));
     });
   });
 
@@ -601,6 +899,13 @@ BookingModel _sampleBooking({
   required String id,
   required BookingStatus status,
   List<String> rejectedBy = const [],
+  String? corridorId,
+  int? corridorVersion,
+  int? originCheckpointSeq,
+  int? destinationCheckpointSeq,
+  List<BookingRoutePoint> routePolyline = const [],
+  double? operatorLat,
+  double? operatorLng,
   DateTime? updatedAt,
 }) {
   return BookingModel(
@@ -610,10 +915,15 @@ BookingModel _sampleBooking({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
+    corridorId: corridorId,
+    corridorVersion: corridorVersion,
+    originCheckpointSeq: originCheckpointSeq,
+    destinationCheckpointSeq: destinationCheckpointSeq,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,
     destinationLng: 102.0,
+    routePolyline: routePolyline,
     adultCount: 1,
     childCount: 0,
     passengerCount: 1,
@@ -627,6 +937,8 @@ BookingModel _sampleBooking({
     paymentStatus: 'paid',
     status: status,
     operatorUid: status == BookingStatus.pending ? null : 'operator-1',
+    operatorLat: operatorLat,
+    operatorLng: operatorLng,
     rejectedBy: rejectedBy,
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: updatedAt ?? DateTime(2026, 3, 15, 10, 5),

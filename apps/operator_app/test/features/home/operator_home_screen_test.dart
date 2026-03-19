@@ -331,6 +331,59 @@ void main() {
     expect(bookingRepo.lastCompletedBookingId, 'active-2');
     expect(bookingRepo.lastCompletedOperatorId, 'operator-1');
   });
+
+  testWidgets('on-the-way active trip shows navigation guidance details', (
+    tester,
+  ) async {
+    final operatorRepo = _FakeOperatorRepository(
+      operator: const OperatorModel(
+        uid: 'operator-1',
+        operatorId: 'OP-1',
+        name: 'Captain Aiman',
+        email: 'captain@example.com',
+        isOnline: true,
+      ),
+    );
+    final bookingRepo = _FakeBookingRepository();
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        operatorId: 'operator-1',
+        operatorEmail: 'captain@example.com',
+        operatorRepo: operatorRepo,
+        bookingRepo: bookingRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bookingRepo.emitActive([
+      _sampleBooking(
+        id: 'active-guidance-1',
+        status: BookingStatus.onTheWay,
+        corridorId: 'melaka_main_01',
+        corridorVersion: 1,
+        originCheckpointSeq: 1,
+        destinationCheckpointSeq: 4,
+        operatorLat: 2.2012,
+        operatorLng: 102.2512,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+        ],
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Active Trip'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Guidance:'), findsOneWidget);
+    expect(find.textContaining('Next checkpoint:'), findsOneWidget);
+    expect(find.textContaining('Remaining distance:'), findsOneWidget);
+    expect(find.textContaining('ETA:'), findsOneWidget);
+  });
 }
 
 class _FakeOperatorRepository extends OperatorRepository {
@@ -446,6 +499,13 @@ class _FakeBookingRepository extends BookingRepository {
 BookingModel _sampleBooking({
   required String id,
   required BookingStatus status,
+  String? corridorId,
+  int? corridorVersion,
+  int? originCheckpointSeq,
+  int? destinationCheckpointSeq,
+  double? operatorLat,
+  double? operatorLng,
+  List<BookingRoutePoint> routePolyline = const [],
 }) {
   return BookingModel(
     bookingId: id,
@@ -454,10 +514,15 @@ BookingModel _sampleBooking({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
+    corridorId: corridorId,
+    corridorVersion: corridorVersion,
+    originCheckpointSeq: originCheckpointSeq,
+    destinationCheckpointSeq: destinationCheckpointSeq,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,
     destinationLng: 102.0,
+    routePolyline: routePolyline,
     adultCount: 1,
     childCount: 0,
     passengerCount: 1,
@@ -471,6 +536,8 @@ BookingModel _sampleBooking({
     paymentStatus: 'paid',
     status: status,
     operatorUid: status == BookingStatus.pending ? null : 'operator-1',
+    operatorLat: operatorLat,
+    operatorLng: operatorLng,
     rejectedBy: const [],
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: DateTime(2026, 3, 15, 10, 5),

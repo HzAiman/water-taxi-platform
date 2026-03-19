@@ -26,9 +26,9 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 #### Phase B: Operator Navigation Engine (Depends on Phase A)
 - [x] Add operator corridor data access and origin/destination to checkpoint-sequence binding.
 - [x] Implement navigation logic: nearest checkpoint resolution, progress detection, off-route tolerance, remaining distance, and speed-based ETA.
-- [ ] Integrate navigation lifecycle into operator home view model so it starts/stops with active bookings and respects existing refresh/reconnect behavior.
-- [ ] Add basic guidance UI in operator home (progress, next checkpoint, remaining distance, ETA) without turn-by-turn prompts.
-- [ ] Add lightweight checkpoint/off-route/resume event notifications via existing notification coordinator and channels.
+- [x] Integrate navigation lifecycle into operator home view model so it starts/stops with active bookings and respects existing refresh/reconnect behavior.
+- [x] Add basic guidance UI in operator home (progress, next checkpoint, remaining distance, ETA) without turn-by-turn prompts.
+- [x] Add lightweight checkpoint/off-route/resume event notifications via existing notification coordinator and channels.
 
 #### Phase C: Cross-App Visibility and Resilience (Depends on Phase B)
 - [ ] Add passenger/shared tracking alignment notes and minimal passenger metadata handling where required.

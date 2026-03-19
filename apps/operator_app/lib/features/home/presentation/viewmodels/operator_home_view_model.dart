@@ -8,6 +8,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
 
 /// ViewModel for [OperatorHomeScreen].
 ///
@@ -49,6 +50,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   DateTime? _lastNavigationSampleAt;
   Position? _lastNavigationSample;
   int? _maxReachedCheckpointSeq;
+  int? _lastAlertCheckpointSeq;
+  bool _wasOffRoute = false;
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
   static const double _locationPublishMinDistanceMeters = 20;
@@ -121,6 +124,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
       await _operatorRepo
           .setOnlineStatus(operatorId, isOnline: nextStatus)
           .timeout(const Duration(seconds: 6));
+
+      if (nextStatus) {
+        unawaited(_syncNavigationLifecycle(operatorId));
+      }
 
       if (nextStatus) {
         return const OperationSuccess('You are now online.');
@@ -270,6 +277,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
       _activeBookings = list;
       _refreshNavigationGuidance(notify: false);
 
+      unawaited(_syncNavigationLifecycle(operatorId));
+
       if (_trackingBookingId != null) {
         final tracked = list.where((b) => b.bookingId == _trackingBookingId);
         final stillOnTheWay = tracked.any(
@@ -286,6 +295,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
       notifyListeners();
     }, onError: (_) {
       _activeBookings = [];
+      _stopLocationSharing();
       _refreshNavigationGuidance(notify: false);
       notifyListeners();
     });
@@ -370,6 +380,31 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _lastNavigationSampleAt = null;
     _lastNavigationSample = null;
     _maxReachedCheckpointSeq = null;
+    _lastAlertCheckpointSeq = null;
+    _wasOffRoute = false;
+  }
+
+  Future<void> _syncNavigationLifecycle(String operatorId) async {
+    if (!_isOnline) {
+      if (_trackingBookingId != null) {
+        _stopLocationSharing();
+      }
+      return;
+    }
+
+    final tracked = _resolveTrackedOnTheWayBooking();
+    if (tracked == null) {
+      if (_trackingBookingId != null) {
+        _stopLocationSharing();
+      }
+      return;
+    }
+
+    if (_trackingBookingId == tracked.bookingId) {
+      return;
+    }
+
+    await _startLocationSharing(tracked.bookingId, operatorId);
   }
 
   Future<bool> _canUseLocation() async {
@@ -471,6 +506,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _navigationGuidance = guidance;
     if (guidance != null) {
       _maxReachedCheckpointSeq = guidance.nearestCheckpointSeq;
+      _emitNavigationAlerts(booking.bookingId, guidance);
     }
 
     if (currentPosition != null) {
@@ -480,6 +516,53 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
     if (notify) {
       notifyListeners();
+    }
+  }
+
+  void _emitNavigationAlerts(
+    String bookingId,
+    OperatorNavigationGuidance guidance,
+  ) {
+    final checkpointSeq = guidance.nearestCheckpointSeq;
+    final previousCheckpoint = _lastAlertCheckpointSeq;
+    if (previousCheckpoint == null || checkpointSeq > previousCheckpoint) {
+      _lastAlertCheckpointSeq = checkpointSeq;
+      OperatorNavigationAlertBus.publish(
+        OperatorNavigationAlert(
+          eventId: bookingId.hashCode ^ (checkpointSeq * 31),
+          bookingId: bookingId,
+          title: 'Checkpoint progress',
+          body:
+              'Booking $bookingId reached checkpoint $checkpointSeq/${guidance.destinationCheckpointSeq}. Next: ${guidance.nextCheckpointSeq}.',
+        ),
+      );
+    }
+
+    if (guidance.isOffRoute && !_wasOffRoute) {
+      _wasOffRoute = true;
+      OperatorNavigationAlertBus.publish(
+        OperatorNavigationAlert(
+          eventId: bookingId.hashCode ^ 0x0F01,
+          bookingId: bookingId,
+          title: 'Off-route detected',
+          body:
+              'Booking $bookingId is off-route by about ${guidance.offRouteDistanceMeters.round()} m. Please rejoin the planned corridor.',
+        ),
+      );
+      return;
+    }
+
+    if (!guidance.isOffRoute && _wasOffRoute) {
+      _wasOffRoute = false;
+      OperatorNavigationAlertBus.publish(
+        OperatorNavigationAlert(
+          eventId: bookingId.hashCode ^ 0x0F02,
+          bookingId: bookingId,
+          title: 'Route resumed',
+          body:
+              'Booking $bookingId has returned to the planned corridor. Continue to checkpoint ${guidance.nextCheckpointSeq}.',
+        ),
+      );
     }
   }
 
@@ -682,6 +765,7 @@ bool shouldPublishOperatorPosition({
 
 class OperatorNavigationGuidance {
   const OperatorNavigationGuidance({
+    required this.bookingId,
     required this.nearestCheckpointSeq,
     required this.nextCheckpointSeq,
     required this.destinationCheckpointSeq,
@@ -693,6 +777,7 @@ class OperatorNavigationGuidance {
     required this.eta,
   });
 
+  final String bookingId;
   final int nearestCheckpointSeq;
   final int nextCheckpointSeq;
   final int destinationCheckpointSeq;
@@ -769,6 +854,7 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   }
 
   return OperatorNavigationGuidance(
+    bookingId: booking.bookingId,
     nearestCheckpointSeq: nearestCheckpoint,
     nextCheckpointSeq: nextCheckpoint,
     destinationCheckpointSeq: destinationSeq,

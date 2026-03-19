@@ -9,6 +9,7 @@ import 'package:operator_app/data/repositories/operator_repository.dart';
 import 'package:operator_app/features/home/presentation/pages/operator_home_screen.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_profile_page.dart';
 import 'package:operator_app/services/notifications/local_notification_service.dart';
+import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
 import 'package:operator_app/services/notifications/operator_notification_coordinator.dart';
 import 'package:operator_app/services/notifications/push_notification_service.dart';
 import 'package:provider/provider.dart';
@@ -25,6 +26,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   OperatorNotificationCoordinator? _notificationCoordinator;
   PushNotificationService? _pushNotificationService;
   StreamSubscription<RemoteMessage>? _fcmOpenedSub;
+  StreamSubscription<OperatorNavigationAlert>? _navigationAlertSub;
 
   final List<Widget> _screens = const [
     OperatorHomeScreen(),
@@ -73,6 +75,10 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       );
       await _notificationCoordinator?.start(operatorId: operatorId);
 
+      _navigationAlertSub = OperatorNavigationAlertBus.stream.listen((alert) {
+        _notificationCoordinator?.deliverNavigationAlert(alert);
+      });
+
       // Register tap handler for background -> foreground local notification taps.
       LocalNotificationService.setOnTapHandler(_handleNotificationTap);
 
@@ -119,6 +125,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _fcmOpenedSub?.cancel();
+    _navigationAlertSub?.cancel();
     _notificationCoordinator?.dispose();
     super.dispose();
   }

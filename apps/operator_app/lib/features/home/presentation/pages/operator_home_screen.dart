@@ -532,12 +532,22 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   ) {
     final status = booking.status;
     final isAccepted = status == BookingStatus.accepted;
+    final isOnTheWay = status == BookingStatus.onTheWay;
     final isStale = isAcceptedBookingStale(booking);
     final actionColor = isAccepted ? const Color(0xFF0066CC) : Colors.green;
     final detailText = _buildBookingDetailText(booking);
-    final subtitle = isStale
-        ? '$detailText\n\nThis accepted booking looks stale. Start the trip or release it back to the queue.'
-        : detailText;
+    final guidance = viewModel.navigationGuidance;
+    final hasGuidance =
+        isOnTheWay && guidance != null && guidance.bookingId == booking.bookingId;
+
+    var subtitle = detailText;
+    if (isStale) {
+      subtitle =
+          '$subtitle\n\nThis accepted booking looks stale. Start the trip or release it back to the queue.';
+    }
+    if (hasGuidance) {
+      subtitle = '$subtitle\n\n${_buildNavigationGuidanceText(guidance)}';
+    }
 
     return _buildInfoCard(
       icon: isAccepted ? Icons.directions_boat : Icons.route,
@@ -620,6 +630,52 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         'Passengers: ${booking.passengerCount}\n'
         'Fare: ${fareValue > 0 ? formatCurrency(fareValue) : 'N/A'}\n'
         'Created: ${formatBookingTimestamp(booking.createdAt)}';
+  }
+
+  String _buildNavigationGuidanceText(OperatorNavigationGuidance guidance) {
+    final progressPercent = (guidance.progressFraction * 100).round();
+    final remaining = _formatDistanceMeters(guidance.remainingDistanceMeters);
+    final offRoute = _formatDistanceMeters(guidance.offRouteDistanceMeters);
+    final eta = _formatEta(guidance.eta);
+
+    final lines = <String>[
+      'Guidance: $progressPercent% complete',
+      'Checkpoint: ${guidance.nearestCheckpointSeq}/${guidance.destinationCheckpointSeq}',
+      'Next checkpoint: ${guidance.nextCheckpointSeq}',
+      'Remaining distance: $remaining',
+      'ETA: $eta',
+    ];
+
+    if (guidance.isOffRoute) {
+      lines.add('Off-route warning: approx $offRoute away from planned route.');
+    }
+
+    return lines.join('\n');
+  }
+
+  String _formatDistanceMeters(double meters) {
+    if (meters >= 1000) {
+      return '${(meters / 1000).toStringAsFixed(2)} km';
+    }
+    return '${meters.round()} m';
+  }
+
+  String _formatEta(Duration? eta) {
+    if (eta == null) {
+      return 'N/A';
+    }
+
+    final minutes = eta.inMinutes;
+    if (minutes <= 0) {
+      return '< 1 min';
+    }
+    if (minutes < 60) {
+      return '$minutes min';
+    }
+
+    final hours = minutes ~/ 60;
+    final rem = minutes % 60;
+    return rem == 0 ? '$hours h' : '$hours h $rem min';
   }
 
   Widget _buildInfoCard({

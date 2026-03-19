@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
 import 'package:operator_app/services/notifications/local_notification_service.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -142,6 +143,18 @@ class OperatorNotificationCoordinator {
       title: message.title,
       body: message.body,
       payload: payload,
+    );
+  }
+
+  Future<void> deliverNavigationAlert(OperatorNavigationAlert alert) {
+    if (!_seededHistory) {
+      return Future<void>.value();
+    }
+
+    return _deliver(
+      NotificationMessage(title: alert.title, body: alert.body),
+      eventId: alert.eventId,
+      payload: alert.bookingId,
     );
   }
 
