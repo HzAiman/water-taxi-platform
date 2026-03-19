@@ -414,7 +414,7 @@ class _AccountManagementRoutePageState
         return AlertDialog(
           title: const Text('Delete Account'),
           content: const Text(
-            'This action cannot be undone. All your data will be permanently deleted. Are you sure?',
+            'This action cannot be undone. Your profile and login access will be deleted. Booking records may be retained for operational and financial auditing. Are you sure?',
           ),
           actions: [
             TextButton(
@@ -441,6 +441,64 @@ class _AccountManagementRoutePageState
       return;
     }
 
+    try {
+      await currentUser.delete();
+    } on FirebaseAuthException catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      final needsRecentLogin =
+          e.code == 'requires-recent-login' ||
+          e.code == 'user-token-expired' ||
+          e.code == 'invalid-user-token';
+
+      if (needsRecentLogin) {
+        final shouldReauthenticate = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) {
+            return AlertDialog(
+              title: const Text('Reauthentication required'),
+              content: const Text(
+                'For security, please log in again before deleting your account.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Re-login'),
+                ),
+              ],
+            );
+          },
+        );
+
+        if (shouldReauthenticate == true) {
+          await FirebaseAuth.instance.signOut();
+          if (!mounted) {
+            return;
+          }
+          Navigator.of(context).pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      showTopError(context, message: 'Error deleting account: ${e.message}');
+      return;
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      showTopError(context, message: 'Error deleting account: $e');
+      return;
+    }
+
     final result = await context.read<ProfileViewModel>().deleteAccount(
       currentUser.uid,
     );
@@ -448,33 +506,18 @@ class _AccountManagementRoutePageState
       return;
     }
 
-    switch (result) {
-      case OperationSuccess():
-        try {
-          await currentUser.delete();
-        } catch (e) {
-          if (!mounted) {
-            return;
-          }
-          showTopError(context, message: 'Error deleting account: $e');
-          return;
-        }
-
-        if (!mounted) {
-          return;
-        }
-
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
-          (route) => false,
-        );
-      case OperationFailure(:final title, :final message, :final isInfo):
-        if (isInfo) {
-          showTopInfo(context, title: title, message: message);
-        } else {
-          showTopError(context, title: title, message: message);
-        }
+    if (result case OperationFailure(:final title, :final message, :final isInfo)) {
+      if (isInfo) {
+        showTopInfo(context, title: title, message: message);
+      } else {
+        showTopError(context, title: title, message: message);
+      }
     }
+
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
+      (route) => false,
+    );
   }
 
   @override

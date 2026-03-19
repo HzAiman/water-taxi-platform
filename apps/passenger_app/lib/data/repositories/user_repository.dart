@@ -38,6 +38,7 @@ class UserRepository {
     String? email,
   }) async {
     final updates = <String, dynamic>{
+      UserFields.uid: uid,
       UserFields.updatedAt: FieldValue.serverTimestamp(),
     };
     if (name != null) updates[UserFields.name] = name;
@@ -46,7 +47,7 @@ class UserRepository {
     await _db
         .collection(FirestoreCollections.users)
         .doc(uid)
-        .update(updates);
+        .set(updates, SetOptions(merge: true));
   }
 
   /// Deletes the user Firestore document.
@@ -60,6 +61,14 @@ class UserRepository {
   static UserModel _fromDoc(String uid, Map<String, dynamic> data) {
     final createdAt = (data[UserFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[UserFields.updatedAt] as Timestamp?)?.toDate();
-    return UserModel.fromMap(data, createdAt: createdAt, updatedAt: updatedAt);
+    final parsed = UserModel.fromMap(
+      data,
+      createdAt: createdAt,
+      updatedAt: updatedAt,
+    );
+    if (parsed.uid.isNotEmpty) {
+      return parsed;
+    }
+    return parsed.copyWith(uid: uid);
   }
 }

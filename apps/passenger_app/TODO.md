@@ -18,9 +18,9 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 - [x] Add fallback actions in history/tracking for stale bookings.
 
 #### Account and Data Lifecycle
-- [ ] Harden account deletion flow with reauthentication support.
-- [ ] Define policy for booking retention when user deletes account.
-- [ ] Ensure profile/account management screens handle partial Firestore data safely.
+- [x] Harden account deletion flow with reauthentication support.
+- [x] Define policy for booking retention when user deletes account.
+- [x] Ensure profile/account management screens handle partial Firestore data safely.
 
 #### Validation and Test Expansion
 - [ ] Expand integration coverage for failure, retry, and reconciliation branches.

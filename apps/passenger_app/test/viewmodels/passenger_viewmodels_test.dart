@@ -366,6 +366,35 @@ void main() {
       expect(viewModel.bookingHistory, hasLength(2));
       expect(viewModel.bookingHistory.first.status, BookingStatus.completed);
     });
+
+    test('deleteAccount returns success when repository deletion succeeds', () async {
+      final userRepo = FakeUserRepository();
+      final viewModel = ProfileViewModel(
+        userRepo: userRepo,
+        bookingRepo: FakeBookingRepository(),
+      );
+
+      final result = await viewModel.deleteAccount('user-1');
+
+      expect(result, isA<OperationSuccess>());
+      expect(userRepo.deleteCalled, isTrue);
+      expect(viewModel.isSaving, isFalse);
+    });
+
+    test('deleteAccount returns failure when repository deletion throws', () async {
+      final userRepo = FakeUserRepository()..throwOnDelete = true;
+      final viewModel = ProfileViewModel(
+        userRepo: userRepo,
+        bookingRepo: FakeBookingRepository(),
+      );
+
+      final result = await viewModel.deleteAccount('user-1');
+
+      expect(result, isA<OperationFailure>());
+      final failure = result as OperationFailure;
+      expect(failure.title, 'Delete failed');
+      expect(viewModel.isSaving, isFalse);
+    });
   });
 }
 
@@ -376,6 +405,7 @@ class FakeUserRepository extends UserRepository {
   String? updatedName;
   String? updatedEmail;
   bool deleteCalled = false;
+  bool throwOnDelete = false;
 
   @override
   Future<UserModel?> getUser(String uid) async => user;
@@ -390,6 +420,9 @@ class FakeUserRepository extends UserRepository {
 
   @override
   Future<void> deleteUser(String uid) async {
+    if (throwOnDelete) {
+      throw Exception('delete failed');
+    }
     deleteCalled = true;
   }
 }
