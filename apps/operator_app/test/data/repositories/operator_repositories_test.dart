@@ -181,6 +181,69 @@ void main() {
       );
     });
 
+    test('acceptBooking succeeds when corridor config is malformed', () async {
+      final firestore = FakeFirebaseFirestore();
+      final repository = BookingRepository(firestore: firestore);
+
+      await firestore
+          .collection(FirestoreCollections.navigationCorridors)
+          .doc('melaka_main_01')
+          .set({
+            NavigationCorridorFields.corridorId: 'melaka_main_01',
+            NavigationCorridorFields.version: 0,
+            NavigationCorridorFields.checkpoints: 'invalid-checkpoint-shape',
+            NavigationCorridorFields.updatedAt: Timestamp.now(),
+          });
+
+      await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc('booking-bind-3')
+          .set({
+            BookingFields.bookingId: 'booking-bind-3',
+            BookingFields.userId: 'user-1',
+            BookingFields.userName: 'Passenger One',
+            BookingFields.userPhone: '0123456789',
+            BookingFields.origin: 'Jetty A',
+            BookingFields.destination: 'Jetty B',
+            BookingFields.originCoords: const GeoPoint(2.2, 102.2),
+            BookingFields.destinationCoords: const GeoPoint(2.3, 102.3),
+            BookingFields.adultCount: 1,
+            BookingFields.childCount: 0,
+            BookingFields.passengerCount: 1,
+            BookingFields.adultFare: 10.0,
+            BookingFields.childFare: 5.0,
+            BookingFields.adultSubtotal: 10.0,
+            BookingFields.childSubtotal: 0.0,
+            BookingFields.fare: 10.0,
+            BookingFields.totalFare: 10.0,
+            BookingFields.paymentMethod: PaymentMethods.onlineBanking,
+            BookingFields.paymentStatus: 'paid',
+            BookingFields.status: BookingStatus.pending.firestoreValue,
+            BookingFields.operatorId: null,
+            BookingFields.createdAt: Timestamp.now(),
+            BookingFields.updatedAt: Timestamp.now(),
+          });
+
+      final result = await repository.acceptBooking(
+        bookingId: 'booking-bind-3',
+        operatorId: 'operator-1',
+      );
+
+      final bookingSnap = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc('booking-bind-3')
+          .get();
+
+      expect(result, isA<OperationSuccess>());
+      expect(bookingSnap.data()?[BookingFields.status], 'accepted');
+      expect(bookingSnap.data()?[BookingFields.corridorId], isNull);
+      expect(bookingSnap.data()?[BookingFields.originCheckpointSeq], isNull);
+      expect(
+        bookingSnap.data()?[BookingFields.destinationCheckpointSeq],
+        isNull,
+      );
+    });
+
     test(
       'rejectBooking uses operator presence to fully reject booking',
       () async {

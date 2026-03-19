@@ -114,6 +114,56 @@ void main() {
       expect(failure.isInfo, isTrue);
       expect(failure.message, contains('no longer pending'));
     });
+
+    test('released booking can be claimed by another operator only', () async {
+      final firestore = FakeFirebaseFirestore();
+      final repo = BookingRepository(firestore: firestore);
+      const bookingId = 'booking-race-release-1';
+
+      await _seedPendingBooking(
+        firestore,
+        bookingId: bookingId,
+        userId: 'user-race-4',
+      );
+
+      final acceptA = await repo.acceptBooking(
+        bookingId: bookingId,
+        operatorId: 'operator-A',
+      );
+      expect(acceptA, isA<OperationSuccess>());
+
+      final releaseA = await repo.releaseBooking(
+        bookingId: bookingId,
+        operatorId: 'operator-A',
+      );
+      expect(releaseA, isA<OperationSuccess>());
+
+      final reacceptA = await repo.acceptBooking(
+        bookingId: bookingId,
+        operatorId: 'operator-A',
+      );
+      expect(reacceptA, isA<OperationFailure>());
+      expect((reacceptA as OperationFailure).message, contains('already rejected'));
+
+      final acceptB = await repo.acceptBooking(
+        bookingId: bookingId,
+        operatorId: 'operator-B',
+      );
+      expect(acceptB, isA<OperationSuccess>());
+
+      final snap = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      final data = snap.data()!;
+
+      expect(data[BookingFields.status], BookingStatus.accepted.firestoreValue);
+      expect(data[BookingFields.operatorId], 'operator-B');
+      expect(
+        (data[BookingFields.rejectedBy] as List).cast<String>(),
+        contains('operator-A'),
+      );
+    });
   });
 }
 

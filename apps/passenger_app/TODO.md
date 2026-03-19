@@ -42,12 +42,12 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 
 #### Phase C: Cross-App Visibility and Resilience (Depends on Phase B)
 - [x] Add passenger/shared tracking alignment notes and minimal passenger metadata handling where required.
-- [ ] Implement graceful fallback when corridor config is unavailable so booking actions remain fully functional.
-- [ ] Regression-check dispatch contention, cancellation, and reject/release reliability paths to ensure no behavior drift.
+- [x] Implement graceful fallback when corridor config is unavailable so booking actions remain fully functional.
+- [x] Regression-check dispatch contention, cancellation, and reject/release reliability paths to ensure no behavior drift.
 - [x] Ensure passenger can track operator approach to pickup after status becomes `on_the_way`.
 
 #### Phase D: Verification and Rollout Hardening (Parallelizable After Core Integration)
-- [ ] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
+- [x] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
 - [ ] Add view model/widget tests for guidance rendering and booking-state transitions.
 - [ ] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
 - [ ] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.

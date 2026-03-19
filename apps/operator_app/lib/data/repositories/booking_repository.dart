@@ -549,7 +549,12 @@ class BookingRepository {
     final corridorRef = _db
         .collection(FirestoreCollections.navigationCorridors)
         .doc(_canonicalCorridorId);
-    final corridorSnap = await tx.get(corridorRef);
+    DocumentSnapshot<Map<String, dynamic>> corridorSnap;
+    try {
+      corridorSnap = await tx.get(corridorRef);
+    } catch (_) {
+      return null;
+    }
     final corridor = corridorSnap.data();
 
     if (!corridorSnap.exists || corridor == null) {

@@ -770,6 +770,120 @@ void main() {
       expect(guidance!.isOffRoute, isTrue);
       expect(guidance.offRouteDistanceMeters, greaterThan(50));
     });
+
+    test('navigation helper does not flag off-route at exact tolerance', () {
+      final booking = BookingModel(
+        bookingId: 'nav-4',
+        userId: 'user-1',
+        userName: 'Passenger One',
+        userPhone: '0123456789',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        corridorId: 'melaka_main_01',
+        corridorVersion: 1,
+        originCheckpointSeq: 1,
+        destinationCheckpointSeq: 2,
+        originLat: 2.2000,
+        originLng: 102.2500,
+        destinationLat: 2.2050,
+        destinationLng: 102.2500,
+        adultCount: 1,
+        childCount: 0,
+        passengerCount: 1,
+        adultFare: 12,
+        childFare: 6,
+        adultSubtotal: 12,
+        childSubtotal: 0,
+        fare: 12,
+        totalFare: 12,
+        paymentMethod: PaymentMethods.creditCard,
+        paymentStatus: 'paid',
+        status: BookingStatus.onTheWay,
+        operatorUid: 'operator-1',
+        rejectedBy: const [],
+      );
+
+      final baseline = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2000,
+        currentLng: 102.2550,
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+        offRouteToleranceMeters: 1,
+      );
+      expect(baseline, isNotNull);
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2000,
+        currentLng: 102.2550,
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+        offRouteToleranceMeters: baseline!.offRouteDistanceMeters,
+      );
+
+      expect(guidance, isNotNull);
+      expect(guidance!.offRouteDistanceMeters, closeTo(baseline.offRouteDistanceMeters, 0.0001));
+      expect(guidance.isOffRoute, isFalse);
+    });
+
+    test('navigation helper derives ETA from sample speed and gates low speed', () {
+      final booking = BookingModel(
+        bookingId: 'nav-5',
+        userId: 'user-1',
+        userName: 'Passenger One',
+        userPhone: '0123456789',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        corridorId: 'melaka_main_01',
+        corridorVersion: 1,
+        originCheckpointSeq: 1,
+        destinationCheckpointSeq: 2,
+        originLat: 2.2000,
+        originLng: 102.2500,
+        destinationLat: 2.2100,
+        destinationLng: 102.2500,
+        adultCount: 1,
+        childCount: 0,
+        passengerCount: 1,
+        adultFare: 12,
+        childFare: 6,
+        adultSubtotal: 12,
+        childSubtotal: 0,
+        fare: 12,
+        totalFare: 12,
+        paymentMethod: PaymentMethods.creditCard,
+        paymentStatus: 'paid',
+        status: BookingStatus.onTheWay,
+        operatorUid: 'operator-1',
+        rejectedBy: const [],
+      );
+
+      final withDerivedSpeed = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2010,
+        currentLng: 102.2500,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+        reportedSpeedMps: null,
+        lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastSampleLat: 2.2000,
+        lastSampleLng: 102.2500,
+      );
+
+      expect(withDerivedSpeed, isNotNull);
+      expect(withDerivedSpeed!.speedMetersPerSecond, greaterThan(0.5));
+      expect(withDerivedSpeed.eta, isNotNull);
+
+      final withLowSpeed = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2010,
+        currentLng: 102.2500,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+        reportedSpeedMps: 0.2,
+      );
+
+      expect(withLowSpeed, isNotNull);
+      expect(withLowSpeed!.speedMetersPerSecond, isNull);
+      expect(withLowSpeed.eta, isNull);
+    });
   });
 }
 
