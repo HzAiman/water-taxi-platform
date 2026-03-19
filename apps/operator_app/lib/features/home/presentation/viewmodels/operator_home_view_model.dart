@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
@@ -35,9 +36,17 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   StreamSubscription<List<BookingModel>>? _activeSubscription;
   StreamSubscription<List<BookingModel>>? _pendingSubscription;
+  StreamSubscription<Position>? _locationSubscription;
 
   String? _operatorId;
   String? _lastCancelledNoticeBookingId;
+  String? _trackingBookingId;
+  DateTime? _lastLocationPublishAt;
+  Position? _lastPublishedPosition;
+  bool _isPublishingLocation = false;
+
+  static const Duration _locationPublishMinInterval = Duration(seconds: 6);
+  static const double _locationPublishMinDistanceMeters = 20;
 
   // ── Getters ──────────────────────────────────────────────────────────────
 
@@ -98,6 +107,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     try {
       int releasedCount = 0;
       if (!nextStatus) {
+        _stopLocationSharing();
         releasedCount =
             await _bookingRepo.releaseAllAcceptedBookings(operatorId);
       }
@@ -161,7 +171,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   Future<OperationResult> releaseBooking(String bookingId) async {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
-    return _withBusy(
+    final result = await _withBusy(
       () => _bookingRepo.releaseBooking(
         bookingId: bookingId,
         operatorId: operatorId,
@@ -169,25 +179,41 @@ class OperatorHomeViewModel extends ChangeNotifier {
       actionName: 'release_booking',
       bookingId: bookingId,
     );
+
+    if (result is OperationSuccess && _trackingBookingId == bookingId) {
+      _stopLocationSharing();
+    }
+
+    return result;
   }
 
   Future<OperationResult> startTrip(String bookingId) async {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
-    return _withBusy(
+    final initial = await _currentPositionOrNull();
+
+    final result = await _withBusy(
       () => _bookingRepo.startTrip(
         bookingId: bookingId,
         operatorId: operatorId,
+        operatorLat: initial?.latitude,
+        operatorLng: initial?.longitude,
       ),
       actionName: 'start_trip',
       bookingId: bookingId,
     );
+
+    if (result is OperationSuccess) {
+      await _startLocationSharing(bookingId, operatorId, initial: initial);
+    }
+
+    return result;
   }
 
   Future<OperationResult> completeTrip(String bookingId) async {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
-    return _withBusy(
+    final result = await _withBusy(
       () => _bookingRepo.completeTrip(
         bookingId: bookingId,
         operatorId: operatorId,
@@ -195,6 +221,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
       actionName: 'complete_trip',
       bookingId: bookingId,
     );
+
+    if (result is OperationSuccess && _trackingBookingId == bookingId) {
+      _stopLocationSharing();
+    }
+
+    return result;
   }
 
   // ── Refresh ──────────────────────────────────────────────────────────────
@@ -231,6 +263,16 @@ class OperatorHomeViewModel extends ChangeNotifier {
         _bookingRepo.streamActiveBookings(operatorId).listen((list) {
       _activeBookings = list;
 
+      if (_trackingBookingId != null) {
+        final tracked = list.where((b) => b.bookingId == _trackingBookingId);
+        final stillOnTheWay = tracked.any(
+          (b) => b.status == BookingStatus.onTheWay,
+        );
+        if (!stillOnTheWay) {
+          _stopLocationSharing();
+        }
+      }
+
       // Detect passenger cancellations for bookings previously in our active list.
       // We can't easily detect this here since we only get the filtered list.
       // The widget layer checks for cancelled bookings via the raw stream.
@@ -253,8 +295,141 @@ class OperatorHomeViewModel extends ChangeNotifier {
   void _stopStreams() {
     _activeSubscription?.cancel();
     _pendingSubscription?.cancel();
+    _stopLocationSharing();
     _activeBookings = [];
     _pendingBookings = [];
+  }
+
+  Future<void> _startLocationSharing(
+    String bookingId,
+    String operatorId, {
+    Position? initial,
+  }) async {
+    _stopLocationSharing();
+    _trackingBookingId = bookingId;
+
+    if (!_isOnline) {
+      return;
+    }
+
+    if (initial != null) {
+      await _publishOperatorPosition(
+        bookingId,
+        operatorId,
+        initial,
+        force: true,
+      );
+    }
+
+    final canTrack = await _canUseLocation();
+    if (!canTrack || _trackingBookingId != bookingId) {
+      return;
+    }
+
+    const settings = LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 10,
+    );
+
+    _locationSubscription = Geolocator.getPositionStream(
+      locationSettings: settings,
+    ).listen(
+      (position) {
+        if (_trackingBookingId == null) return;
+        unawaited(
+          _publishOperatorPosition(
+            _trackingBookingId!,
+            operatorId,
+            position,
+          ),
+        );
+      },
+      onError: (_) {
+        _stopLocationSharing();
+      },
+    );
+  }
+
+  void _stopLocationSharing() {
+    _locationSubscription?.cancel();
+    _locationSubscription = null;
+    _trackingBookingId = null;
+    _lastLocationPublishAt = null;
+    _lastPublishedPosition = null;
+    _isPublishingLocation = false;
+  }
+
+  Future<bool> _canUseLocation() async {
+    try {
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) return false;
+
+      LocationPermission permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+      }
+
+      return permission == LocationPermission.always ||
+          permission == LocationPermission.whileInUse;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<Position?> _currentPositionOrNull() async {
+    final canUseLocation = await _canUseLocation();
+    if (!canUseLocation) return null;
+    try {
+      return await Geolocator.getCurrentPosition();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _publishOperatorPosition(
+    String bookingId,
+    String operatorId,
+    Position position, {
+    bool force = false,
+  }) async {
+    if (_isPublishingLocation) return;
+
+    if (!force && !_shouldPublishPosition(position)) {
+      return;
+    }
+
+    _isPublishingLocation = true;
+    try {
+      final result = await _bookingRepo.updateOperatorLocation(
+        bookingId: bookingId,
+        operatorId: operatorId,
+        operatorLat: position.latitude,
+        operatorLng: position.longitude,
+      );
+
+      if (result is OperationSuccess) {
+        _lastLocationPublishAt = DateTime.now();
+        _lastPublishedPosition = position;
+      }
+    } finally {
+      _isPublishingLocation = false;
+    }
+  }
+
+  bool _shouldPublishPosition(Position current) {
+    final lastAt = _lastLocationPublishAt;
+    final lastPos = _lastPublishedPosition;
+
+    return shouldPublishOperatorPosition(
+      now: DateTime.now(),
+      minInterval: _locationPublishMinInterval,
+      minDistanceMeters: _locationPublishMinDistanceMeters,
+      currentLat: current.latitude,
+      currentLng: current.longitude,
+      lastPublishedAt: lastAt,
+      lastLat: lastPos?.latitude,
+      lastLng: lastPos?.longitude,
+    );
   }
 
   Future<OperationResult> _withBusy(
@@ -391,4 +566,30 @@ String formatStatusLabel(String status) {
 
 extension OperatorAuthHelper on FirebaseAuth {
   String? get operatorId => currentUser?.uid;
+}
+
+/// Decides whether a new operator location should be published.
+bool shouldPublishOperatorPosition({
+  required DateTime now,
+  required Duration minInterval,
+  required double minDistanceMeters,
+  required double currentLat,
+  required double currentLng,
+  required DateTime? lastPublishedAt,
+  required double? lastLat,
+  required double? lastLng,
+}) {
+  if (lastPublishedAt == null || lastLat == null || lastLng == null) {
+    return true;
+  }
+
+  final elapsed = now.difference(lastPublishedAt);
+  final moved = Geolocator.distanceBetween(
+    lastLat,
+    lastLng,
+    currentLat,
+    currentLng,
+  );
+
+  return elapsed >= minInterval || moved >= minDistanceMeters;
 }

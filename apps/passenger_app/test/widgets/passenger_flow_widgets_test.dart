@@ -5,6 +5,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/data/repositories/fare_repository.dart';
 import 'package:passenger_app/data/repositories/jetty_repository.dart';
@@ -194,6 +195,109 @@ void main() {
         findsOneWidget,
       );
     });
+
+    testWidgets(
+      'uses route polyline and gates operator marker to on_the_way',
+      (tester) async {
+        final bookingRepo = _FakeBookingRepository();
+        final vm = BookingTrackingViewModel(bookingRepo: bookingRepo);
+
+        Set<Marker> latestMarkers = const <Marker>{};
+        Set<Polyline> latestPolylines = const <Polyline>{};
+
+        await tester.pumpWidget(
+          ChangeNotifierProvider<BookingTrackingViewModel>.value(
+            value: vm,
+            child: MaterialApp(
+              home: BookingTrackingScreen(
+                bookingId: 'booking-4',
+                origin: 'Jetty A',
+                destination: 'Jetty B',
+                passengerCount: 2,
+                mapBuilder:
+                    ({
+                      required initialCameraPosition,
+                      required markers,
+                      required polylines,
+                    }) {
+                      latestMarkers = markers;
+                      latestPolylines = polylines;
+                      return const SizedBox(key: ValueKey('mock-tracking-map'));
+                    },
+              ),
+            ),
+          ),
+        );
+
+        bookingRepo.emitTrackedBooking(
+          _sampleBooking(
+            id: 'booking-4',
+            status: BookingStatus.accepted,
+            operatorLat: 2.10,
+            operatorLng: 102.10,
+            routePolyline: const [
+              BookingRoutePoint(lat: 2.00, lng: 102.00),
+              BookingRoutePoint(lat: 2.05, lng: 102.05),
+              BookingRoutePoint(lat: 2.10, lng: 102.10),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(latestPolylines, hasLength(1));
+        expect(latestPolylines.first.points, hasLength(3));
+        expect(
+          latestMarkers.any(
+            (m) => m.markerId == const MarkerId('operator_live'),
+          ),
+          isFalse,
+        );
+
+        bookingRepo.emitTrackedBooking(
+          _sampleBooking(
+            id: 'booking-4',
+            status: BookingStatus.onTheWay,
+            operatorLat: 2.10,
+            operatorLng: 102.10,
+            routePolyline: const [
+              BookingRoutePoint(lat: 2.00, lng: 102.00),
+              BookingRoutePoint(lat: 2.05, lng: 102.05),
+              BookingRoutePoint(lat: 2.10, lng: 102.10),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          latestMarkers.any(
+            (m) => m.markerId == const MarkerId('operator_live'),
+          ),
+          isTrue,
+        );
+
+        bookingRepo.emitTrackedBooking(
+          _sampleBooking(
+            id: 'booking-4',
+            status: BookingStatus.completed,
+            operatorLat: 2.10,
+            operatorLng: 102.10,
+            routePolyline: const [
+              BookingRoutePoint(lat: 2.00, lng: 102.00),
+              BookingRoutePoint(lat: 2.05, lng: 102.05),
+              BookingRoutePoint(lat: 2.10, lng: 102.10),
+            ],
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(
+          latestMarkers.any(
+            (m) => m.markerId == const MarkerId('operator_live'),
+          ),
+          isFalse,
+        );
+      },
+    );
   });
 
   group('Profile booking history filters', () {
@@ -320,6 +424,9 @@ class _FakeBookingRepository extends BookingRepository {
 BookingModel _sampleBooking({
   required String id,
   required BookingStatus status,
+  double? operatorLat,
+  double? operatorLng,
+  List<BookingRoutePoint> routePolyline = const <BookingRoutePoint>[],
 }) {
   return BookingModel(
     bookingId: id,
@@ -345,6 +452,9 @@ BookingModel _sampleBooking({
     paymentStatus: 'paid',
     status: status,
     operatorUid: status == BookingStatus.pending ? null : 'operator-1',
+    operatorLat: operatorLat,
+    operatorLng: operatorLng,
+    routePolyline: routePolyline,
     rejectedBy: const [],
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: DateTime(2026, 3, 15, 10, 5),

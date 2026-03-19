@@ -18,6 +18,7 @@ class BookingModel {
     required this.originLng,
     required this.destinationLat,
     required this.destinationLng,
+    this.routePolyline = const <BookingRoutePoint>[],
     required this.adultCount,
     required this.childCount,
     required this.passengerCount,
@@ -32,6 +33,8 @@ class BookingModel {
     required this.status,
     String? operatorUid,
     @Deprecated('Use operatorUid instead.') String? operatorId,
+    this.operatorLat,
+    this.operatorLng,
     required this.rejectedBy,
     this.orderNumber,
     this.transactionId,
@@ -50,6 +53,7 @@ class BookingModel {
   final double originLng;
   final double destinationLat;
   final double destinationLng;
+  final List<BookingRoutePoint> routePolyline;
   final int adultCount;
   final int childCount;
   final int passengerCount;
@@ -64,6 +68,8 @@ class BookingModel {
   final BookingStatus status;
   final String? operatorUid;
   String? get operatorId => operatorUid;
+  final double? operatorLat;
+  final double? operatorLng;
   final List<String> rejectedBy;
   final String? orderNumber;
   final String? transactionId;
@@ -96,6 +102,7 @@ class BookingModel {
       originLng: originLng,
       destinationLat: destinationLat,
       destinationLng: destinationLng,
+      routePolyline: _routePolyline(data),
       adultCount: _int(data['adultCount']),
       childCount: _int(data['childCount']),
       passengerCount: _int(data['passengerCount']),
@@ -109,6 +116,8 @@ class BookingModel {
       paymentStatus: _str(data['paymentStatus']),
       status: BookingStatus.fromString(_str(data['status'])),
       operatorUid: (data['operatorUid'] ?? data['operatorId'])?.toString(),
+      operatorLat: _nullableDouble(data['operatorLat']),
+      operatorLng: _nullableDouble(data['operatorLng']),
       rejectedBy: _strList(data['rejectedBy']),
       orderNumber: data['orderNumber']?.toString(),
       transactionId: data['transactionId']?.toString(),
@@ -129,6 +138,7 @@ class BookingModel {
     double? originLng,
     double? destinationLat,
     double? destinationLng,
+    List<BookingRoutePoint>? routePolyline,
     int? adultCount,
     int? childCount,
     int? passengerCount,
@@ -143,6 +153,8 @@ class BookingModel {
     BookingStatus? status,
     String? operatorUid,
     @Deprecated('Use operatorUid instead.') String? operatorId,
+    double? operatorLat,
+    double? operatorLng,
     List<String>? rejectedBy,
     String? orderNumber,
     String? transactionId,
@@ -161,6 +173,7 @@ class BookingModel {
       originLng: originLng ?? this.originLng,
       destinationLat: destinationLat ?? this.destinationLat,
       destinationLng: destinationLng ?? this.destinationLng,
+      routePolyline: routePolyline ?? this.routePolyline,
       adultCount: adultCount ?? this.adultCount,
       childCount: childCount ?? this.childCount,
       passengerCount: passengerCount ?? this.passengerCount,
@@ -174,6 +187,8 @@ class BookingModel {
       paymentStatus: paymentStatus ?? this.paymentStatus,
       status: status ?? this.status,
       operatorUid: operatorUid ?? operatorId ?? this.operatorUid,
+      operatorLat: operatorLat ?? this.operatorLat,
+      operatorLng: operatorLng ?? this.operatorLng,
       rejectedBy: rejectedBy ?? this.rejectedBy,
       orderNumber: orderNumber ?? this.orderNumber,
       transactionId: transactionId ?? this.transactionId,
@@ -193,6 +208,13 @@ class BookingModel {
     return double.tryParse(v?.toString() ?? '') ?? 0.0;
   }
 
+  static double? _nullableDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
+  }
+
   static int _int(dynamic v) {
     if (v is int) return v;
     if (v is num) return v.truncate();
@@ -202,5 +224,61 @@ class BookingModel {
   static List<String> _strList(dynamic v) {
     if (v is Iterable) return v.map((e) => e.toString()).toList();
     return const [];
+  }
+
+  static List<BookingRoutePoint> _routePolyline(Map<String, dynamic> data) {
+    final raw =
+        data['routePolyline'] ??
+        data['routeCoordinates'] ??
+        data['polylineCoordinates'] ??
+        data['routePoints'];
+
+    if (raw is! Iterable) {
+      return const <BookingRoutePoint>[];
+    }
+
+    final points = <BookingRoutePoint>[];
+    for (final p in raw) {
+      final point = BookingRoutePoint.tryParse(p);
+      if (point != null) {
+        points.add(point);
+      }
+    }
+    return points;
+  }
+}
+
+class BookingRoutePoint {
+  const BookingRoutePoint({required this.lat, required this.lng});
+
+  final double lat;
+  final double lng;
+
+  static BookingRoutePoint? tryParse(dynamic raw) {
+    if (raw is Map) {
+      final lat = _asDouble(raw['lat'] ?? raw['latitude']);
+      final lng = _asDouble(raw['lng'] ?? raw['longitude'] ?? raw['lon']);
+      if (lat != null && lng != null) {
+        return BookingRoutePoint(lat: lat, lng: lng);
+      }
+      return null;
+    }
+
+    if (raw is List && raw.length >= 2) {
+      final lat = _asDouble(raw[0]);
+      final lng = _asDouble(raw[1]);
+      if (lat != null && lng != null) {
+        return BookingRoutePoint(lat: lat, lng: lng);
+      }
+      return null;
+    }
+
+    return null;
+  }
+
+  static double? _asDouble(dynamic v) {
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v?.toString() ?? '');
   }
 }

@@ -190,15 +190,20 @@ class BookingRepository {
   static BookingModel _fromDoc(String id, Map<String, dynamic> data) {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
+    final routePolyline = _normaliseRoutePolyline(
+      _extractRoutePolylineRaw(data),
+    );
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
     final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
         ?.toDate();
 
     // Ensure bookingId is present (fallback to document ID)
-    if (data[BookingFields.bookingId] == null) {
-      data = {...data, BookingFields.bookingId: id};
-    }
+    data = {
+      ...data,
+      if (data[BookingFields.bookingId] == null) BookingFields.bookingId: id,
+      if (routePolyline != null) BookingFields.routePolyline: routePolyline,
+    };
 
     return BookingModel.fromMap(
       data,
@@ -210,5 +215,59 @@ class BookingRepository {
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
     );
+  }
+
+  static dynamic _extractRoutePolylineRaw(Map<String, dynamic> data) {
+    return data[BookingFields.routePolyline] ??
+        data['routeCoordinates'] ??
+        data['polylineCoordinates'] ??
+        data['routePoints'];
+  }
+
+  static List<Map<String, double>>? _normaliseRoutePolyline(dynamic raw) {
+    if (raw is! Iterable) return null;
+
+    final points = <Map<String, double>>[];
+    for (final entry in raw) {
+      final point = _toRoutePointMap(entry);
+      if (point != null) {
+        points.add(point);
+      }
+    }
+
+    if (points.isEmpty) return null;
+    return points;
+  }
+
+  static Map<String, double>? _toRoutePointMap(dynamic entry) {
+    if (entry is GeoPoint) {
+      return {'lat': entry.latitude, 'lng': entry.longitude};
+    }
+
+    if (entry is Map) {
+      final lat = _asDouble(entry['lat'] ?? entry['latitude']);
+      final lng = _asDouble(entry['lng'] ?? entry['longitude'] ?? entry['lon']);
+      if (lat != null && lng != null) {
+        return {'lat': lat, 'lng': lng};
+      }
+      return null;
+    }
+
+    if (entry is List && entry.length >= 2) {
+      final lat = _asDouble(entry[0]);
+      final lng = _asDouble(entry[1]);
+      if (lat != null && lng != null) {
+        return {'lat': lat, 'lng': lng};
+      }
+      return null;
+    }
+
+    return null;
+  }
+
+  static double? _asDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
   }
 }

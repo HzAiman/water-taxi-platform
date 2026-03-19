@@ -253,6 +253,66 @@ void main() {
         '15/03/2026 09:07',
       );
     });
+
+    test('location publish helper allows first publish without history', () {
+      final shouldPublish = shouldPublishOperatorPosition(
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+        minInterval: const Duration(seconds: 6),
+        minDistanceMeters: 20,
+        currentLat: 2.190,
+        currentLng: 102.250,
+        lastPublishedAt: null,
+        lastLat: null,
+        lastLng: null,
+      );
+
+      expect(shouldPublish, isTrue);
+    });
+
+    test('location publish helper blocks when below time and distance limits', () {
+      final shouldPublish = shouldPublishOperatorPosition(
+        now: DateTime(2026, 3, 19, 10, 0, 3),
+        minInterval: const Duration(seconds: 6),
+        minDistanceMeters: 20,
+        currentLat: 2.190001,
+        currentLng: 102.250001,
+        lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastLat: 2.190000,
+        lastLng: 102.250000,
+      );
+
+      expect(shouldPublish, isFalse);
+    });
+
+    test('location publish helper allows when interval threshold is reached', () {
+      final shouldPublish = shouldPublishOperatorPosition(
+        now: DateTime(2026, 3, 19, 10, 0, 8),
+        minInterval: const Duration(seconds: 6),
+        minDistanceMeters: 20,
+        currentLat: 2.190001,
+        currentLng: 102.250001,
+        lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastLat: 2.190000,
+        lastLng: 102.250000,
+      );
+
+      expect(shouldPublish, isTrue);
+    });
+
+    test('location publish helper allows when distance threshold is reached', () {
+      final shouldPublish = shouldPublishOperatorPosition(
+        now: DateTime(2026, 3, 19, 10, 0, 2),
+        minInterval: const Duration(seconds: 6),
+        minDistanceMeters: 20,
+        currentLat: 2.190400,
+        currentLng: 102.250400,
+        lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastLat: 2.190000,
+        lastLng: 102.250000,
+      );
+
+      expect(shouldPublish, isTrue);
+    });
   });
 }
 
@@ -364,6 +424,8 @@ class FakeOperatorBookingRepository extends BookingRepository {
   Future<OperationResult> startTrip({
     required String bookingId,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
   }) async {
     return startResult;
   }

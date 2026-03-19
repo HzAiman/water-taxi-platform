@@ -277,10 +277,14 @@ class BookingRepository {
   Future<OperationResult> startTrip({
     required String bookingId,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
   }) => _updateStatus(
     bookingId: bookingId,
     status: BookingStatus.onTheWay,
     operatorId: operatorId,
+    operatorLat: operatorLat,
+    operatorLng: operatorLng,
   );
 
   /// Updates the booking status to `completed`.
@@ -292,6 +296,37 @@ class BookingRepository {
     status: BookingStatus.completed,
     operatorId: operatorId,
   );
+
+  /// Publishes the operator's latest location for an active `on_the_way`
+  /// booking so passengers can track in real time.
+  Future<OperationResult> updateOperatorLocation({
+    required String bookingId,
+    required String operatorId,
+    required double operatorLat,
+    required double operatorLng,
+  }) async {
+    try {
+      await _runWithRetry(
+        () => _db
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId)
+            .update({
+              BookingFields.operatorUid: operatorId,
+              BookingFields.operatorId: operatorId,
+              BookingFields.operatorLat: operatorLat,
+              BookingFields.operatorLng: operatorLng,
+              BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            }),
+      );
+
+      return const OperationSuccess('Location updated.');
+    } catch (e) {
+      return OperationFailure(
+        'Location update failed',
+        'Could not update operator location: $e',
+      );
+    }
+  }
 
   // ── Batch operations ─────────────────────────────────────────────────────
 
@@ -334,18 +369,27 @@ class BookingRepository {
     required String bookingId,
     required BookingStatus status,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
   }) async {
     try {
+      final payload = <String, dynamic>{
+        BookingFields.status: status.firestoreValue,
+        BookingFields.operatorUid: operatorId,
+        BookingFields.operatorId: operatorId,
+        BookingFields.updatedAt: FieldValue.serverTimestamp(),
+      };
+
+      if (operatorLat != null && operatorLng != null) {
+        payload[BookingFields.operatorLat] = operatorLat;
+        payload[BookingFields.operatorLng] = operatorLng;
+      }
+
       await _runWithRetry(
         () => _db
             .collection(FirestoreCollections.bookings)
             .doc(bookingId)
-            .update({
-              BookingFields.status: status.firestoreValue,
-              BookingFields.operatorUid: operatorId,
-              BookingFields.operatorId: operatorId,
-              BookingFields.updatedAt: FieldValue.serverTimestamp(),
-            }),
+            .update(payload),
       );
 
       final label = status == BookingStatus.onTheWay ? 'started' : 'completed';
@@ -390,14 +434,19 @@ class BookingRepository {
   static BookingModel _fromDoc(String id, Map<String, dynamic> data) {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
+    final routePolyline = _normaliseRoutePolyline(
+      _extractRoutePolylineRaw(data),
+    );
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
     final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
         ?.toDate();
 
-    if (data[BookingFields.bookingId] == null) {
-      data = {...data, BookingFields.bookingId: id};
-    }
+    data = {
+      ...data,
+      if (data[BookingFields.bookingId] == null) BookingFields.bookingId: id,
+      if (routePolyline != null) BookingFields.routePolyline: routePolyline,
+    };
 
     return BookingModel.fromMap(
       data,
@@ -419,5 +468,59 @@ class BookingRepository {
   static String _assignedOperatorUid(Map<String, dynamic> data) {
     return (data[BookingFields.operatorUid] ?? data[BookingFields.operatorId] ?? '')
         .toString();
+  }
+
+  static dynamic _extractRoutePolylineRaw(Map<String, dynamic> data) {
+    return data[BookingFields.routePolyline] ??
+        data['routeCoordinates'] ??
+        data['polylineCoordinates'] ??
+        data['routePoints'];
+  }
+
+  static List<Map<String, double>>? _normaliseRoutePolyline(dynamic raw) {
+    if (raw is! Iterable) return null;
+
+    final points = <Map<String, double>>[];
+    for (final entry in raw) {
+      final point = _toRoutePointMap(entry);
+      if (point != null) {
+        points.add(point);
+      }
+    }
+
+    if (points.isEmpty) return null;
+    return points;
+  }
+
+  static Map<String, double>? _toRoutePointMap(dynamic entry) {
+    if (entry is GeoPoint) {
+      return {'lat': entry.latitude, 'lng': entry.longitude};
+    }
+
+    if (entry is Map) {
+      final lat = _asDouble(entry['lat'] ?? entry['latitude']);
+      final lng = _asDouble(entry['lng'] ?? entry['longitude'] ?? entry['lon']);
+      if (lat != null && lng != null) {
+        return {'lat': lat, 'lng': lng};
+      }
+      return null;
+    }
+
+    if (entry is List && entry.length >= 2) {
+      final lat = _asDouble(entry[0]);
+      final lng = _asDouble(entry[1]);
+      if (lat != null && lng != null) {
+        return {'lat': lat, 'lng': lng};
+      }
+      return null;
+    }
+
+    return null;
+  }
+
+  static double? _asDouble(dynamic value) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    return double.tryParse(value?.toString() ?? '');
   }
 }

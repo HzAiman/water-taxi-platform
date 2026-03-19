@@ -176,6 +176,120 @@ void main() {
       setup.profileVm.dispose();
     },
   );
+
+  test(
+    'integration: passenger tracking receives operator location and route polyline updates',
+    () async {
+      final setup = await _createSetup();
+      final firestore = setup.firestore;
+      final trackingVm = setup.trackingVm;
+
+      final bookingId = await _createBookingAndTrack(setup: setup);
+
+      await _operatorUpdateStatus(
+        firestore: firestore,
+        bookingId: bookingId,
+        status: BookingStatus.onTheWay,
+        operatorId: 'operator-1',
+        operatorLat: 2.1910,
+        operatorLng: 102.2490,
+        routePolyline: const [
+          {'lat': 2.1900, 'lng': 102.2480},
+          {'lat': 2.1910, 'lng': 102.2490},
+          {'lat': 2.1920, 'lng': 102.2500},
+        ],
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(trackingVm.booking, isNotNull);
+      expect(trackingVm.booking!.status, BookingStatus.onTheWay);
+      expect(trackingVm.booking!.operatorLat, closeTo(2.1910, 0.0000001));
+      expect(trackingVm.booking!.operatorLng, closeTo(102.2490, 0.0000001));
+      expect(trackingVm.booking!.routePolyline, hasLength(3));
+      expect(trackingVm.booking!.routePolyline.first.lat, closeTo(2.1900, 0.0000001));
+      expect(trackingVm.booking!.routePolyline.first.lng, closeTo(102.2480, 0.0000001));
+
+      await _operatorUpdateStatus(
+        firestore: firestore,
+        bookingId: bookingId,
+        status: BookingStatus.completed,
+        operatorId: 'operator-1',
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(trackingVm.booking, isNotNull);
+      expect(trackingVm.booking!.status, BookingStatus.completed);
+      expect(trackingVm.booking!.routePolyline, hasLength(3));
+
+      setup.profileVm.stopBookingHistoryStream();
+      setup.homeVm.dispose();
+      setup.trackingVm.dispose();
+      setup.profileVm.dispose();
+    },
+  );
+
+  test(
+    'integration: passenger tracking parses legacy polyline field variants',
+    () async {
+      final setup = await _createSetup();
+      final firestore = setup.firestore;
+      final trackingVm = setup.trackingVm;
+
+      final bookingId = await _createBookingAndTrack(setup: setup);
+
+      final ref = firestore.collection(FirestoreCollections.bookings).doc(bookingId);
+
+      await ref.update({
+        BookingFields.status: BookingStatus.onTheWay.firestoreValue,
+        BookingFields.operatorUid: 'operator-1',
+        BookingFields.operatorId: 'operator-1',
+        BookingFields.updatedAt: Timestamp.now(),
+        'routeCoordinates': const [
+          {'lat': 2.2000, 'lng': 102.2600},
+          {'lat': 2.2100, 'lng': 102.2700},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(trackingVm.booking, isNotNull);
+      expect(trackingVm.booking!.routePolyline, hasLength(2));
+      expect(trackingVm.booking!.routePolyline.first.lat, closeTo(2.2000, 0.0000001));
+      expect(trackingVm.booking!.routePolyline.first.lng, closeTo(102.2600, 0.0000001));
+
+      await ref.update({
+        BookingFields.updatedAt: Timestamp.now(),
+        'routeCoordinates': FieldValue.delete(),
+        'polylineCoordinates': const [
+          {'lat': 2.2200, 'lng': 102.2800},
+          {'lat': 2.2300, 'lng': 102.2900},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(trackingVm.booking!.routePolyline, hasLength(2));
+      expect(trackingVm.booking!.routePolyline.first.lat, closeTo(2.2200, 0.0000001));
+      expect(trackingVm.booking!.routePolyline.first.lng, closeTo(102.2800, 0.0000001));
+
+      await ref.update({
+        BookingFields.updatedAt: Timestamp.now(),
+        'polylineCoordinates': FieldValue.delete(),
+        'routePoints': const [
+          {'latitude': 2.2400, 'longitude': 102.3000},
+          {'latitude': 2.2500, 'longitude': 102.3100},
+        ],
+      });
+      await Future<void>.delayed(Duration.zero);
+
+      expect(trackingVm.booking!.routePolyline, hasLength(2));
+      expect(trackingVm.booking!.routePolyline.first.lat, closeTo(2.2400, 0.0000001));
+      expect(trackingVm.booking!.routePolyline.first.lng, closeTo(102.3000, 0.0000001));
+
+      setup.profileVm.stopBookingHistoryStream();
+      setup.homeVm.dispose();
+      setup.trackingVm.dispose();
+      setup.profileVm.dispose();
+    },
+  );
 }
 
 Future<_IntegrationSetup> _createSetup() async {
@@ -308,13 +422,28 @@ Future<void> _operatorUpdateStatus({
   required String bookingId,
   required BookingStatus status,
   required String operatorId,
+  double? operatorLat,
+  double? operatorLng,
+  List<Map<String, double>>? routePolyline,
 }) async {
+  final payload = <String, dynamic>{
+    BookingFields.status: status.firestoreValue,
+    BookingFields.operatorUid: operatorId,
+    BookingFields.operatorId: operatorId,
+    BookingFields.updatedAt: Timestamp.now(),
+  };
+
+  if (operatorLat != null && operatorLng != null) {
+    payload[BookingFields.operatorLat] = operatorLat;
+    payload[BookingFields.operatorLng] = operatorLng;
+  }
+
+  if (routePolyline != null) {
+    payload[BookingFields.routePolyline] = routePolyline;
+  }
+
   await firestore
       .collection(FirestoreCollections.bookings)
       .doc(bookingId)
-      .update({
-        BookingFields.status: status.firestoreValue,
-        BookingFields.operatorId: operatorId,
-        BookingFields.updatedAt: Timestamp.now(),
-      });
+      .update(payload);
 }

@@ -52,6 +52,10 @@ service cloud.firestore {
         'routeKey',
         'originCoords',
         'destinationCoords',
+        'routePolyline',
+        'routeCoordinates',
+        'polylineCoordinates',
+        'routePoints',
         'adultCount',
         'childCount',
         'passengerCount',
@@ -84,6 +88,10 @@ service cloud.firestore {
         'routeKey',
         'originCoords',
         'destinationCoords',
+        'routePolyline',
+        'routeCoordinates',
+        'polylineCoordinates',
+        'routePoints',
         'adultCount',
         'childCount',
         'passengerCount',
@@ -100,6 +108,8 @@ service cloud.firestore {
         'status',
         'operatorUid',
         'operatorId',
+        'operatorLat',
+        'operatorLng',
         'rejectedBy',
         'createdAt',
         'updatedAt',
@@ -225,7 +235,7 @@ service cloud.firestore {
             )
           )
           || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId', 'operatorLat', 'operatorLng'])
             &&
             resource.data.status == 'accepted'
             && request.resource.data.status == 'on_the_way'
@@ -260,6 +270,13 @@ service cloud.firestore {
             &&
             resource.data.status == 'on_the_way'
             && request.resource.data.status == 'completed'
+            && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
+            && isAssignedOperator()
+          )
+          || (
+            request.resource.data.diff(resource.data).changedKeys().hasOnly(['updatedAt', 'operatorLat', 'operatorLng'])
+            && resource.data.status == 'on_the_way'
+            && request.resource.data.status == resource.data.status
             && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
             && isAssignedOperator()
           )

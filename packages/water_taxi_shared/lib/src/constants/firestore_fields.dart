@@ -10,6 +10,7 @@ abstract final class BookingFields {
   static const String routeKey = 'routeKey';
   static const String originCoords = 'originCoords';
   static const String destinationCoords = 'destinationCoords';
+  static const String routePolyline = 'routePolyline';
   static const String adultCount = 'adultCount';
   static const String childCount = 'childCount';
   static const String passengerCount = 'passengerCount';
@@ -26,6 +27,8 @@ abstract final class BookingFields {
   static const String status = 'status';
   static const String operatorUid = 'operatorUid';
   static const String operatorId = 'operatorId';
+  static const String operatorLat = 'operatorLat';
+  static const String operatorLng = 'operatorLng';
   static const String rejectedBy = 'rejectedBy';
   static const String createdAt = 'createdAt';
   static const String updatedAt = 'updatedAt';

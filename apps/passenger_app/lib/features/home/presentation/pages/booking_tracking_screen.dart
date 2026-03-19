@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
@@ -31,6 +33,14 @@ class BookingTrackingScreen extends StatefulWidget {
 }
 
 class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
+  GoogleMapController? _mapController;
+  String? _lastFittedBookingId;
+  LatLng? _lastFocusedOperatorPoint;
+  DateTime? _lastOperatorFocusAt;
+
+  static const Duration _followRecenterInterval = Duration(seconds: 8);
+  static const double _followRecenterDistanceMeters = 35;
+
   @override
   void initState() {
     super.initState();
@@ -125,6 +135,16 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     final statusTheme = _statusThemeFor(status);
     final canCancel = status.canBeCancelledByPassenger;
     final isRejected = status == BookingStatus.rejected;
+    final hasOperatorLocation =
+      booking.operatorLat != null && booking.operatorLng != null;
+    final isLocatingOperator =
+      status == BookingStatus.onTheWay && !hasOperatorLocation;
+    final isOperatorLocationStale =
+      status == BookingStatus.onTheWay &&
+      hasOperatorLocation &&
+      booking.updatedAt != null &&
+      DateTime.now().difference(booking.updatedAt!) >
+        const Duration(seconds: 35);
     final paymentMethod = booking.paymentMethod;
     final paymentStatus = booking.paymentStatus;
     final rejectedPaymentMessage =
@@ -135,13 +155,25 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       booking.destinationLat,
       booking.destinationLng,
     );
+    final routePoints = _routePointsFor(booking);
+    final operatorPoint = _operatorPointForBooking(booking);
     final markers = _buildMarkers(
       originPoint: originPoint,
       destinationPoint: destinationPoint,
+      operatorPoint: operatorPoint,
       originLabel: currentOrigin,
       destinationLabel: currentDestination,
     );
-    final polylines = _buildPolylines(originPoint, destinationPoint);
+    final polylines = _buildPolylines(booking, originPoint, destinationPoint);
+
+    _scheduleCameraSync(
+      bookingId: booking.bookingId,
+      status: status,
+      routePoints: routePoints,
+      originPoint: originPoint,
+      destinationPoint: destinationPoint,
+      operatorPoint: operatorPoint,
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -155,17 +187,32 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
             child:
                 widget.mapBuilder?.call(
                   initialCameraPosition: _cameraPositionFor(
+                    routePoints,
                     originPoint,
                     destinationPoint,
+                    operatorPoint,
                   ),
                   markers: markers,
                   polylines: polylines,
                 ) ??
                 GoogleMap(
                   initialCameraPosition: _cameraPositionFor(
+                    routePoints,
                     originPoint,
                     destinationPoint,
+                    operatorPoint,
                   ),
+                  onMapCreated: (controller) {
+                    _mapController = controller;
+                    _scheduleCameraSync(
+                      bookingId: booking.bookingId,
+                      status: status,
+                      routePoints: routePoints,
+                      originPoint: originPoint,
+                      destinationPoint: destinationPoint,
+                      operatorPoint: operatorPoint,
+                    );
+                  },
                   markers: markers,
                   polylines: polylines,
                   myLocationEnabled: false,
@@ -263,6 +310,12 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       ],
                       const SizedBox(height: 14),
                       _buildStatusTimeline(status),
+                      if (isLocatingOperator || isOperatorLocationStale) ...[
+                        const SizedBox(height: 12),
+                        _buildLocationStatusNotice(
+                          isLocating: isLocatingOperator,
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       Row(
                         children: [
@@ -474,9 +527,15 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   }
 
   CameraPosition _cameraPositionFor(
+    List<LatLng> routePoints,
     LatLng? originPoint,
     LatLng? destinationPoint,
+    LatLng? operatorPoint,
   ) {
+    if (routePoints.length >= 2) {
+      return CameraPosition(target: _centerOfPoints(routePoints), zoom: 14);
+    }
+
     if (originPoint != null && destinationPoint != null) {
       return CameraPosition(
         target: LatLng(
@@ -495,12 +554,17 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       return CameraPosition(target: destinationPoint, zoom: 16);
     }
 
+    if (operatorPoint != null) {
+      return CameraPosition(target: operatorPoint, zoom: 16);
+    }
+
     return _fallbackCameraPosition;
   }
 
   Set<Marker> _buildMarkers({
     required LatLng? originPoint,
     required LatLng? destinationPoint,
+    required LatLng? operatorPoint,
     required String originLabel,
     required String destinationLabel,
   }) {
@@ -529,10 +593,45 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       );
     }
 
+    if (operatorPoint != null) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('operator_live'),
+          position: operatorPoint,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
+          infoWindow: const InfoWindow(
+            title: 'Operator Location',
+            snippet: 'Live location',
+          ),
+        ),
+      );
+    }
+
     return markers;
   }
 
-  Set<Polyline> _buildPolylines(LatLng? originPoint, LatLng? destinationPoint) {
+  Set<Polyline> _buildPolylines(
+    BookingModel booking,
+    LatLng? originPoint,
+    LatLng? destinationPoint,
+  ) {
+    final routePoints = booking.routePolyline
+        .map((p) => LatLng(p.lat, p.lng))
+        .toList(growable: false);
+
+    if (routePoints.length >= 2) {
+      return {
+        Polyline(
+          polylineId: const PolylineId('route'),
+          points: routePoints,
+          color: const Color(0xFF0066CC),
+          width: 4,
+        ),
+      };
+    }
+
     if (originPoint == null || destinationPoint == null) {
       return const <Polyline>{};
     }
@@ -546,6 +645,179 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       ),
     };
   }
+
+  List<LatLng> _routePointsFor(BookingModel booking) {
+    return booking.routePolyline
+        .map((p) => LatLng(p.lat, p.lng))
+        .toList(growable: false);
+  }
+
+  LatLng? _operatorPointForBooking(BookingModel booking) {
+    if (booking.status != BookingStatus.onTheWay) {
+      return null;
+    }
+    if (booking.operatorLat == null || booking.operatorLng == null) {
+      return null;
+    }
+    return LatLng(booking.operatorLat!, booking.operatorLng!);
+  }
+
+  void _scheduleCameraSync({
+    required String bookingId,
+    required BookingStatus status,
+    required List<LatLng> routePoints,
+    required LatLng? originPoint,
+    required LatLng? destinationPoint,
+    required LatLng? operatorPoint,
+  }) {
+    if (widget.mapBuilder != null || !mounted) {
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await _fitRouteIfNeeded(
+        bookingId: bookingId,
+        routePoints: routePoints,
+        originPoint: originPoint,
+        destinationPoint: destinationPoint,
+        operatorPoint: operatorPoint,
+      );
+      await _followOperatorIfNeeded(status, operatorPoint);
+    });
+  }
+
+  Future<void> _fitRouteIfNeeded({
+    required String bookingId,
+    required List<LatLng> routePoints,
+    required LatLng? originPoint,
+    required LatLng? destinationPoint,
+    required LatLng? operatorPoint,
+  }) async {
+    if (_mapController == null || _lastFittedBookingId == bookingId) {
+      return;
+    }
+
+    final fitPoints = <LatLng>[
+      ...routePoints,
+      if (originPoint != null) originPoint,
+      if (destinationPoint != null) destinationPoint,
+      if (operatorPoint != null) operatorPoint,
+    ];
+
+    if (fitPoints.length < 2) {
+      return;
+    }
+
+    await _animateToBounds(_boundsFromPoints(fitPoints));
+    _lastFittedBookingId = bookingId;
+  }
+
+  Future<void> _followOperatorIfNeeded(
+    BookingStatus status,
+    LatLng? operatorPoint,
+  ) async {
+    if (_mapController == null) {
+      return;
+    }
+
+    if (status != BookingStatus.onTheWay || operatorPoint == null) {
+      _lastFocusedOperatorPoint = null;
+      _lastOperatorFocusAt = null;
+      return;
+    }
+
+    final lastPoint = _lastFocusedOperatorPoint;
+    final lastAt = _lastOperatorFocusAt;
+    final shouldFocus =
+        lastPoint == null ||
+        lastAt == null ||
+        DateTime.now().difference(lastAt) >= _followRecenterInterval ||
+        _distanceMeters(lastPoint, operatorPoint) >= _followRecenterDistanceMeters;
+
+    if (!shouldFocus) {
+      return;
+    }
+
+    try {
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLng(operatorPoint),
+      );
+      _lastFocusedOperatorPoint = operatorPoint;
+      _lastOperatorFocusAt = DateTime.now();
+    } catch (_) {
+      // Ignore map camera errors; user can still view updates via markers.
+    }
+  }
+
+  Future<void> _animateToBounds(LatLngBounds bounds) async {
+    final controller = _mapController;
+    if (controller == null) {
+      return;
+    }
+
+    try {
+      await controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 54));
+    } catch (_) {
+      // The map may not have laid out yet; retry once shortly after.
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      try {
+        await controller.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, 54),
+        );
+      } catch (_) {
+        // Ignore bounds-fit failure and keep default camera.
+      }
+    }
+  }
+
+  LatLngBounds _boundsFromPoints(List<LatLng> points) {
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+
+    for (final p in points.skip(1)) {
+      minLat = math.min(minLat, p.latitude);
+      maxLat = math.max(maxLat, p.latitude);
+      minLng = math.min(minLng, p.longitude);
+      maxLng = math.max(maxLng, p.longitude);
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+  }
+
+  LatLng _centerOfPoints(List<LatLng> points) {
+    var latSum = 0.0;
+    var lngSum = 0.0;
+    for (final p in points) {
+      latSum += p.latitude;
+      lngSum += p.longitude;
+    }
+    return LatLng(latSum / points.length, lngSum / points.length);
+  }
+
+  double _distanceMeters(LatLng a, LatLng b) {
+    const earthRadius = 6371000.0;
+    final dLat = _toRadians(b.latitude - a.latitude);
+    final dLng = _toRadians(b.longitude - a.longitude);
+    final lat1 = _toRadians(a.latitude);
+    final lat2 = _toRadians(b.latitude);
+
+    final h =
+        math.sin(dLat / 2) * math.sin(dLat / 2) +
+        math.cos(lat1) *
+            math.cos(lat2) *
+            math.sin(dLng / 2) *
+            math.sin(dLng / 2);
+    final c = 2 * math.atan2(math.sqrt(h), math.sqrt(1 - h));
+    return earthRadius * c;
+  }
+
+  double _toRadians(double deg) => deg * (math.pi / 180);
 
   Widget _buildStatusTimeline(BookingStatus status) {
     final steps = [
@@ -645,6 +917,36 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     );
   }
 
+  Widget _buildLocationStatusNotice({required bool isLocating}) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEAF4FF),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFBFD9FF)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.near_me, size: 16, color: Color(0xFF0066CC)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              isLocating
+                  ? 'Locating operator. Live position will appear shortly.'
+                  : 'Operator location update is delayed. Showing the most recent known position.',
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF0E4A8A),
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   int _timelineIndex(BookingStatus status) {
     switch (status) {
       case BookingStatus.pending:
@@ -712,6 +1014,12 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         .where((part) => part.isNotEmpty)
         .map((part) => '${part[0].toUpperCase()}${part.substring(1)}')
         .join(' ');
+  }
+
+  @override
+  void dispose() {
+    _mapController?.dispose();
+    super.dispose();
   }
 
   _BookingStatusTheme _statusThemeFor(BookingStatus status) {
