@@ -50,6 +50,10 @@ service cloud.firestore {
         'origin',
         'destination',
         'routeKey',
+        'corridorId',
+        'corridorVersion',
+        'originCheckpointSeq',
+        'destinationCheckpointSeq',
         'originCoords',
         'destinationCoords',
         'routePolyline',
@@ -86,6 +90,10 @@ service cloud.firestore {
         'origin',
         'destination',
         'routeKey',
+        'corridorId',
+        'corridorVersion',
+        'originCheckpointSeq',
+        'destinationCheckpointSeq',
         'originCoords',
         'destinationCoords',
         'routePolyline',
@@ -115,6 +123,87 @@ service cloud.firestore {
         'updatedAt',
         'cancelledAt'
       ]);
+    }
+
+    function canonicalCorridorId() {
+      return 'melaka_main_01';
+    }
+
+    function canonicalCheckpointOrder() {
+      return [
+        'JETTY_01',
+        'JETTY_02',
+        'JETTY_03',
+        'JETTY_04',
+        'JETTY_05',
+        'JETTY_06',
+        'JETTY_07',
+        'JETTY_08',
+        'JETTY_09',
+        'JETTY_10',
+        'JETTY_11',
+        'JETTY_12',
+        'JETTY_13',
+        'JETTY_14'
+      ];
+    }
+
+    function hasCorridorBookingMetadata(data) {
+      return data.keys().hasAny([
+        'corridorId',
+        'corridorVersion',
+        'originCheckpointSeq',
+        'destinationCheckpointSeq'
+      ]);
+    }
+
+    function validCorridorBookingMetadata(data) {
+      return !hasCorridorBookingMetadata(data)
+        || (
+          data.keys().hasAll([
+            'corridorId',
+            'corridorVersion',
+            'originCheckpointSeq',
+            'destinationCheckpointSeq'
+          ])
+          && data.corridorId == canonicalCorridorId()
+          && data.corridorVersion is int
+          && data.corridorVersion >= 1
+          && data.originCheckpointSeq is int
+          && data.destinationCheckpointSeq is int
+          && data.originCheckpointSeq >= 1
+          && data.destinationCheckpointSeq <= 14
+          && data.originCheckpointSeq < data.destinationCheckpointSeq
+        );
+    }
+
+    function validCanonicalCorridor(data, corridorId) {
+      return corridorId == canonicalCorridorId()
+        && data.keys().hasAll([
+          'corridorId',
+          'corridorName',
+          'riverName',
+          'isActive',
+          'version',
+          'checkpointCount',
+          'checkpointOrder',
+          'checkpoints',
+          'polyline',
+          'updatedAt'
+        ])
+        && data.corridorId == corridorId
+        && data.corridorName is string
+        && data.riverName is string
+        && data.isActive is bool
+        && data.version is int
+        && data.version >= 1
+        && data.checkpointCount is int
+        && data.checkpointCount == 14
+        && data.checkpointOrder is list
+        && data.checkpointOrder == canonicalCheckpointOrder()
+        && data.checkpoints is list
+        && data.checkpoints.size() == 14
+        && data.polyline is list;
     }
 
     match /users/{userId} {
@@ -193,6 +282,11 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    match /navigation_corridors/{corridorId} {
+      allow read: if isSignedIn() && validCanonicalCorridor(resource.data, corridorId);
+      allow create, update, delete: if false;
+    }
+
     match /bookings/{bookingId} {
       allow read: if isOwner(resource.data.userId)
         || (
@@ -208,7 +302,8 @@ service cloud.firestore {
         && request.resource.data.bookingId == bookingId
         && request.resource.data.status == 'pending'
         && request.resource.data.paymentStatus == 'authorized'
-        && bookingCreateHasExpectedFields();
+        && bookingCreateHasExpectedFields()
+        && validCorridorBookingMetadata(request.resource.data);
 
       allow update: if isOwner(resource.data.userId)
         && request.resource.data.userId == resource.data.userId
@@ -216,14 +311,24 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'cancelledAt'])
         && ['pending', 'accepted', 'on_the_way'].hasAny([resource.data.status])
         && request.resource.data.status == 'cancelled'
-        && bookingUpdateHasExpectedFields();
+        && bookingUpdateHasExpectedFields()
+        && validCorridorBookingMetadata(request.resource.data);
 
       allow update: if isOperator()
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.bookingId == resource.data.bookingId
         && (
           (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId'])
+            request.resource.data.diff(resource.data).changedKeys().hasOnly([
+              'status',
+              'updatedAt',
+              'operatorUid',
+              'operatorId',
+              'corridorId',
+              'corridorVersion',
+              'originCheckpointSeq',
+              'destinationCheckpointSeq'
+            ])
             &&
             resource.data.status == 'pending'
             && request.resource.data.status == 'accepted'
@@ -327,7 +432,8 @@ service cloud.firestore {
             )
           )
         )
-        && bookingUpdateHasExpectedFields();
+        && bookingUpdateHasExpectedFields()
+        && validCorridorBookingMetadata(request.resource.data);
 
       allow delete: if false;
     }

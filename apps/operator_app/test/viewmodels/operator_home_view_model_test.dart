@@ -313,6 +313,156 @@ void main() {
 
       expect(shouldPublish, isTrue);
     });
+
+    test('navigation helper resolves checkpoint progress and ETA from polyline', () {
+      final booking = BookingModel(
+        bookingId: 'nav-1',
+        userId: 'user-1',
+        userName: 'Passenger One',
+        userPhone: '0123456789',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        corridorId: 'melaka_main_01',
+        corridorVersion: 1,
+        originCheckpointSeq: 3,
+        destinationCheckpointSeq: 6,
+        originLat: 2.2000,
+        originLng: 102.2500,
+        destinationLat: 2.2030,
+        destinationLng: 102.2530,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+        ],
+        adultCount: 1,
+        childCount: 0,
+        passengerCount: 1,
+        adultFare: 12,
+        childFare: 6,
+        adultSubtotal: 12,
+        childSubtotal: 0,
+        fare: 12,
+        totalFare: 12,
+        paymentMethod: PaymentMethods.creditCard,
+        paymentStatus: 'paid',
+        status: BookingStatus.onTheWay,
+        operatorUid: 'operator-1',
+        rejectedBy: const [],
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2014,
+        currentLng: 102.2514,
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+        reportedSpeedMps: 4.0,
+      );
+
+      expect(guidance, isNotNull);
+      expect(guidance!.nearestCheckpointSeq, inInclusiveRange(3, 6));
+      expect(guidance.nextCheckpointSeq, inInclusiveRange(3, 6));
+      expect(guidance.progressFraction, inInclusiveRange(0.0, 1.0));
+      expect(guidance.remainingDistanceMeters, greaterThan(0));
+      expect(guidance.eta, isNotNull);
+      expect(guidance.isOffRoute, isFalse);
+    });
+
+    test('navigation helper keeps checkpoint progression monotonic', () {
+      final booking = BookingModel(
+        bookingId: 'nav-2',
+        userId: 'user-1',
+        userName: 'Passenger One',
+        userPhone: '0123456789',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        corridorId: 'melaka_main_01',
+        corridorVersion: 1,
+        originCheckpointSeq: 1,
+        destinationCheckpointSeq: 4,
+        originLat: 2.2000,
+        originLng: 102.2500,
+        destinationLat: 2.2030,
+        destinationLng: 102.2530,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+        ],
+        adultCount: 1,
+        childCount: 0,
+        passengerCount: 1,
+        adultFare: 12,
+        childFare: 6,
+        adultSubtotal: 12,
+        childSubtotal: 0,
+        fare: 12,
+        totalFare: 12,
+        paymentMethod: PaymentMethods.creditCard,
+        paymentStatus: 'paid',
+        status: BookingStatus.onTheWay,
+        operatorUid: 'operator-1',
+        rejectedBy: const [],
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2002,
+        currentLng: 102.2502,
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+        lastResolvedCheckpointSeq: 3,
+      );
+
+      expect(guidance, isNotNull);
+      expect(guidance!.nearestCheckpointSeq, greaterThanOrEqualTo(3));
+    });
+
+    test('navigation helper flags off-route when far from segment', () {
+      final booking = BookingModel(
+        bookingId: 'nav-3',
+        userId: 'user-1',
+        userName: 'Passenger One',
+        userPhone: '0123456789',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        corridorId: 'melaka_main_01',
+        corridorVersion: 1,
+        originCheckpointSeq: 1,
+        destinationCheckpointSeq: 2,
+        originLat: 2.2000,
+        originLng: 102.2500,
+        destinationLat: 2.2050,
+        destinationLng: 102.2500,
+        adultCount: 1,
+        childCount: 0,
+        passengerCount: 1,
+        adultFare: 12,
+        childFare: 6,
+        adultSubtotal: 12,
+        childSubtotal: 0,
+        fare: 12,
+        totalFare: 12,
+        paymentMethod: PaymentMethods.creditCard,
+        paymentStatus: 'paid',
+        status: BookingStatus.onTheWay,
+        operatorUid: 'operator-1',
+        rejectedBy: const [],
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2000,
+        currentLng: 102.2550,
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+        offRouteToleranceMeters: 50,
+      );
+
+      expect(guidance, isNotNull);
+      expect(guidance!.isOffRoute, isTrue);
+      expect(guidance.offRouteDistanceMeters, greaterThan(50));
+    });
   });
 }
 

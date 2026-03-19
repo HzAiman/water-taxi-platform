@@ -84,6 +84,7 @@ Remaining lifecycle hardening work is tracked in app TODO files:
 - `apps/operator_app/TODO.md`
 
 River navigation future planning (14 jetties corridor) is also tracked in both TODO files under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
+Canonical corridor schema details are documented in `docs/firestore_navigation_corridor_schema.md`.
 
 ## Tech Stack
 

@@ -28,14 +28,14 @@ Prepare `passenger_app` for stable production-like booking flows and reliable sy
 ### P2: River Navigation Cross-App Roadmap (14 Jetties)
 
 #### Phase A: Contract and Data Foundation (Blocking)
-- [ ] Define canonical Firestore corridor schema for one river route with ordered checkpoints (14 jetties), including sequence constraints and read-only client policy.
-- [ ] Extend shared booking/domain contracts with corridor metadata needed for operator navigation while preserving existing booking lifecycle compatibility.
-- [ ] Update and deploy Firestore rules and indexes for corridor reads and corridor-linked booking queries.
-- [ ] Keep this roadmap synchronized with operator TODO for shared milestone visibility.
+- [x] Define canonical Firestore corridor schema for one river route with ordered checkpoints (14 jetties), including sequence constraints and read-only client policy.
+- [x] Extend shared booking/domain contracts with corridor metadata needed for operator navigation while preserving existing booking lifecycle compatibility.
+- [x] Update and deploy Firestore rules and indexes for corridor reads and corridor-linked booking queries.
+- [x] Keep this roadmap synchronized with operator TODO for shared milestone visibility.
 
 #### Phase B: Operator Navigation Engine (Depends on Phase A)
-- [ ] Add operator corridor data access and origin/destination to checkpoint-sequence binding.
-- [ ] Implement navigation logic: nearest checkpoint resolution, progress detection, off-route tolerance, remaining distance, and speed-based ETA.
+- [x] Add operator corridor data access and origin/destination to checkpoint-sequence binding.
+- [x] Implement navigation logic: nearest checkpoint resolution, progress detection, off-route tolerance, remaining distance, and speed-based ETA.
 - [ ] Integrate navigation lifecycle into operator home view model so it starts/stops with active bookings and respects existing refresh/reconnect behavior.
 - [ ] Add basic guidance UI in operator home (progress, next checkpoint, remaining distance, ETA) without turn-by-turn prompts.
 - [ ] Add lightweight checkpoint/off-route/resume event notifications via existing notification coordinator and channels.

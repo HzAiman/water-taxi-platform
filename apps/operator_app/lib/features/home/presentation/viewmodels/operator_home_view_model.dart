@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -44,6 +45,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
   DateTime? _lastLocationPublishAt;
   Position? _lastPublishedPosition;
   bool _isPublishingLocation = false;
+  OperatorNavigationGuidance? _navigationGuidance;
+  DateTime? _lastNavigationSampleAt;
+  Position? _lastNavigationSample;
+  int? _maxReachedCheckpointSeq;
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
   static const double _locationPublishMinDistanceMeters = 20;
@@ -65,6 +70,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
           .toList();
 
   String? get lastCancelledNoticeBookingId => _lastCancelledNoticeBookingId;
+  OperatorNavigationGuidance? get navigationGuidance => _navigationGuidance;
 
   // ── Initialise ───────────────────────────────────────────────────────────
 
@@ -262,6 +268,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _activeSubscription =
         _bookingRepo.streamActiveBookings(operatorId).listen((list) {
       _activeBookings = list;
+      _refreshNavigationGuidance(notify: false);
 
       if (_trackingBookingId != null) {
         final tracked = list.where((b) => b.bookingId == _trackingBookingId);
@@ -279,6 +286,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
       notifyListeners();
     }, onError: (_) {
       _activeBookings = [];
+      _refreshNavigationGuidance(notify: false);
       notifyListeners();
     });
 
@@ -335,6 +343,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
       locationSettings: settings,
     ).listen(
       (position) {
+        _refreshNavigationGuidance(currentPosition: position);
         if (_trackingBookingId == null) return;
         unawaited(
           _publishOperatorPosition(
@@ -357,6 +366,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _lastLocationPublishAt = null;
     _lastPublishedPosition = null;
     _isPublishingLocation = false;
+    _navigationGuidance = null;
+    _lastNavigationSampleAt = null;
+    _lastNavigationSample = null;
+    _maxReachedCheckpointSeq = null;
   }
 
   Future<bool> _canUseLocation() async {
@@ -392,6 +405,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
     Position position, {
     bool force = false,
   }) async {
+    _refreshNavigationGuidance(currentPosition: position);
+
     if (_isPublishingLocation) return;
 
     if (!force && !_shouldPublishPosition(position)) {
@@ -414,6 +429,77 @@ class OperatorHomeViewModel extends ChangeNotifier {
     } finally {
       _isPublishingLocation = false;
     }
+  }
+
+  void _refreshNavigationGuidance({
+    Position? currentPosition,
+    bool notify = true,
+  }) {
+    final booking = _resolveTrackedOnTheWayBooking();
+    if (booking == null) {
+      _navigationGuidance = null;
+      if (notify) {
+        notifyListeners();
+      }
+      return;
+    }
+
+    _trackingBookingId ??= booking.bookingId;
+    final effectiveLat = currentPosition?.latitude ?? booking.operatorLat;
+    final effectiveLng = currentPosition?.longitude ?? booking.operatorLng;
+    if (effectiveLat == null || effectiveLng == null) {
+      _navigationGuidance = null;
+      if (notify) {
+        notifyListeners();
+      }
+      return;
+    }
+
+    final now = DateTime.now();
+    final guidance = computeOperatorNavigationGuidance(
+      booking: booking,
+      currentLat: effectiveLat,
+      currentLng: effectiveLng,
+      now: now,
+      reportedSpeedMps: currentPosition?.speed,
+      lastSampleAt: _lastNavigationSampleAt,
+      lastSampleLat: _lastNavigationSample?.latitude,
+      lastSampleLng: _lastNavigationSample?.longitude,
+      lastResolvedCheckpointSeq: _maxReachedCheckpointSeq,
+    );
+
+    _navigationGuidance = guidance;
+    if (guidance != null) {
+      _maxReachedCheckpointSeq = guidance.nearestCheckpointSeq;
+    }
+
+    if (currentPosition != null) {
+      _lastNavigationSample = currentPosition;
+      _lastNavigationSampleAt = now;
+    }
+
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  BookingModel? _resolveTrackedOnTheWayBooking() {
+    final bookingId = _trackingBookingId;
+    if (bookingId != null) {
+      for (final booking in _activeBookings) {
+        if (booking.bookingId == bookingId &&
+            booking.status == BookingStatus.onTheWay) {
+          return booking;
+        }
+      }
+    }
+
+    for (final booking in _activeBookings) {
+      if (booking.status == BookingStatus.onTheWay) {
+        return booking;
+      }
+    }
+    return null;
   }
 
   bool _shouldPublishPosition(Position current) {
@@ -592,4 +678,282 @@ bool shouldPublishOperatorPosition({
   );
 
   return elapsed >= minInterval || moved >= minDistanceMeters;
+}
+
+class OperatorNavigationGuidance {
+  const OperatorNavigationGuidance({
+    required this.nearestCheckpointSeq,
+    required this.nextCheckpointSeq,
+    required this.destinationCheckpointSeq,
+    required this.progressFraction,
+    required this.remainingDistanceMeters,
+    required this.offRouteDistanceMeters,
+    required this.isOffRoute,
+    required this.speedMetersPerSecond,
+    required this.eta,
+  });
+
+  final int nearestCheckpointSeq;
+  final int nextCheckpointSeq;
+  final int destinationCheckpointSeq;
+  final double progressFraction;
+  final double remainingDistanceMeters;
+  final double offRouteDistanceMeters;
+  final bool isOffRoute;
+  final double? speedMetersPerSecond;
+  final Duration? eta;
+}
+
+OperatorNavigationGuidance? computeOperatorNavigationGuidance({
+  required BookingModel booking,
+  required double currentLat,
+  required double currentLng,
+  required DateTime now,
+  double? reportedSpeedMps,
+  DateTime? lastSampleAt,
+  double? lastSampleLat,
+  double? lastSampleLng,
+  int? lastResolvedCheckpointSeq,
+  double offRouteToleranceMeters = 80,
+}) {
+  if (booking.status != BookingStatus.onTheWay) {
+    return null;
+  }
+
+  final originSeq = booking.originCheckpointSeq;
+  final destinationSeq = booking.destinationCheckpointSeq;
+  if (originSeq == null || destinationSeq == null || originSeq >= destinationSeq) {
+    return null;
+  }
+
+  final polyline = booking.routePolyline;
+  final projection = _projectProgressOnRoute(
+    currentLat: currentLat,
+    currentLng: currentLng,
+    originLat: booking.originLat,
+    originLng: booking.originLng,
+    destinationLat: booking.destinationLat,
+    destinationLng: booking.destinationLng,
+    routePolyline: polyline,
+  );
+
+  final segmentSpan = destinationSeq - originSeq;
+  var nearestCheckpoint =
+      originSeq + (projection.progressFraction * segmentSpan).round();
+  nearestCheckpoint =
+      nearestCheckpoint.clamp(originSeq, destinationSeq).toInt();
+
+  if (lastResolvedCheckpointSeq != null && nearestCheckpoint < lastResolvedCheckpointSeq) {
+    nearestCheckpoint =
+        lastResolvedCheckpointSeq.clamp(originSeq, destinationSeq).toInt();
+  }
+
+  final nextCheckpoint =
+      (nearestCheckpoint + 1).clamp(originSeq, destinationSeq).toInt();
+
+  final speed = _resolveEffectiveSpeedMps(
+    reportedSpeedMps: reportedSpeedMps,
+    now: now,
+    lastSampleAt: lastSampleAt,
+    currentLat: currentLat,
+    currentLng: currentLng,
+    lastSampleLat: lastSampleLat,
+    lastSampleLng: lastSampleLng,
+  );
+
+  Duration? eta;
+  if (speed != null && speed >= 0.5 && projection.remainingDistanceMeters > 0) {
+    eta = Duration(
+      seconds: (projection.remainingDistanceMeters / speed).round(),
+    );
+  }
+
+  return OperatorNavigationGuidance(
+    nearestCheckpointSeq: nearestCheckpoint,
+    nextCheckpointSeq: nextCheckpoint,
+    destinationCheckpointSeq: destinationSeq,
+    progressFraction: projection.progressFraction,
+    remainingDistanceMeters: projection.remainingDistanceMeters,
+    offRouteDistanceMeters: projection.offRouteDistanceMeters,
+    isOffRoute: projection.offRouteDistanceMeters > offRouteToleranceMeters,
+    speedMetersPerSecond: speed,
+    eta: eta,
+  );
+}
+
+_RouteProjection _projectProgressOnRoute({
+  required double currentLat,
+  required double currentLng,
+  required double originLat,
+  required double originLng,
+  required double destinationLat,
+  required double destinationLng,
+  required List<BookingRoutePoint> routePolyline,
+}) {
+  if (routePolyline.length < 2) {
+    final directTotal = Geolocator.distanceBetween(
+      originLat,
+      originLng,
+      destinationLat,
+      destinationLng,
+    );
+    final directRemaining = Geolocator.distanceBetween(
+      currentLat,
+      currentLng,
+      destinationLat,
+      destinationLng,
+    );
+    final progress = directTotal <= 0
+        ? 0.0
+        : (1 - (directRemaining / directTotal)).clamp(0.0, 1.0);
+    final offRoute = _distanceToLineSegmentMeters(
+      pointLat: currentLat,
+      pointLng: currentLng,
+      startLat: originLat,
+      startLng: originLng,
+      endLat: destinationLat,
+      endLng: destinationLng,
+    );
+
+    return _RouteProjection(
+      progressFraction: progress,
+      remainingDistanceMeters: directRemaining,
+      offRouteDistanceMeters: offRoute,
+    );
+  }
+
+  final pathPoints = routePolyline;
+  var totalDistance = 0.0;
+  final cumulative = <double>[0.0];
+
+  for (var i = 0; i < pathPoints.length - 1; i++) {
+    final seg = Geolocator.distanceBetween(
+      pathPoints[i].lat,
+      pathPoints[i].lng,
+      pathPoints[i + 1].lat,
+      pathPoints[i + 1].lng,
+    );
+    totalDistance += seg;
+    cumulative.add(totalDistance);
+  }
+
+  var nearestIndex = 0;
+  var minDistance = double.infinity;
+  for (var i = 0; i < pathPoints.length; i++) {
+    final d = Geolocator.distanceBetween(
+      currentLat,
+      currentLng,
+      pathPoints[i].lat,
+      pathPoints[i].lng,
+    );
+    if (d < minDistance) {
+      minDistance = d;
+      nearestIndex = i;
+    }
+  }
+
+  final distanceToNearest = Geolocator.distanceBetween(
+    currentLat,
+    currentLng,
+    pathPoints[nearestIndex].lat,
+    pathPoints[nearestIndex].lng,
+  );
+
+  final traveled = cumulative[nearestIndex].clamp(0.0, totalDistance);
+  final remaining =
+      (totalDistance - traveled + distanceToNearest).clamp(0.0, double.infinity);
+  final progress = totalDistance <= 0
+      ? 0.0
+      : (traveled / totalDistance).clamp(0.0, 1.0);
+
+  return _RouteProjection(
+    progressFraction: progress,
+    remainingDistanceMeters: remaining,
+    offRouteDistanceMeters: minDistance,
+  );
+}
+
+double? _resolveEffectiveSpeedMps({
+  required double? reportedSpeedMps,
+  required DateTime now,
+  required DateTime? lastSampleAt,
+  required double currentLat,
+  required double currentLng,
+  required double? lastSampleLat,
+  required double? lastSampleLng,
+}) {
+  if (reportedSpeedMps != null && reportedSpeedMps > 0.5) {
+    return reportedSpeedMps;
+  }
+
+  if (lastSampleAt == null || lastSampleLat == null || lastSampleLng == null) {
+    return null;
+  }
+
+  final elapsedSeconds = now.difference(lastSampleAt).inMilliseconds / 1000.0;
+  if (elapsedSeconds <= 0) {
+    return null;
+  }
+
+  final movedMeters = Geolocator.distanceBetween(
+    lastSampleLat,
+    lastSampleLng,
+    currentLat,
+    currentLng,
+  );
+  if (movedMeters <= 0.5) {
+    return null;
+  }
+
+  return movedMeters / elapsedSeconds;
+}
+
+double _distanceToLineSegmentMeters({
+  required double pointLat,
+  required double pointLng,
+  required double startLat,
+  required double startLng,
+  required double endLat,
+  required double endLng,
+}) {
+  final meanLat = ((startLat + endLat) / 2) * (3.1415926535897932 / 180.0);
+  const metersPerDegLat = 111320.0;
+  final metersPerDegLng = 111320.0 * cos(meanLat);
+
+  final sx = startLng * metersPerDegLng;
+  final sy = startLat * metersPerDegLat;
+  final ex = endLng * metersPerDegLng;
+  final ey = endLat * metersPerDegLat;
+  final px = pointLng * metersPerDegLng;
+  final py = pointLat * metersPerDegLat;
+
+  final dx = ex - sx;
+  final dy = ey - sy;
+  final lenSq = dx * dx + dy * dy;
+  if (lenSq <= 0.0) {
+    final ddx = px - sx;
+    final ddy = py - sy;
+    return sqrt(ddx * ddx + ddy * ddy);
+  }
+
+  var t = ((px - sx) * dx + (py - sy) * dy) / lenSq;
+  t = t.clamp(0.0, 1.0);
+
+  final cx = sx + t * dx;
+  final cy = sy + t * dy;
+  final ox = px - cx;
+  final oy = py - cy;
+  return sqrt(ox * ox + oy * oy);
+}
+
+class _RouteProjection {
+  const _RouteProjection({
+    required this.progressFraction,
+    required this.remainingDistanceMeters,
+    required this.offRouteDistanceMeters,
+  });
+
+  final double progressFraction;
+  final double remainingDistanceMeters;
+  final double offRouteDistanceMeters;
 }
