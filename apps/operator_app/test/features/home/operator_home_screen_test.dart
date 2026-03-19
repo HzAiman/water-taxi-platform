@@ -413,6 +413,8 @@ class _FakeBookingRepository extends BookingRepository {
   Future<OperationResult> startTrip({
     required String bookingId,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
   }) async {
     lastStartedBookingId = bookingId;
     lastStartedOperatorId = operatorId;
