@@ -937,7 +937,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     // Origin marker
     final originLat = activeBooking.originLat;
     final originLng = activeBooking.originLng;
-    if (originLat != null && originLng != null) {
+    if (_isValidLatLng(originLat, originLng)) {
       markers.add(
         Marker(
           markerId: const MarkerId('origin'),
@@ -953,7 +953,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     // Destination marker (blue)
     final destLat = activeBooking.destinationLat;
     final destLng = activeBooking.destinationLng;
-    if (destLat != null && destLng != null) {
+    if (_isValidLatLng(destLat, destLng)) {
       markers.add(
         Marker(
           markerId: const MarkerId('destination'),
@@ -977,19 +977,19 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       final opLat = activeBooking.operatorLat;
       final opLng = activeBooking.operatorLng;
       if (opLat != null && opLng != null) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('operator_location'),
+        markers.add(
+          Marker(
+            markerId: const MarkerId('operator_location'),
             position: LatLng(opLat, opLng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueGreen,
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueGreen,
+            ),
+            infoWindow: const InfoWindow(
+              title: 'Your Location',
+              snippet: 'Current operator position',
+            ),
           ),
-          infoWindow: const InfoWindow(
-            title: 'Your Location',
-            snippet: 'Current operator position',
-          ),
-        ),
-      );
+        );
       }
     }
 
@@ -1025,11 +1025,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final originLng = activeBooking.originLng;
     final destLat = activeBooking.destinationLat;
     final destLng = activeBooking.destinationLng;
-    
-    if (originLat != null &&
-        originLng != null &&
-        destLat != null &&
-        destLng != null) {
+
+    if (_isValidLatLng(originLat, originLng) &&
+        _isValidLatLng(destLat, destLng)) {
       return {
         Polyline(
           polylineId: const PolylineId('route'),
@@ -1044,5 +1042,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
 
     return const <Polyline>{};
+  }
+
+  bool _isValidLatLng(double lat, double lng) {
+    return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
   }
 }

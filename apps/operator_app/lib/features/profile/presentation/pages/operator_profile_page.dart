@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:operator_app/core/widgets/app_action_button.dart';
+import 'package:operator_app/core/widgets/app_menu_tile.dart';
 import 'package:provider/provider.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
@@ -95,7 +97,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
     return ListView(
       padding: const EdgeInsets.all(24.0),
       children: [
-        _buildMenuButton(
+        AppMenuTile(
           icon: Icons.manage_accounts,
           title: 'Account Management',
           subtitle: 'Update your operator profile details',
@@ -108,7 +110,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
           },
         ),
         const SizedBox(height: 16),
-        _buildMenuButton(
+        AppMenuTile(
           icon: Icons.receipt_long_outlined,
           title: 'Ride / Transaction Summary',
           subtitle: 'Track rides, earnings, and export income statements',
@@ -139,7 +141,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
         ),
         if (kDebugMode) ...[
           const SizedBox(height: 16),
-          _buildMenuButton(
+          AppMenuTile(
             icon: Icons.bug_report_outlined,
             title: 'Presence Debug',
             subtitle: 'Inspect operator_presence sync and online state',
@@ -153,86 +155,15 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
           ),
         ],
         const SizedBox(height: 24),
-        SizedBox(
-          width: double.infinity,
-          height: 54,
-          child: OutlinedButton(
-            onPressed: () => _logout(context),
-            style: OutlinedButton.styleFrom(
-              side: const BorderSide(color: Colors.red, width: 1.5),
-            ),
-            child: const Text(
-              'Logout',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: Colors.red,
-              ),
-            ),
-          ),
+        AppActionButton(
+          label: 'Logout',
+          outlined: true,
+          foregroundColor: Colors.red,
+          borderColor: Colors.red,
+          onPressed: () => _logout(context),
+          semanticLabel: 'Log out of operator account',
         ),
       ],
-    );
-  }
-
-  Widget _buildMenuButton({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback onTap,
-  }) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(16),
-      child: InkWell(
-        borderRadius: BorderRadius.circular(16),
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: const Color(0xFFDDE5F0)),
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 42,
-                height: 42,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEAF3FF),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Icon(icon, color: const Color(0xFF0066CC)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF1A1A1A),
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: Color(0xFF666666),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const Icon(Icons.chevron_right, color: Color(0xFF7A8AA0)),
-            ],
-          ),
-        ),
-      ),
     );
   }
 
@@ -496,70 +427,33 @@ class _OperatorAccountManagementRoutePageState
                 ),
                 const SizedBox(height: 28),
                 if (!_isEditing)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 54,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        setState(() => _isEditing = true);
-                      },
-                      child: const Text(
-                        'Edit Profile',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
+                  AppActionButton(
+                    label: 'Edit Profile',
+                    onPressed: () {
+                      setState(() => _isEditing = true);
+                    },
+                    semanticLabel: 'Edit operator profile',
                   )
                 else
                   Column(
                     children: [
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: ElevatedButton(
-                          onPressed: _isSaving ? null : _saveProfile,
-                          child: _isSaving
-                              ? const SizedBox(
-                                  height: 20,
-                                  width: 20,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
-                                    ),
-                                  ),
-                                )
-                              : const Text(
-                                  'Save Changes',
-                                  style: TextStyle(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                        ),
+                      AppActionButton(
+                        label: 'Save Changes',
+                        onPressed: _isSaving ? null : _saveProfile,
+                        isLoading: _isSaving,
+                        semanticLabel: 'Save operator profile changes',
                       ),
                       const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        height: 54,
-                        child: OutlinedButton(
-                          onPressed: _isSaving
-                              ? null
-                              : () async {
-                                  setState(() => _isEditing = false);
-                                  await _loadProfile();
-                                },
-                          child: const Text(
-                            'Cancel',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF0066CC),
-                            ),
-                          ),
-                        ),
+                      AppActionButton(
+                        label: 'Cancel',
+                        outlined: true,
+                        onPressed: _isSaving
+                            ? null
+                            : () async {
+                                setState(() => _isEditing = false);
+                                await _loadProfile();
+                              },
+                        semanticLabel: 'Cancel operator profile edit',
                       ),
                     ],
                   ),
