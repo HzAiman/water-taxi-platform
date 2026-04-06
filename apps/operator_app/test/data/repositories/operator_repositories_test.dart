@@ -38,46 +38,9 @@ void main() {
   });
 
   group('BookingRepository', () {
-    test('acceptBooking writes corridor checkpoint binding metadata', () async {
+    test('acceptBooking preserves existing route polyline and does not inject corridor metadata', () async {
       final firestore = FakeFirebaseFirestore();
       final repository = BookingRepository(firestore: firestore);
-
-      await firestore
-          .collection(FirestoreCollections.navigationCorridors)
-          .doc('melaka_main_01')
-          .set({
-            NavigationCorridorFields.corridorId: 'melaka_main_01',
-            NavigationCorridorFields.corridorName: 'Sungai Melaka Main',
-            NavigationCorridorFields.riverName: 'Sungai Melaka',
-            NavigationCorridorFields.isActive: true,
-            NavigationCorridorFields.version: 1,
-            NavigationCorridorFields.checkpointCount: 14,
-            NavigationCorridorFields.checkpointOrder: const [
-              'JETTY_01',
-              'JETTY_02',
-            ],
-            NavigationCorridorFields.checkpoints: const [
-              {
-                'checkpointId': 'JETTY_01',
-                'seq': 1,
-                'name': 'Jetty A',
-                'lat': 2.2,
-                'lng': 102.2,
-              },
-              {
-                'checkpointId': 'JETTY_02',
-                'seq': 2,
-                'name': 'Jetty B',
-                'lat': 2.3,
-                'lng': 102.3,
-              },
-            ],
-            NavigationCorridorFields.polyline: const [
-              {'lat': 2.2, 'lng': 102.2},
-              {'lat': 2.3, 'lng': 102.3},
-            ],
-            NavigationCorridorFields.updatedAt: Timestamp.now(),
-          });
 
       await firestore
           .collection(FirestoreCollections.bookings)
@@ -104,6 +67,10 @@ void main() {
             BookingFields.paymentStatus: 'paid',
             BookingFields.status: BookingStatus.pending.firestoreValue,
             BookingFields.operatorId: null,
+            BookingFields.routePolyline: const [
+              {'lat': 2.2, 'lng': 102.2},
+              {'lat': 2.3, 'lng': 102.3},
+            ],
             BookingFields.createdAt: Timestamp.now(),
             BookingFields.updatedAt: Timestamp.now(),
           });
@@ -119,16 +86,21 @@ void main() {
           .get();
 
       expect(result, isA<OperationSuccess>());
+      expect(bookingSnap.data()?[BookingFields.status], 'accepted');
+      expect(bookingSnap.data()?[BookingFields.corridorId], isNull);
+      expect(bookingSnap.data()?[BookingFields.corridorVersion], isNull);
+      expect(bookingSnap.data()?[BookingFields.originCheckpointSeq], isNull);
+      expect(bookingSnap.data()?[BookingFields.destinationCheckpointSeq], isNull);
       expect(
-        bookingSnap.data()?[BookingFields.corridorId],
-        'melaka_main_01',
+        bookingSnap.data()?[BookingFields.routePolyline],
+        equals(const [
+          {'lat': 2.2, 'lng': 102.2},
+          {'lat': 2.3, 'lng': 102.3},
+        ]),
       );
-      expect(bookingSnap.data()?[BookingFields.corridorVersion], 1);
-      expect(bookingSnap.data()?[BookingFields.originCheckpointSeq], 1);
-      expect(bookingSnap.data()?[BookingFields.destinationCheckpointSeq], 2);
     });
 
-    test('acceptBooking succeeds even when corridor config is unavailable', () async {
+    test('acceptBooking succeeds without corridor config', () async {
       final firestore = FakeFirebaseFirestore();
       final repository = BookingRepository(firestore: firestore);
 
@@ -181,7 +153,7 @@ void main() {
       );
     });
 
-    test('acceptBooking succeeds when corridor config is malformed', () async {
+    test('acceptBooking does not depend on malformed corridor documents', () async {
       final firestore = FakeFirebaseFirestore();
       final repository = BookingRepository(firestore: firestore);
 

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -13,8 +12,6 @@ class BookingRepository {
     : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
-  static const String _canonicalCorridorId = 'melaka_main_01';
-  static const double _checkpointCoordMatchMaxMeters = 180;
 
   // ── Streams ──────────────────────────────────────────────────────────────
 
@@ -142,11 +139,6 @@ class BookingRepository {
           BookingFields.operatorId: operatorId,
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
         };
-
-        final corridorBinding = await _buildCorridorBindingPayload(tx, data);
-        if (corridorBinding != null) {
-          payload.addAll(corridorBinding);
-        }
 
         tx.update(ref, payload);
       });
@@ -525,6 +517,18 @@ class BookingRepository {
       return null;
     }
 
+    if (entry is String) {
+      final parts = entry.split(',');
+      if (parts.length >= 2) {
+        final lat = _asDouble(parts[0].trim());
+        final lng = _asDouble(parts[1].trim());
+        if (lat != null && lng != null) {
+          return {'lat': lat, 'lng': lng};
+        }
+      }
+      return null;
+    }
+
     return null;
   }
 
@@ -533,189 +537,4 @@ class BookingRepository {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
   }
-
-  Future<Map<String, dynamic>?> _buildCorridorBindingPayload(
-    Transaction tx,
-    Map<String, dynamic> bookingData,
-  ) async {
-    final originLabel = (bookingData[BookingFields.origin] ?? '').toString();
-    final destinationLabel =
-        (bookingData[BookingFields.destination] ?? '').toString();
-
-    if (originLabel.trim().isEmpty || destinationLabel.trim().isEmpty) {
-      return null;
-    }
-
-    final corridorRef = _db
-        .collection(FirestoreCollections.navigationCorridors)
-        .doc(_canonicalCorridorId);
-    DocumentSnapshot<Map<String, dynamic>> corridorSnap;
-    try {
-      corridorSnap = await tx.get(corridorRef);
-    } catch (_) {
-      return null;
-    }
-    final corridor = corridorSnap.data();
-
-    if (!corridorSnap.exists || corridor == null) {
-      return null;
-    }
-
-    final version = _asInt(corridor[NavigationCorridorFields.version]);
-    final checkpoints = corridor[NavigationCorridorFields.checkpoints];
-
-    if (version == null || version < 1 || checkpoints is! Iterable) {
-      return null;
-    }
-
-    final originCoords = bookingData[BookingFields.originCoords] as GeoPoint?;
-    final destinationCoords =
-        bookingData[BookingFields.destinationCoords] as GeoPoint?;
-
-    final originSeq = _findCheckpointSeq(
-      checkpoints,
-      label: originLabel,
-      near: originCoords,
-    );
-    final destinationSeq = _findCheckpointSeq(
-      checkpoints,
-      label: destinationLabel,
-      near: destinationCoords,
-    );
-
-    if (originSeq == null || destinationSeq == null) {
-      return null;
-    }
-
-    if (originSeq < 1 || destinationSeq > 14 || originSeq >= destinationSeq) {
-      return null;
-    }
-
-    final existingRoutePolyline = _normaliseRoutePolyline(
-      _extractRoutePolylineRaw(bookingData),
-    );
-    final corridorRoutePolyline = _normaliseRoutePolyline(
-      corridor[NavigationCorridorFields.polyline],
-    );
-
-    final payload = <String, dynamic>{
-      BookingFields.corridorId: _canonicalCorridorId,
-      BookingFields.corridorVersion: version,
-      BookingFields.originCheckpointSeq: originSeq,
-      BookingFields.destinationCheckpointSeq: destinationSeq,
-    };
-
-    if (existingRoutePolyline == null && corridorRoutePolyline != null) {
-      payload[BookingFields.routePolyline] = corridorRoutePolyline;
-    }
-
-    return payload;
-  }
-
-  static int? _findCheckpointSeq(
-    Iterable checkpoints, {
-    required String label,
-    GeoPoint? near,
-  }) {
-    final normalizedLabel = _normalizeLabel(label);
-    if (normalizedLabel.isEmpty) {
-      return null;
-    }
-
-    int? nearestSeq;
-    double? nearestDistanceMeters;
-
-    for (final entry in checkpoints) {
-      if (entry is! Map) continue;
-
-      final seq = _asInt(entry['seq'] ?? entry['sequence']);
-      if (seq == null) continue;
-
-      if (_checkpointMatchesLabel(entry, normalizedLabel)) {
-        return seq;
-      }
-
-      if (near == null) continue;
-
-      final checkpointLat = _asDouble(entry['lat'] ?? entry['latitude']);
-      final checkpointLng =
-          _asDouble(entry['lng'] ?? entry['longitude'] ?? entry['lon']);
-      if (checkpointLat == null || checkpointLng == null) {
-        continue;
-      }
-
-      final distanceMeters = _distanceMeters(
-        near.latitude,
-        near.longitude,
-        checkpointLat,
-        checkpointLng,
-      );
-
-      if (nearestDistanceMeters == null ||
-          distanceMeters < nearestDistanceMeters) {
-        nearestDistanceMeters = distanceMeters;
-        nearestSeq = seq;
-      }
-    }
-
-    if (nearestDistanceMeters != null &&
-        nearestDistanceMeters <= _checkpointCoordMatchMaxMeters) {
-      return nearestSeq;
-    }
-
-    return null;
-  }
-
-  static bool _checkpointMatchesLabel(Map raw, String normalizedLabel) {
-    final candidates = <String>{
-      _normalizeLabel(raw['name']),
-      _normalizeLabel(raw['checkpointId']),
-      _normalizeLabel(raw['jettyId']),
-      _normalizeLabel(raw['jettyName']),
-    };
-
-    final aliases = raw['aliases'];
-    if (aliases is Iterable) {
-      for (final alias in aliases) {
-        candidates.add(_normalizeLabel(alias));
-      }
-    }
-
-    return candidates.contains(normalizedLabel);
-  }
-
-  static String _normalizeLabel(dynamic input) {
-    if (input == null) return '';
-    return input
-        .toString()
-        .trim()
-        .toLowerCase()
-        .replaceAll(RegExp(r'\s+'), ' ');
-  }
-
-  static int? _asInt(dynamic value) {
-    if (value is int) return value;
-    if (value is num) return value.toInt();
-    return int.tryParse(value?.toString() ?? '');
-  }
-
-  static double _distanceMeters(
-    double lat1,
-    double lng1,
-    double lat2,
-    double lng2,
-  ) {
-    const earthRadiusMeters = 6371000.0;
-    final dLat = _toRadians(lat2 - lat1);
-    final dLng = _toRadians(lng2 - lng1);
-    final a =
-        (sin(dLat / 2) * sin(dLat / 2)) +
-        cos(_toRadians(lat1)) *
-            cos(_toRadians(lat2)) *
-            (sin(dLng / 2) * sin(dLng / 2));
-    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
-    return earthRadiusMeters * c;
-  }
-
-  static double _toRadians(double degrees) => degrees * (3.1415926535897932 / 180.0);
 }
