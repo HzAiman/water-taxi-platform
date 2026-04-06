@@ -36,7 +36,7 @@ class OperatorHomeScreen extends StatefulWidget {
 }
 
 class _OperatorHomeScreenState extends State<OperatorHomeScreen>
-  with WidgetsBindingObserver {
+    with WidgetsBindingObserver {
   static const MethodChannel _mapsConfigChannel = MethodChannel(
     'operator_app/maps_config',
   );
@@ -133,7 +133,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     super.dispose();
   }
 
-  Future<void> _initializeViewModel(String operatorId, {bool force = false}) async {
+  Future<void> _initializeViewModel(
+    String operatorId, {
+    bool force = false,
+  }) async {
     if ((_hasInitializedViewModel && !force) || !mounted) {
       return;
     }
@@ -538,7 +541,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final detailText = _buildBookingDetailText(booking);
     final guidance = viewModel.navigationGuidance;
     final hasGuidance =
-        isOnTheWay && guidance != null && guidance.bookingId == booking.bookingId;
+        isOnTheWay &&
+        guidance != null &&
+        guidance.bookingId == booking.bookingId;
 
     var subtitle = detailText;
     if (isStale) {
@@ -640,8 +645,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
     final lines = <String>[
       'Guidance: $progressPercent% complete',
-      'Checkpoint: ${guidance.nearestCheckpointSeq}/${guidance.destinationCheckpointSeq}',
-      'Next checkpoint: ${guidance.nextCheckpointSeq}',
+      'Route marker: ${guidance.nearestRouteMarker}/${guidance.totalRouteMarkers}',
+      'Next marker: ${guidance.nextRouteMarker}',
       'Remaining distance: $remaining',
       'ETA: $eta',
     ];
@@ -957,10 +962,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       markers.add(
         Marker(
           markerId: const MarkerId('destination'),
-          position: LatLng(
-            destLat,
-            destLng,
-          ),
+          position: LatLng(destLat, destLng),
           icon: BitmapDescriptor.defaultMarkerWithHue(
             BitmapDescriptor.hueAzure,
           ),
@@ -1031,10 +1033,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return {
         Polyline(
           polylineId: const PolylineId('route'),
-          points: [
-            LatLng(originLat, originLng),
-            LatLng(destLat, destLng),
-          ],
+          points: [LatLng(originLat, originLng), LatLng(destLat, destLng)],
           color: const Color(0xFF0066CC),
           width: 4,
         ),

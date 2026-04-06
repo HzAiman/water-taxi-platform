@@ -19,8 +19,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   OperatorHomeViewModel({
     required BookingRepository bookingRepo,
     required OperatorRepository operatorRepo,
-  })  : _bookingRepo = bookingRepo,
-        _operatorRepo = operatorRepo;
+  }) : _bookingRepo = bookingRepo,
+       _operatorRepo = operatorRepo;
 
   final BookingRepository _bookingRepo;
   final OperatorRepository _operatorRepo;
@@ -49,8 +49,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   OperatorNavigationGuidance? _navigationGuidance;
   DateTime? _lastNavigationSampleAt;
   Position? _lastNavigationSample;
-  int? _maxReachedCheckpointSeq;
-  int? _lastAlertCheckpointSeq;
+  int? _maxReachedRouteMarker;
+  int? _lastAlertRouteMarker;
   bool _wasOffRoute = false;
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
@@ -105,7 +105,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
   Future<OperationResult> toggleOnlineStatus() async {
     final operatorId = _operatorId;
     if (operatorId == null) {
-      return const OperationFailure('Not initialised', 'No operator ID available.');
+      return const OperationFailure(
+        'Not initialised',
+        'No operator ID available.',
+      );
     }
 
     final nextStatus = !_isOnline;
@@ -117,8 +120,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
       int releasedCount = 0;
       if (!nextStatus) {
         _stopLocationSharing();
-        releasedCount =
-            await _bookingRepo.releaseAllAcceptedBookings(operatorId);
+        releasedCount = await _bookingRepo.releaseAllAcceptedBookings(
+          operatorId,
+        );
       }
 
       await _operatorRepo
@@ -272,42 +276,50 @@ class OperatorHomeViewModel extends ChangeNotifier {
   void _startStreams(String operatorId) {
     _stopStreams();
 
-    _activeSubscription =
-        _bookingRepo.streamActiveBookings(operatorId).listen((list) {
-      _activeBookings = list;
-      _refreshNavigationGuidance(notify: false);
+    _activeSubscription = _bookingRepo
+        .streamActiveBookings(operatorId)
+        .listen(
+          (list) {
+            _activeBookings = list;
+            _refreshNavigationGuidance(notify: false);
 
-      unawaited(_syncNavigationLifecycle(operatorId));
+            unawaited(_syncNavigationLifecycle(operatorId));
 
-      if (_trackingBookingId != null) {
-        final tracked = list.where((b) => b.bookingId == _trackingBookingId);
-        final stillOnTheWay = tracked.any(
-          (b) => b.status == BookingStatus.onTheWay,
+            if (_trackingBookingId != null) {
+              final tracked = list.where(
+                (b) => b.bookingId == _trackingBookingId,
+              );
+              final stillOnTheWay = tracked.any(
+                (b) => b.status == BookingStatus.onTheWay,
+              );
+              if (!stillOnTheWay) {
+                _stopLocationSharing();
+              }
+            }
+
+            // Detect passenger cancellations for bookings previously in our active list.
+            // We can't easily detect this here since we only get the filtered list.
+            // The widget layer checks for cancelled bookings via the raw stream.
+            notifyListeners();
+          },
+          onError: (_) {
+            _activeBookings = [];
+            _stopLocationSharing();
+            _refreshNavigationGuidance(notify: false);
+            notifyListeners();
+          },
         );
-        if (!stillOnTheWay) {
-          _stopLocationSharing();
-        }
-      }
 
-      // Detect passenger cancellations for bookings previously in our active list.
-      // We can't easily detect this here since we only get the filtered list.
-      // The widget layer checks for cancelled bookings via the raw stream.
-      notifyListeners();
-    }, onError: (_) {
-      _activeBookings = [];
-      _stopLocationSharing();
-      _refreshNavigationGuidance(notify: false);
-      notifyListeners();
-    });
-
-    _pendingSubscription =
-        _bookingRepo.streamPendingBookings().listen((list) {
-      _pendingBookings = list;
-      notifyListeners();
-    }, onError: (_) {
-      _pendingBookings = [];
-      notifyListeners();
-    });
+    _pendingSubscription = _bookingRepo.streamPendingBookings().listen(
+      (list) {
+        _pendingBookings = list;
+        notifyListeners();
+      },
+      onError: (_) {
+        _pendingBookings = [];
+        notifyListeners();
+      },
+    );
   }
 
   void _stopStreams() {
@@ -349,24 +361,23 @@ class OperatorHomeViewModel extends ChangeNotifier {
       distanceFilter: 10,
     );
 
-    _locationSubscription = Geolocator.getPositionStream(
-      locationSettings: settings,
-    ).listen(
-      (position) {
-        _refreshNavigationGuidance(currentPosition: position);
-        if (_trackingBookingId == null) return;
-        unawaited(
-          _publishOperatorPosition(
-            _trackingBookingId!,
-            operatorId,
-            position,
-          ),
+    _locationSubscription =
+        Geolocator.getPositionStream(locationSettings: settings).listen(
+          (position) {
+            _refreshNavigationGuidance(currentPosition: position);
+            if (_trackingBookingId == null) return;
+            unawaited(
+              _publishOperatorPosition(
+                _trackingBookingId!,
+                operatorId,
+                position,
+              ),
+            );
+          },
+          onError: (_) {
+            _stopLocationSharing();
+          },
         );
-      },
-      onError: (_) {
-        _stopLocationSharing();
-      },
-    );
   }
 
   void _stopLocationSharing() {
@@ -379,8 +390,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _navigationGuidance = null;
     _lastNavigationSampleAt = null;
     _lastNavigationSample = null;
-    _maxReachedCheckpointSeq = null;
-    _lastAlertCheckpointSeq = null;
+    _maxReachedRouteMarker = null;
+    _lastAlertRouteMarker = null;
     _wasOffRoute = false;
   }
 
@@ -500,12 +511,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
       lastSampleAt: _lastNavigationSampleAt,
       lastSampleLat: _lastNavigationSample?.latitude,
       lastSampleLng: _lastNavigationSample?.longitude,
-      lastResolvedCheckpointSeq: _maxReachedCheckpointSeq,
+      lastResolvedRouteMarker: _maxReachedRouteMarker,
     );
 
     _navigationGuidance = guidance;
     if (guidance != null) {
-      _maxReachedCheckpointSeq = guidance.nearestCheckpointSeq;
+      _maxReachedRouteMarker = guidance.nearestRouteMarker;
       _emitNavigationAlerts(booking.bookingId, guidance);
     }
 
@@ -523,17 +534,17 @@ class OperatorHomeViewModel extends ChangeNotifier {
     String bookingId,
     OperatorNavigationGuidance guidance,
   ) {
-    final checkpointSeq = guidance.nearestCheckpointSeq;
-    final previousCheckpoint = _lastAlertCheckpointSeq;
-    if (previousCheckpoint == null || checkpointSeq > previousCheckpoint) {
-      _lastAlertCheckpointSeq = checkpointSeq;
+    final routeMarker = guidance.nearestRouteMarker;
+    final previousRouteMarker = _lastAlertRouteMarker;
+    if (previousRouteMarker == null || routeMarker > previousRouteMarker) {
+      _lastAlertRouteMarker = routeMarker;
       OperatorNavigationAlertBus.publish(
         OperatorNavigationAlert(
-          eventId: bookingId.hashCode ^ (checkpointSeq * 31),
+          eventId: bookingId.hashCode ^ (routeMarker * 31),
           bookingId: bookingId,
-          title: 'Checkpoint progress',
+          title: 'Route progress',
           body:
-              'Booking $bookingId reached checkpoint $checkpointSeq/${guidance.destinationCheckpointSeq}. Next: ${guidance.nextCheckpointSeq}.',
+              'Booking $bookingId reached route marker $routeMarker/${guidance.totalRouteMarkers}. Next: ${guidance.nextRouteMarker}.',
         ),
       );
     }
@@ -546,7 +557,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
           bookingId: bookingId,
           title: 'Off-route detected',
           body:
-              'Booking $bookingId is off-route by about ${guidance.offRouteDistanceMeters.round()} m. Please rejoin the planned corridor.',
+              'Booking $bookingId is off-route by about ${guidance.offRouteDistanceMeters.round()} m. Please rejoin the planned route.',
         ),
       );
       return;
@@ -560,7 +571,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
           bookingId: bookingId,
           title: 'Route resumed',
           body:
-              'Booking $bookingId has returned to the planned corridor. Continue to checkpoint ${guidance.nextCheckpointSeq}.',
+              'Booking $bookingId has returned to the planned route. Continue to marker ${guidance.nextRouteMarker}.',
         ),
       );
     }
@@ -633,7 +644,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
     required String actionName,
     String? bookingId,
   }) {
-    if (result case OperationFailure(:final title, :final message, :final isInfo)) {
+    if (result case OperationFailure(
+      :final title,
+      :final message,
+      :final isInfo,
+    )) {
       if (_isPermissionDenied(message)) {
         final friendly = OperationFailure(
           'Permission denied',
@@ -650,17 +665,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
         return friendly;
       }
 
-      final originalFailure = OperationFailure(
-        title,
-        message,
-        isInfo: isInfo,
-      );
+      final originalFailure = OperationFailure(title, message, isInfo: isInfo);
 
-      _logFailure(
-        actionName,
-        originalFailure,
-        bookingId: bookingId,
-      );
+      _logFailure(actionName, originalFailure, bookingId: bookingId);
       return originalFailure;
     }
     return result;
@@ -766,9 +773,9 @@ bool shouldPublishOperatorPosition({
 class OperatorNavigationGuidance {
   const OperatorNavigationGuidance({
     required this.bookingId,
-    required this.nearestCheckpointSeq,
-    required this.nextCheckpointSeq,
-    required this.destinationCheckpointSeq,
+    required this.nearestRouteMarker,
+    required this.nextRouteMarker,
+    required this.totalRouteMarkers,
     required this.progressFraction,
     required this.remainingDistanceMeters,
     required this.offRouteDistanceMeters,
@@ -778,9 +785,9 @@ class OperatorNavigationGuidance {
   });
 
   final String bookingId;
-  final int nearestCheckpointSeq;
-  final int nextCheckpointSeq;
-  final int destinationCheckpointSeq;
+  final int nearestRouteMarker;
+  final int nextRouteMarker;
+  final int totalRouteMarkers;
   final double progressFraction;
   final double remainingDistanceMeters;
   final double offRouteDistanceMeters;
@@ -798,16 +805,10 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   DateTime? lastSampleAt,
   double? lastSampleLat,
   double? lastSampleLng,
-  int? lastResolvedCheckpointSeq,
+  int? lastResolvedRouteMarker,
   double offRouteToleranceMeters = 80,
 }) {
   if (booking.status != BookingStatus.onTheWay) {
-    return null;
-  }
-
-  final originSeq = booking.originCheckpointSeq;
-  final destinationSeq = booking.destinationCheckpointSeq;
-  if (originSeq == null || destinationSeq == null || originSeq >= destinationSeq) {
     return null;
   }
 
@@ -822,19 +823,21 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
     routePolyline: polyline,
   );
 
-  final segmentSpan = destinationSeq - originSeq;
-  var nearestCheckpoint =
-      originSeq + (projection.progressFraction * segmentSpan).round();
-  nearestCheckpoint =
-      nearestCheckpoint.clamp(originSeq, destinationSeq).toInt();
+  final totalRouteMarkers = max(polyline.length, 2);
+  var nearestRouteMarker =
+      (projection.progressFraction * (totalRouteMarkers - 1)).round() + 1;
+  nearestRouteMarker = nearestRouteMarker.clamp(1, totalRouteMarkers).toInt();
 
-  if (lastResolvedCheckpointSeq != null && nearestCheckpoint < lastResolvedCheckpointSeq) {
-    nearestCheckpoint =
-        lastResolvedCheckpointSeq.clamp(originSeq, destinationSeq).toInt();
+  if (lastResolvedRouteMarker != null &&
+      nearestRouteMarker < lastResolvedRouteMarker) {
+    nearestRouteMarker = lastResolvedRouteMarker
+        .clamp(1, totalRouteMarkers)
+        .toInt();
   }
 
-  final nextCheckpoint =
-      (nearestCheckpoint + 1).clamp(originSeq, destinationSeq).toInt();
+  final nextRouteMarker = (nearestRouteMarker + 1)
+      .clamp(1, totalRouteMarkers)
+      .toInt();
 
   final speed = _resolveEffectiveSpeedMps(
     reportedSpeedMps: reportedSpeedMps,
@@ -855,9 +858,9 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
 
   return OperatorNavigationGuidance(
     bookingId: booking.bookingId,
-    nearestCheckpointSeq: nearestCheckpoint,
-    nextCheckpointSeq: nextCheckpoint,
-    destinationCheckpointSeq: destinationSeq,
+    nearestRouteMarker: nearestRouteMarker,
+    nextRouteMarker: nextRouteMarker,
+    totalRouteMarkers: totalRouteMarkers,
     progressFraction: projection.progressFraction,
     remainingDistanceMeters: projection.remainingDistanceMeters,
     offRouteDistanceMeters: projection.offRouteDistanceMeters,
@@ -946,8 +949,10 @@ _RouteProjection _projectProgressOnRoute({
   );
 
   final traveled = cumulative[nearestIndex].clamp(0.0, totalDistance);
-  final remaining =
-      (totalDistance - traveled + distanceToNearest).clamp(0.0, double.infinity);
+  final remaining = (totalDistance - traveled + distanceToNearest).clamp(
+    0.0,
+    double.infinity,
+  );
   final progress = totalDistance <= 0
       ? 0.0
       : (traveled / totalDistance).clamp(0.0, 1.0);

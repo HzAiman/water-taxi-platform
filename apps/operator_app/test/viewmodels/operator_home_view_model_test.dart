@@ -243,95 +243,90 @@ void main() {
       expect(viewModel.lastCancelledNoticeBookingId, 'booking-x');
     });
 
-    test('navigation lifecycle initializes guidance from on-the-way active booking', () async {
-      final bookingRepo = FakeOperatorBookingRepository();
-      final operatorRepo = FakeOperatorRepository(
-        operator: const OperatorModel(
-          uid: 'operator-1',
-          operatorId: 'OP-1',
-          name: 'Captain Aiman',
-          email: 'captain@example.com',
-          isOnline: true,
-        ),
-      );
-      final viewModel = OperatorHomeViewModel(
-        bookingRepo: bookingRepo,
-        operatorRepo: operatorRepo,
-      );
+    test(
+      'navigation lifecycle initializes guidance from on-the-way active booking',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final operatorRepo = FakeOperatorRepository(
+          operator: const OperatorModel(
+            uid: 'operator-1',
+            operatorId: 'OP-1',
+            name: 'Captain Aiman',
+            email: 'captain@example.com',
+            isOnline: true,
+          ),
+        );
+        final viewModel = OperatorHomeViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: operatorRepo,
+        );
 
-      await viewModel.initialize('operator-1');
-      bookingRepo.emitActive([
-        _sampleBooking(
-          id: 'trip-1',
-          status: BookingStatus.onTheWay,
-          operatorLat: 2.2015,
-          operatorLng: 102.2515,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 1,
-          destinationCheckpointSeq: 4,
-          routePolyline: const [
-            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
-            BookingRoutePoint(lat: 2.2030, lng: 102.2530),
-          ],
-        ),
-      ]);
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(
+            id: 'trip-1',
+            status: BookingStatus.onTheWay,
+            operatorLat: 2.2015,
+            operatorLng: 102.2515,
+            routePolyline: const [
+              BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+              BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+              BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+              BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+            ],
+          ),
+        ]);
 
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(viewModel.navigationGuidance, isNotNull);
-      expect(
-        viewModel.navigationGuidance!.destinationCheckpointSeq,
-        equals(4),
-      );
-    });
+        expect(viewModel.navigationGuidance, isNotNull);
+        expect(viewModel.navigationGuidance!.totalRouteMarkers, equals(4));
+      },
+    );
 
-    test('navigation lifecycle clears guidance when on-the-way booking disappears', () async {
-      final bookingRepo = FakeOperatorBookingRepository();
-      final operatorRepo = FakeOperatorRepository(
-        operator: const OperatorModel(
-          uid: 'operator-1',
-          operatorId: 'OP-1',
-          name: 'Captain Aiman',
-          email: 'captain@example.com',
-          isOnline: true,
-        ),
-      );
-      final viewModel = OperatorHomeViewModel(
-        bookingRepo: bookingRepo,
-        operatorRepo: operatorRepo,
-      );
+    test(
+      'navigation lifecycle clears guidance when on-the-way booking disappears',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final operatorRepo = FakeOperatorRepository(
+          operator: const OperatorModel(
+            uid: 'operator-1',
+            operatorId: 'OP-1',
+            name: 'Captain Aiman',
+            email: 'captain@example.com',
+            isOnline: true,
+          ),
+        );
+        final viewModel = OperatorHomeViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: operatorRepo,
+        );
 
-      await viewModel.initialize('operator-1');
-      bookingRepo.emitActive([
-        _sampleBooking(
-          id: 'trip-2',
-          status: BookingStatus.onTheWay,
-          operatorLat: 2.2010,
-          operatorLng: 102.2510,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 1,
-          destinationCheckpointSeq: 3,
-          routePolyline: const [
-            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
-          ],
-        ),
-      ]);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
-      expect(viewModel.navigationGuidance, isNotNull);
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(
+            id: 'trip-2',
+            status: BookingStatus.onTheWay,
+            operatorLat: 2.2010,
+            operatorLng: 102.2510,
+            routePolyline: const [
+              BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+              BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+              BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+            ],
+          ),
+        ]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(viewModel.navigationGuidance, isNotNull);
 
-      bookingRepo.emitActive([
-        _sampleBooking(id: 'trip-2', status: BookingStatus.accepted),
-      ]);
-      await Future<void>.delayed(const Duration(milliseconds: 20));
+        bookingRepo.emitActive([
+          _sampleBooking(id: 'trip-2', status: BookingStatus.accepted),
+        ]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
 
-      expect(viewModel.navigationGuidance, isNull);
-    });
+        expect(viewModel.navigationGuidance, isNull);
+      },
+    );
 
     test('navigation lifecycle resumes after refresh stream restart', () async {
       final bookingRepo = FakeOperatorBookingRepository();
@@ -356,10 +351,6 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2012,
           operatorLng: 102.2512,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 2,
-          destinationCheckpointSeq: 5,
           routePolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2510),
@@ -378,10 +369,6 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2013,
           operatorLng: 102.2513,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 2,
-          destinationCheckpointSeq: 5,
           routePolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2510),
@@ -394,13 +381,10 @@ void main() {
 
       expect(viewModel.streamVersion, equals(1));
       expect(viewModel.navigationGuidance, isNotNull);
-      expect(
-        viewModel.navigationGuidance!.destinationCheckpointSeq,
-        equals(5),
-      );
+      expect(viewModel.navigationGuidance!.totalRouteMarkers, equals(4));
     });
 
-    test('navigation lifecycle emits checkpoint progress alert', () async {
+    test('navigation lifecycle emits route progress alert', () async {
       final bookingRepo = FakeOperatorBookingRepository();
       final operatorRepo = FakeOperatorRepository(
         operator: const OperatorModel(
@@ -426,10 +410,6 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2010,
           operatorLng: 102.2510,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 1,
-          destinationCheckpointSeq: 4,
           routePolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2510),
@@ -443,7 +423,9 @@ void main() {
       await sub.cancel();
 
       expect(
-        alerts.any((a) => a.bookingId == 'trip-alert-1' && a.title == 'Checkpoint progress'),
+        alerts.any(
+          (a) => a.bookingId == 'trip-alert-1' && a.title == 'Route progress',
+        ),
         isTrue,
       );
     });
@@ -475,10 +457,6 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2010,
           operatorLng: 102.2500,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 1,
-          destinationCheckpointSeq: 2,
           routePolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2500),
@@ -495,10 +473,6 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2010,
           operatorLng: 102.2550,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 1,
-          destinationCheckpointSeq: 2,
           routePolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2500),
@@ -515,10 +489,6 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2020,
           operatorLng: 102.2500,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 1,
-          destinationCheckpointSeq: 2,
           routePolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2500),
@@ -570,10 +540,6 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2011,
           operatorLng: 102.2511,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 1,
-          destinationCheckpointSeq: 3,
           routePolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2510),
@@ -585,7 +551,10 @@ void main() {
       expect(viewModel.navigationGuidance, isNotNull);
 
       bookingRepo.emitActive([
-        _sampleBooking(id: 'trip-transition-1', status: BookingStatus.completed),
+        _sampleBooking(
+          id: 'trip-transition-1',
+          status: BookingStatus.completed,
+        ),
       ]);
       await Future<void>.delayed(const Duration(milliseconds: 20));
       expect(viewModel.navigationGuidance, isNull);
@@ -627,52 +596,61 @@ void main() {
       expect(shouldPublish, isTrue);
     });
 
-    test('location publish helper blocks when below time and distance limits', () {
-      final shouldPublish = shouldPublishOperatorPosition(
-        now: DateTime(2026, 3, 19, 10, 0, 3),
-        minInterval: const Duration(seconds: 6),
-        minDistanceMeters: 20,
-        currentLat: 2.190001,
-        currentLng: 102.250001,
-        lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
-        lastLat: 2.190000,
-        lastLng: 102.250000,
-      );
+    test(
+      'location publish helper blocks when below time and distance limits',
+      () {
+        final shouldPublish = shouldPublishOperatorPosition(
+          now: DateTime(2026, 3, 19, 10, 0, 3),
+          minInterval: const Duration(seconds: 6),
+          minDistanceMeters: 20,
+          currentLat: 2.190001,
+          currentLng: 102.250001,
+          lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
+          lastLat: 2.190000,
+          lastLng: 102.250000,
+        );
 
-      expect(shouldPublish, isFalse);
-    });
+        expect(shouldPublish, isFalse);
+      },
+    );
 
-    test('location publish helper allows when interval threshold is reached', () {
-      final shouldPublish = shouldPublishOperatorPosition(
-        now: DateTime(2026, 3, 19, 10, 0, 8),
-        minInterval: const Duration(seconds: 6),
-        minDistanceMeters: 20,
-        currentLat: 2.190001,
-        currentLng: 102.250001,
-        lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
-        lastLat: 2.190000,
-        lastLng: 102.250000,
-      );
+    test(
+      'location publish helper allows when interval threshold is reached',
+      () {
+        final shouldPublish = shouldPublishOperatorPosition(
+          now: DateTime(2026, 3, 19, 10, 0, 8),
+          minInterval: const Duration(seconds: 6),
+          minDistanceMeters: 20,
+          currentLat: 2.190001,
+          currentLng: 102.250001,
+          lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
+          lastLat: 2.190000,
+          lastLng: 102.250000,
+        );
 
-      expect(shouldPublish, isTrue);
-    });
+        expect(shouldPublish, isTrue);
+      },
+    );
 
-    test('location publish helper allows when distance threshold is reached', () {
-      final shouldPublish = shouldPublishOperatorPosition(
-        now: DateTime(2026, 3, 19, 10, 0, 2),
-        minInterval: const Duration(seconds: 6),
-        minDistanceMeters: 20,
-        currentLat: 2.190400,
-        currentLng: 102.250400,
-        lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
-        lastLat: 2.190000,
-        lastLng: 102.250000,
-      );
+    test(
+      'location publish helper allows when distance threshold is reached',
+      () {
+        final shouldPublish = shouldPublishOperatorPosition(
+          now: DateTime(2026, 3, 19, 10, 0, 2),
+          minInterval: const Duration(seconds: 6),
+          minDistanceMeters: 20,
+          currentLat: 2.190400,
+          currentLng: 102.250400,
+          lastPublishedAt: DateTime(2026, 3, 19, 10, 0, 0),
+          lastLat: 2.190000,
+          lastLng: 102.250000,
+        );
 
-      expect(shouldPublish, isTrue);
-    });
+        expect(shouldPublish, isTrue);
+      },
+    );
 
-    test('navigation helper resolves checkpoint progress and ETA from polyline', () {
+    test('navigation helper resolves route progress and ETA from polyline', () {
       final booking = BookingModel(
         bookingId: 'nav-1',
         userId: 'user-1',
@@ -680,10 +658,6 @@ void main() {
         userPhone: '0123456789',
         origin: 'Jetty A',
         destination: 'Jetty B',
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 3,
-        destinationCheckpointSeq: 6,
         originLat: 2.2000,
         originLng: 102.2500,
         destinationLat: 2.2030,
@@ -719,15 +693,15 @@ void main() {
       );
 
       expect(guidance, isNotNull);
-      expect(guidance!.nearestCheckpointSeq, inInclusiveRange(3, 6));
-      expect(guidance.nextCheckpointSeq, inInclusiveRange(3, 6));
+      expect(guidance!.nearestRouteMarker, inInclusiveRange(1, 4));
+      expect(guidance.nextRouteMarker, inInclusiveRange(1, 4));
       expect(guidance.progressFraction, inInclusiveRange(0.0, 1.0));
       expect(guidance.remainingDistanceMeters, greaterThan(0));
       expect(guidance.eta, isNotNull);
       expect(guidance.isOffRoute, isFalse);
     });
 
-    test('navigation helper keeps checkpoint progression monotonic', () {
+    test('navigation helper keeps route marker progression monotonic', () {
       final booking = BookingModel(
         bookingId: 'nav-2',
         userId: 'user-1',
@@ -735,10 +709,6 @@ void main() {
         userPhone: '0123456789',
         origin: 'Jetty A',
         destination: 'Jetty B',
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 1,
-        destinationCheckpointSeq: 4,
         originLat: 2.2000,
         originLng: 102.2500,
         destinationLat: 2.2030,
@@ -770,11 +740,11 @@ void main() {
         currentLat: 2.2002,
         currentLng: 102.2502,
         now: DateTime(2026, 3, 19, 10, 0, 0),
-        lastResolvedCheckpointSeq: 3,
+        lastResolvedRouteMarker: 3,
       );
 
       expect(guidance, isNotNull);
-      expect(guidance!.nearestCheckpointSeq, greaterThanOrEqualTo(3));
+      expect(guidance!.nearestRouteMarker, greaterThanOrEqualTo(3));
     });
 
     test('navigation helper flags off-route when far from segment', () {
@@ -785,10 +755,6 @@ void main() {
         userPhone: '0123456789',
         origin: 'Jetty A',
         destination: 'Jetty B',
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 1,
-        destinationCheckpointSeq: 2,
         originLat: 2.2000,
         originLng: 102.2500,
         destinationLat: 2.2050,
@@ -830,10 +796,6 @@ void main() {
         userPhone: '0123456789',
         origin: 'Jetty A',
         destination: 'Jetty B',
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 1,
-        destinationCheckpointSeq: 2,
         originLat: 2.2000,
         originLng: 102.2500,
         destinationLat: 2.2050,
@@ -872,69 +834,71 @@ void main() {
       );
 
       expect(guidance, isNotNull);
-      expect(guidance!.offRouteDistanceMeters, closeTo(baseline.offRouteDistanceMeters, 0.0001));
+      expect(
+        guidance!.offRouteDistanceMeters,
+        closeTo(baseline.offRouteDistanceMeters, 0.0001),
+      );
       expect(guidance.isOffRoute, isFalse);
     });
 
-    test('navigation helper derives ETA from sample speed and gates low speed', () {
-      final booking = BookingModel(
-        bookingId: 'nav-5',
-        userId: 'user-1',
-        userName: 'Passenger One',
-        userPhone: '0123456789',
-        origin: 'Jetty A',
-        destination: 'Jetty B',
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 1,
-        destinationCheckpointSeq: 2,
-        originLat: 2.2000,
-        originLng: 102.2500,
-        destinationLat: 2.2100,
-        destinationLng: 102.2500,
-        adultCount: 1,
-        childCount: 0,
-        passengerCount: 1,
-        adultFare: 12,
-        childFare: 6,
-        adultSubtotal: 12,
-        childSubtotal: 0,
-        fare: 12,
-        totalFare: 12,
-        paymentMethod: PaymentMethods.creditCard,
-        paymentStatus: 'paid',
-        status: BookingStatus.onTheWay,
-        operatorUid: 'operator-1',
-        rejectedBy: const [],
-      );
+    test(
+      'navigation helper derives ETA from sample speed and gates low speed',
+      () {
+        final booking = BookingModel(
+          bookingId: 'nav-5',
+          userId: 'user-1',
+          userName: 'Passenger One',
+          userPhone: '0123456789',
+          origin: 'Jetty A',
+          destination: 'Jetty B',
+          originLat: 2.2000,
+          originLng: 102.2500,
+          destinationLat: 2.2100,
+          destinationLng: 102.2500,
+          adultCount: 1,
+          childCount: 0,
+          passengerCount: 1,
+          adultFare: 12,
+          childFare: 6,
+          adultSubtotal: 12,
+          childSubtotal: 0,
+          fare: 12,
+          totalFare: 12,
+          paymentMethod: PaymentMethods.creditCard,
+          paymentStatus: 'paid',
+          status: BookingStatus.onTheWay,
+          operatorUid: 'operator-1',
+          rejectedBy: const [],
+        );
 
-      final withDerivedSpeed = computeOperatorNavigationGuidance(
-        booking: booking,
-        currentLat: 2.2010,
-        currentLng: 102.2500,
-        now: DateTime(2026, 3, 19, 10, 0, 10),
-        reportedSpeedMps: null,
-        lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
-        lastSampleLat: 2.2000,
-        lastSampleLng: 102.2500,
-      );
+        final withDerivedSpeed = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.2010,
+          currentLng: 102.2500,
+          now: DateTime(2026, 3, 19, 10, 0, 10),
+          reportedSpeedMps: null,
+          lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+          lastSampleLat: 2.2000,
+          lastSampleLng: 102.2500,
+        );
 
-      expect(withDerivedSpeed, isNotNull);
-      expect(withDerivedSpeed!.speedMetersPerSecond, greaterThan(0.5));
-      expect(withDerivedSpeed.eta, isNotNull);
+        expect(withDerivedSpeed, isNotNull);
+        expect(withDerivedSpeed!.speedMetersPerSecond, greaterThan(0.5));
+        expect(withDerivedSpeed.eta, isNotNull);
 
-      final withLowSpeed = computeOperatorNavigationGuidance(
-        booking: booking,
-        currentLat: 2.2010,
-        currentLng: 102.2500,
-        now: DateTime(2026, 3, 19, 10, 0, 10),
-        reportedSpeedMps: 0.2,
-      );
+        final withLowSpeed = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.2010,
+          currentLng: 102.2500,
+          now: DateTime(2026, 3, 19, 10, 0, 10),
+          reportedSpeedMps: 0.2,
+        );
 
-      expect(withLowSpeed, isNotNull);
-      expect(withLowSpeed!.speedMetersPerSecond, isNull);
-      expect(withLowSpeed.eta, isNull);
-    });
+        expect(withLowSpeed, isNotNull);
+        expect(withLowSpeed!.speedMetersPerSecond, isNull);
+        expect(withLowSpeed.eta, isNull);
+      },
+    );
   });
 }
 
@@ -1073,10 +1037,8 @@ BookingModel _sampleBooking({
   required String id,
   required BookingStatus status,
   List<String> rejectedBy = const [],
-  String? corridorId,
-  int? corridorVersion,
-  int? originCheckpointSeq,
-  int? destinationCheckpointSeq,
+  int? routeStartSeq,
+  int? routeEndSeq,
   List<BookingRoutePoint> routePolyline = const [],
   double? operatorLat,
   double? operatorLng,
@@ -1089,10 +1051,8 @@ BookingModel _sampleBooking({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
-    corridorId: corridorId,
-    corridorVersion: corridorVersion,
-    originCheckpointSeq: originCheckpointSeq,
-    destinationCheckpointSeq: destinationCheckpointSeq,
+    originCheckpointSeq: routeStartSeq,
+    destinationCheckpointSeq: routeEndSeq,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,

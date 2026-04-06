@@ -360,10 +360,8 @@ void main() {
       _sampleBooking(
         id: 'active-guidance-1',
         status: BookingStatus.onTheWay,
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 1,
-        destinationCheckpointSeq: 4,
+        routeStartSeq: 1,
+        routeEndSeq: 4,
         operatorLat: 2.2012,
         operatorLng: 102.2512,
         routePolyline: const [
@@ -380,7 +378,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Guidance:'), findsOneWidget);
-    expect(find.textContaining('Next checkpoint:'), findsOneWidget);
+    expect(find.textContaining('Next marker:'), findsOneWidget);
     expect(find.textContaining('Remaining distance:'), findsOneWidget);
     expect(find.textContaining('ETA:'), findsOneWidget);
   });
@@ -413,10 +411,8 @@ void main() {
       _sampleBooking(
         id: 'active-no-guidance-1',
         status: BookingStatus.accepted,
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 1,
-        destinationCheckpointSeq: 4,
+        routeStartSeq: 1,
+        routeEndSeq: 4,
       ),
     ]);
     await tester.pumpAndSettle();
@@ -425,58 +421,57 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Guidance:'), findsNothing);
-    expect(find.textContaining('Next checkpoint:'), findsNothing);
+    expect(find.textContaining('Next marker:'), findsNothing);
   });
 
-  testWidgets('on-the-way active trip shows off-route warning when applicable', (
-    tester,
-  ) async {
-    final operatorRepo = _FakeOperatorRepository(
-      operator: const OperatorModel(
-        uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
-        isOnline: true,
-      ),
-    );
-    final bookingRepo = _FakeBookingRepository();
+  testWidgets(
+    'on-the-way active trip shows off-route warning when applicable',
+    (tester) async {
+      final operatorRepo = _FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final bookingRepo = _FakeBookingRepository();
 
-    await tester.pumpWidget(
-      buildTestWidget(
-        operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
-        operatorRepo: operatorRepo,
-        bookingRepo: bookingRepo,
-      ),
-    );
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        buildTestWidget(
+          operatorId: 'operator-1',
+          operatorEmail: 'captain@example.com',
+          operatorRepo: operatorRepo,
+          bookingRepo: bookingRepo,
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    bookingRepo.emitActive([
-      _sampleBooking(
-        id: 'active-guidance-offroute-1',
-        status: BookingStatus.onTheWay,
-        corridorId: 'melaka_main_01',
-        corridorVersion: 1,
-        originCheckpointSeq: 1,
-        destinationCheckpointSeq: 2,
-        operatorLat: 2.2010,
-        operatorLng: 102.2550,
-        routePolyline: const [
-          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-          BookingRoutePoint(lat: 2.2010, lng: 102.2500),
-          BookingRoutePoint(lat: 2.2020, lng: 102.2500),
-        ],
-      ),
-    ]);
-    await tester.pumpAndSettle();
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'active-guidance-offroute-1',
+          status: BookingStatus.onTheWay,
+          routeStartSeq: 1,
+          routeEndSeq: 2,
+          operatorLat: 2.2010,
+          operatorLng: 102.2550,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2500),
+          ],
+        ),
+      ]);
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Active Trip'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Active Trip'));
+      await tester.pumpAndSettle();
 
-    expect(find.textContaining('Guidance:'), findsOneWidget);
-    expect(find.textContaining('Off-route warning:'), findsOneWidget);
-  });
+      expect(find.textContaining('Guidance:'), findsOneWidget);
+      expect(find.textContaining('Off-route warning:'), findsOneWidget);
+    },
+  );
 }
 
 class _FakeOperatorRepository extends OperatorRepository {
@@ -592,10 +587,8 @@ class _FakeBookingRepository extends BookingRepository {
 BookingModel _sampleBooking({
   required String id,
   required BookingStatus status,
-  String? corridorId,
-  int? corridorVersion,
-  int? originCheckpointSeq,
-  int? destinationCheckpointSeq,
+  int? routeStartSeq,
+  int? routeEndSeq,
   double? operatorLat,
   double? operatorLng,
   List<BookingRoutePoint> routePolyline = const [],
@@ -607,10 +600,8 @@ BookingModel _sampleBooking({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
-    corridorId: corridorId,
-    corridorVersion: corridorVersion,
-    originCheckpointSeq: originCheckpointSeq,
-    destinationCheckpointSeq: destinationCheckpointSeq,
+    originCheckpointSeq: routeStartSeq,
+    destinationCheckpointSeq: routeEndSeq,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,
