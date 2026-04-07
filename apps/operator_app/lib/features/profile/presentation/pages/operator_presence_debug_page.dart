@@ -149,10 +149,13 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
               final presenceOnline =
                   presenceData?[OperatorPresenceFields.isOnline] == true;
               final mismatch =
-                  operatorData != null &&
+                  operatorData?.containsKey(OperatorFields.isOnline) == true &&
                   presenceData != null &&
                   operatorOnline != presenceOnline;
-              final profileOnline = operatorOnline;
+              final profileOnline =
+                  operatorData?.containsKey(OperatorFields.isOnline) == true
+                  ? operatorOnline
+                  : presenceOnline;
 
               return ListView(
                 padding: const EdgeInsets.all(16),

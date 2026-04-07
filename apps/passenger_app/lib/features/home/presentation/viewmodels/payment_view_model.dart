@@ -34,11 +34,11 @@ class PaymentViewModel extends ChangeNotifier {
     required UserRepository userRepo,
     required BookingRepository bookingRepo,
     required PaymentGatewayService paymentGateway,
-  })  : _fareRepo = fareRepo,
-        _jettyRepo = jettyRepo,
-        _userRepo = userRepo,
-        _bookingRepo = bookingRepo,
-        _paymentGateway = paymentGateway;
+  }) : _fareRepo = fareRepo,
+       _jettyRepo = jettyRepo,
+       _userRepo = userRepo,
+       _bookingRepo = bookingRepo,
+       _paymentGateway = paymentGateway;
 
   final FareRepository _fareRepo;
   final JettyRepository _jettyRepo;
@@ -51,6 +51,7 @@ class PaymentViewModel extends ChangeNotifier {
 
   bool _isLoadingFare = true;
   FareBreakdown? _fareBreakdown;
+  String? _fareSnapshotId;
   String? _fareError;
   bool _isProcessing = false;
 
@@ -71,12 +72,17 @@ class PaymentViewModel extends ChangeNotifier {
   }) async {
     _isLoadingFare = true;
     _fareError = null;
+    _fareSnapshotId = null;
     notifyListeners();
 
     try {
       final fare = await _fareRepo.getFare(origin, destination);
       if (fare == null) {
         _fareError = 'Fare not found for this route';
+        return;
+      }
+      if (fare.snapshotId == null || fare.snapshotId!.isEmpty) {
+        _fareError = 'Fare snapshot unavailable for this route';
         return;
       }
 
@@ -90,6 +96,7 @@ class PaymentViewModel extends ChangeNotifier {
         childSubtotal: childSubtotal,
         total: adultSubtotal + childSubtotal,
       );
+      _fareSnapshotId = fare.snapshotId;
     } catch (_) {
       _fareError = 'Failed to load fare information';
     } finally {
@@ -137,7 +144,9 @@ class PaymentViewModel extends ChangeNotifier {
       }
       if (destJetty == null) {
         return OperationFailure(
-            'Jetty error', 'Jetty "$destination" not found.');
+          'Jetty error',
+          'Jetty "$destination" not found.',
+        );
       }
 
       final paymentAttemptId = _buildPaymentAttemptId(
@@ -157,7 +166,7 @@ class PaymentViewModel extends ChangeNotifier {
         amount: _fareBreakdown!.total,
         paymentAttemptId: paymentAttemptId,
       );
-      final orderNumber = _buildOrderNumber(
+      final orderNumber = await _reserveUniqueOrderNumber(
         userId: userId,
         idempotencyKey: idempotencyKey,
       );
@@ -212,9 +221,9 @@ class PaymentViewModel extends ChangeNotifier {
           destinationLng: destJetty.lng,
           adultCount: adultCount,
           childCount: childCount,
-          adultFare: _fareBreakdown!.adultFarePerPerson,
-          childFare: _fareBreakdown!.childFarePerPerson,
+          totalFare: _fareBreakdown!.total,
           paymentMethod: _gatewayPaymentMethod,
+          fareSnapshotId: _fareSnapshotId!,
           orderNumber: orderNumber,
           transactionId: paymentResult.transactionId,
         ),
@@ -268,8 +277,41 @@ class PaymentViewModel extends ChangeNotifier {
   }) {
     final compactUid = userId.replaceAll(RegExp(r'[^a-zA-Z0-9]'), '');
     final compactKey = idempotencyKey.hashCode.abs();
-    final last6 = compactUid.length <= 6 ? compactUid : compactUid.substring(compactUid.length - 6);
+    final last6 = compactUid.length <= 6
+        ? compactUid
+        : compactUid.substring(compactUid.length - 6);
     return 'WT-$last6-$compactKey';
+  }
+
+  Future<String> _reserveUniqueOrderNumber({
+    required String userId,
+    required String idempotencyKey,
+  }) async {
+    const maxAttempts = 5;
+
+    for (var attempt = 0; attempt < maxAttempts; attempt++) {
+      final attemptKey = attempt == 0
+          ? idempotencyKey
+          : '$idempotencyKey#$attempt';
+      final candidate = _buildOrderNumber(
+        userId: userId,
+        idempotencyKey: attemptKey,
+      );
+
+      try {
+        await _bookingRepo.reserveOrderNumber(
+          orderNumber: candidate,
+          userId: userId,
+        );
+        return candidate;
+      } on StateError {
+        if (attempt == maxAttempts - 1) {
+          rethrow;
+        }
+      }
+    }
+
+    throw StateError('Unable to reserve a unique order number.');
   }
 
   /// Captures a held payment (call after ride completion)

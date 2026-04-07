@@ -22,12 +22,8 @@ class BookingModel {
     required this.adultCount,
     required this.childCount,
     required this.passengerCount,
-    required this.adultFare,
-    required this.childFare,
-    required this.adultSubtotal,
-    required this.childSubtotal,
-    required this.fare,
     required this.totalFare,
+    this.fareSnapshotId,
     required this.paymentMethod,
     required this.paymentStatus,
     required this.status,
@@ -57,12 +53,8 @@ class BookingModel {
   final int adultCount;
   final int childCount;
   final int passengerCount;
-  final double adultFare;
-  final double childFare;
-  final double adultSubtotal;
-  final double childSubtotal;
-  final double fare;
   final double totalFare;
+  final String? fareSnapshotId;
   final String paymentMethod;
   final String paymentStatus;
   final BookingStatus status;
@@ -106,12 +98,8 @@ class BookingModel {
       adultCount: _int(data['adultCount']),
       childCount: _int(data['childCount']),
       passengerCount: _int(data['passengerCount']),
-      adultFare: _double(data['adultFare']),
-      childFare: _double(data['childFare']),
-      adultSubtotal: _double(data['adultSubtotal']),
-      childSubtotal: _double(data['childSubtotal']),
-      fare: _double(data['fare']),
       totalFare: _double(data['totalFare']),
+      fareSnapshotId: data['fareSnapshotId']?.toString(),
       paymentMethod: _str(data['paymentMethod']),
       paymentStatus: _str(data['paymentStatus']),
       status: BookingStatus.fromString(_str(data['status'])),
@@ -142,12 +130,8 @@ class BookingModel {
     int? adultCount,
     int? childCount,
     int? passengerCount,
-    double? adultFare,
-    double? childFare,
-    double? adultSubtotal,
-    double? childSubtotal,
-    double? fare,
     double? totalFare,
+    String? fareSnapshotId,
     String? paymentMethod,
     String? paymentStatus,
     BookingStatus? status,
@@ -177,12 +161,8 @@ class BookingModel {
       adultCount: adultCount ?? this.adultCount,
       childCount: childCount ?? this.childCount,
       passengerCount: passengerCount ?? this.passengerCount,
-      adultFare: adultFare ?? this.adultFare,
-      childFare: childFare ?? this.childFare,
-      adultSubtotal: adultSubtotal ?? this.adultSubtotal,
-      childSubtotal: childSubtotal ?? this.childSubtotal,
-      fare: fare ?? this.fare,
       totalFare: totalFare ?? this.totalFare,
+      fareSnapshotId: fareSnapshotId ?? this.fareSnapshotId,
       paymentMethod: paymentMethod ?? this.paymentMethod,
       paymentStatus: paymentStatus ?? this.paymentStatus,
       status: status ?? this.status,

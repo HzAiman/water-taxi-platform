@@ -45,36 +45,39 @@ void main() {
       expect((last['lng'] as num).toDouble(), closeTo(100.0, 0.000001));
     });
 
-    test('falls back to direct route when no polyline documents exist', () async {
-      final firestore = FakeFirebaseFirestore();
-      final repo = BookingRepository(firestore: firestore);
+    test(
+      'falls back to direct route when no polyline documents exist',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repo = BookingRepository(firestore: firestore);
 
-      final bookingId = await repo.createBooking(
-        _params(
-          originLat: 2.1984,
-          originLng: 102.2470,
-          destinationLat: 2.2130,
-          destinationLng: 102.2485,
-        ),
-      );
+        final bookingId = await repo.createBooking(
+          _params(
+            originLat: 2.1984,
+            originLng: 102.2470,
+            destinationLat: 2.2130,
+            destinationLng: 102.2485,
+          ),
+        );
 
-      final bookingDoc = await firestore
-          .collection(FirestoreCollections.bookings)
-          .doc(bookingId)
-          .get();
-      final data = bookingDoc.data();
+        final bookingDoc = await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId)
+            .get();
+        final data = bookingDoc.data();
 
-      expect(data, isNotNull);
-      final polyline = data![BookingFields.routePolyline] as List<dynamic>;
-      expect(polyline, hasLength(2));
+        expect(data, isNotNull);
+        final polyline = data![BookingFields.routePolyline] as List<dynamic>;
+        expect(polyline, hasLength(2));
 
-      final first = polyline.first as Map<String, dynamic>;
-      final last = polyline.last as Map<String, dynamic>;
-      expect((first['lat'] as num).toDouble(), closeTo(2.1984, 0.000001));
-      expect((first['lng'] as num).toDouble(), closeTo(102.2470, 0.000001));
-      expect((last['lat'] as num).toDouble(), closeTo(2.2130, 0.000001));
-      expect((last['lng'] as num).toDouble(), closeTo(102.2485, 0.000001));
-    });
+        final first = polyline.first as Map<String, dynamic>;
+        final last = polyline.last as Map<String, dynamic>;
+        expect((first['lat'] as num).toDouble(), closeTo(2.1984, 0.000001));
+        expect((first['lng'] as num).toDouble(), closeTo(102.2470, 0.000001));
+        expect((last['lat'] as num).toDouble(), closeTo(2.2130, 0.000001));
+        expect((last['lng'] as num).toDouble(), closeTo(102.2485, 0.000001));
+      },
+    );
 
     test('parses nested coordinate path formats', () async {
       final firestore = FakeFirebaseFirestore();
@@ -108,6 +111,42 @@ void main() {
       final polyline = data![BookingFields.routePolyline] as List<dynamic>;
       expect(polyline.length, greaterThanOrEqualTo(3));
     });
+
+    test('records cancellation status history', () async {
+      final firestore = FakeFirebaseFirestore();
+      final repo = BookingRepository(firestore: firestore);
+
+      final bookingId = await repo.createBooking(
+        _params(
+          originLat: 2.1984,
+          originLng: 102.2470,
+          destinationLat: 2.2130,
+          destinationLng: 102.2485,
+        ),
+      );
+
+      await repo.cancelBooking(bookingId);
+
+      final historySnap = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .collection(BookingSubcollections.statusHistory)
+          .get();
+
+      expect(historySnap.docs, hasLength(1));
+      expect(
+        historySnap.docs.first.data()[BookingStatusHistoryFields.from],
+        BookingStatus.pending.firestoreValue,
+      );
+      expect(
+        historySnap.docs.first.data()[BookingStatusHistoryFields.to],
+        BookingStatus.cancelled.firestoreValue,
+      );
+      expect(
+        historySnap.docs.first.data()[BookingStatusHistoryFields.changedBy],
+        'user-1',
+      );
+    });
   });
 }
 
@@ -129,8 +168,8 @@ BookingCreationParams _params({
     destinationLng: destinationLng,
     adultCount: 1,
     childCount: 0,
-    adultFare: 10.0,
-    childFare: 5.0,
+    totalFare: 10.0,
     paymentMethod: 'stripe_payment_sheet',
+    fareSnapshotId: 'fare-route-1',
   );
 }

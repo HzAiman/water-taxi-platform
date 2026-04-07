@@ -585,7 +585,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }
 
   String _buildBookingDetailText(BookingModel booking) {
-    final fareValue = booking.totalFare > 0 ? booking.totalFare : booking.fare;
+    final fareValue = booking.totalFare;
 
     return 'Booking ID: ${booking.bookingId}\n'
         'Route: ${booking.origin} -> ${booking.destination}\n'

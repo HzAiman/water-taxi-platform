@@ -4,7 +4,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 /// Data-access layer for the `fares` Firestore collection.
 class FareRepository {
   FareRepository({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
@@ -19,7 +19,10 @@ class FareRepository {
         .get();
 
     if (snap.docs.isNotEmpty) {
-      return FareModel.fromMap(snap.docs.first.data());
+      return FareModel.fromMap(
+        snap.docs.first.data(),
+        snapshotId: snap.docs.first.id,
+      );
     }
 
     // Fallback path: tolerate legacy/messy fare docs (trim/case differences
@@ -27,8 +30,10 @@ class FareRepository {
     final normalizedOrigin = _normalizeRouteValue(origin);
     final normalizedDestination = _normalizeRouteValue(destination);
 
-    final allFares =
-        await _db.collection(FirestoreCollections.fares).limit(500).get();
+    final allFares = await _db
+        .collection(FirestoreCollections.fares)
+        .limit(500)
+        .get();
 
     for (final doc in allFares.docs) {
       final data = doc.data();
@@ -47,7 +52,7 @@ class FareRepository {
               data[FareFields.destination] ?? data['dropoff'] ?? '',
           FareFields.adultFare: data[FareFields.adultFare],
           FareFields.childFare: data[FareFields.childFare],
-        });
+        }, snapshotId: doc.id);
       }
     }
 

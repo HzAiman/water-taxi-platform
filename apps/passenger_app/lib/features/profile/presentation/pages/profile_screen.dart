@@ -11,11 +11,7 @@ import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class ProfileScreen extends StatefulWidget {
-  const ProfileScreen({
-    super.key,
-    this.testUserId,
-    this.testPhoneNumber,
-  });
+  const ProfileScreen({super.key, this.testUserId, this.testPhoneNumber});
 
   final String? testUserId;
   final String? testPhoneNumber;
@@ -111,9 +107,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => _BookingHistoryRoutePage(
-                  testUserId: widget.testUserId,
-                ),
+                builder: (_) =>
+                    _BookingHistoryRoutePage(testUserId: widget.testUserId),
               ),
             );
           },
@@ -136,10 +131,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final topInset = MediaQuery.of(context).padding.top;
     final viewModel = context.watch<ProfileViewModel>();
     final user = viewModel.user;
-    final phoneNumber = widget.testPhoneNumber ??
-      FirebaseAuth.instance.currentUser?.phoneNumber ??
-      user?.phoneNumber ??
-      '';
+    final phoneNumber =
+        widget.testPhoneNumber ??
+        FirebaseAuth.instance.currentUser?.phoneNumber ??
+        user?.phoneNumber ??
+        '';
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
@@ -441,7 +437,11 @@ class _AccountManagementRoutePageState
       return;
     }
 
-    if (result case OperationFailure(:final title, :final message, :final isInfo)) {
+    if (result case OperationFailure(
+      :final title,
+      :final message,
+      :final isInfo,
+    )) {
       if (isInfo) {
         showTopInfo(context, title: title, message: message);
       } else {
@@ -706,7 +706,10 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     );
   }
 
-  Widget _buildContent(ProfileViewModel viewModel, List<BookingModel> bookings) {
+  Widget _buildContent(
+    ProfileViewModel viewModel,
+    List<BookingModel> bookings,
+  ) {
     if (viewModel.historyError != null) {
       return _buildHistoryState(
         icon: Icons.wifi_off,
@@ -865,7 +868,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
   }
 
   Widget _buildBookingCard(BookingModel booking) {
-    final totalFare = booking.totalFare > 0 ? booking.totalFare : booking.fare;
+    final totalFare = booking.totalFare;
     final statusColor = _statusColor(booking.status);
     final paymentMethod = PaymentMethods.label(booking.paymentMethod);
     final paymentStatusLabel = _formatStatusLabel(booking.paymentStatus);
@@ -875,10 +878,10 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
         ? booking.bookingId
         : 'Booking';
     final showStaleAction =
-      booking.status.isActive &&
-      booking.updatedAt != null &&
-      DateTime.now().difference(booking.updatedAt!) >
-        const Duration(minutes: 5);
+        booking.status.isActive &&
+        booking.updatedAt != null &&
+        DateTime.now().difference(booking.updatedAt!) >
+            const Duration(minutes: 5);
 
     return Container(
       width: double.infinity,
@@ -978,7 +981,11 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
               ),
               child: Row(
                 children: [
-                  const Icon(Icons.info_outline, size: 16, color: Color(0xFF0066CC)),
+                  const Icon(
+                    Icons.info_outline,
+                    size: 16,
+                    color: Color(0xFF0066CC),
+                  ),
                   const SizedBox(width: 8),
                   const Expanded(
                     child: Text(

@@ -10,6 +10,7 @@ Top-level collections:
 - bookings
 - fares
 - jetties
+- order_number_index
 - operator_devices
 - operator_id_claims
 - operator_presence
@@ -89,6 +90,28 @@ Suggested acceptance criteria:
 - Status changes append a `statusHistory` event.
 - Booking reads still tolerate legacy polyline documents until migration is complete.
 
+Implementation checklist:
+- Update booking write paths to store `totalFare` and `fareSnapshotId` only.
+- Remove `isOnline` from operator profile writes and keep presence writes in `operator_presence`.
+- Stop emitting `routeCoordinates`, `polylineCoordinates`, and `routePoints` on new booking writes.
+- Add `statusHistory` append logic to every booking status transition.
+- Document `rejectedBy` as either a scalar field or a subcollection-backed event stream.
+- Add retention/archival handling for completed and cancelled bookings.
+- Add an application-level uniqueness guard for `orderNumber`.
+- Keep read compatibility for legacy polyline bookings until migration data is cleaned up.
+
+Current implementation notes:
+- New bookings now persist `fareSnapshotId` alongside existing fare fields during the transition period.
+- Order numbers are reserved through `order_number_index` before payment authorization so collisions are rejected at the application layer.
+
+Repository-level targets:
+- [apps/passenger_app/lib/data/repositories/booking_repository.dart](../apps/passenger_app/lib/data/repositories/booking_repository.dart): centralize booking writes, polyline normalization, and any future `fareSnapshotId` persistence.
+- [apps/passenger_app/lib/features/home/presentation/pages/booking_tracking_screen.dart](../apps/passenger_app/lib/features/home/presentation/pages/booking_tracking_screen.dart): keep the read path tolerant of legacy route shapes until migration is finished.
+- [apps/operator_app/lib/data/repositories/operator_repository.dart](../apps/operator_app/lib/data/repositories/operator_repository.dart): remove `operators.isOnline` writes and rely on `operator_presence.isOnline` only.
+- [apps/operator_app/lib/services/notifications/operator_notification_coordinator.dart](../apps/operator_app/lib/services/notifications/operator_notification_coordinator.dart): read operator presence from the single source of truth during notification state updates.
+- [apps/passenger_app/lib/features/profile/presentation/pages/profile_screen.dart](../apps/passenger_app/lib/features/profile/presentation/pages/profile_screen.dart): treat `userName` and `userPhone` as receipt-style snapshots, or update copy if the intent changes.
+- [packages/water_taxi_shared/lib/src/models/booking_model.dart](../packages/water_taxi_shared/lib/src/models/booking_model.dart): keep model parsing backward compatible while legacy booking fields are phased out.
+
 ## 1) bookings
 
 Purpose:
@@ -103,6 +126,7 @@ Core fields:
 - routeCoordinates, polylineCoordinates, routePoints (legacy compatibility)
 - adultCount, childCount, passengerCount
 - adultFare, childFare, adultSubtotal, childSubtotal, fare, totalFare
+- fareSnapshotId
 - paymentMethod, paymentStatus, orderNumber, transactionId
 - status
 - operatorUid, operatorId
@@ -129,7 +153,17 @@ Fields:
 - adultFare
 - childFare
 
-## 3) jetties
+## 3) order_number_index
+
+Purpose:
+- Application-level uniqueness ledger for payment order numbers.
+
+Fields:
+- orderNumber (document id)
+- userId
+- reservedAt
+
+## 4) jetties
 
 Purpose:
 - Canonical jetty reference collection used for route endpoints and fare routing.
@@ -246,7 +280,7 @@ Provided live sample data:
 ]
 ```
 
-## 4) operator_devices
+## 5) operator_devices
 
 Purpose:
 - Operator FCM registration/token docs.
@@ -257,7 +291,7 @@ Fields:
 - appRole
 - updatedAt
 
-## 5) operator_id_claims
+## 6) operator_id_claims
 
 Purpose:
 - Ownership mapping for operator IDs.
@@ -269,7 +303,7 @@ Fields:
 - createdAt
 - updatedAt
 
-## 6) operator_presence
+## 7) operator_presence
 
 Purpose:
 - Online/offline signal for operators.
@@ -278,7 +312,7 @@ Fields:
 - isOnline
 - updatedAt
 
-## 7) operators
+## 8) operators
 
 Purpose:
 - Operator profile document keyed by auth uid.
@@ -292,7 +326,7 @@ Fields:
 - createdAt
 - updatedAt
 
-## 8) polylines
+## 9) polylines
 
 Purpose:
 - River route geometry collection used for map path representation.
@@ -334,7 +368,7 @@ Provided live sample data:
 ]
 ```
 
-## 9) user_devices
+## 10) user_devices
 
 Purpose:
 - Passenger FCM registration/token docs.
@@ -345,7 +379,7 @@ Fields:
 - appRole
 - updatedAt
 
-## 10) users
+## 11) users
 
 Purpose:
 - Passenger profile document keyed by auth uid.

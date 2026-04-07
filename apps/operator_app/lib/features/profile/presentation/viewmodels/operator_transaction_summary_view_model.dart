@@ -33,25 +33,28 @@ class StatementRecord {
   final int completedRides;
 
   Map<String, dynamic> toMap() => {
-        'filePath': filePath,
-        'fileName': fileName,
-        'period': period.name,
-        'generatedAt': generatedAt.toIso8601String(),
-        'totalEarnings': totalEarnings,
-        'completedRides': completedRides,
-      };
+    'filePath': filePath,
+    'fileName': fileName,
+    'period': period.name,
+    'generatedAt': generatedAt.toIso8601String(),
+    'totalEarnings': totalEarnings,
+    'completedRides': completedRides,
+  };
 
   static StatementRecord fromMap(Map<String, dynamic> map) {
     return StatementRecord(
       filePath: (map['filePath'] ?? '').toString(),
       fileName: (map['fileName'] ?? '').toString(),
       period: _periodFromName((map['period'] ?? '').toString()),
-      generatedAt: DateTime.tryParse((map['generatedAt'] ?? '').toString()) ??
+      generatedAt:
+          DateTime.tryParse((map['generatedAt'] ?? '').toString()) ??
           DateTime.now(),
-      totalEarnings:
-          (map['totalEarnings'] is num) ? (map['totalEarnings'] as num).toDouble() : 0.0,
-      completedRides:
-          (map['completedRides'] is num) ? (map['completedRides'] as num).toInt() : 0,
+      totalEarnings: (map['totalEarnings'] is num)
+          ? (map['totalEarnings'] as num).toDouble()
+          : 0.0,
+      completedRides: (map['completedRides'] is num)
+          ? (map['completedRides'] as num).toInt()
+          : 0,
     );
   }
 
@@ -95,8 +98,8 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
   OperatorTransactionSummaryViewModel({
     required BookingRepository bookingRepository,
     required String operatorId,
-  })  : _bookingRepository = bookingRepository,
-        _operatorId = operatorId;
+  }) : _bookingRepository = bookingRepository,
+       _operatorId = operatorId;
 
   static const _statementStoragePrefix = 'operator_statement_records_v1_';
 
@@ -134,14 +137,17 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
       .where((b) => b.status == BookingStatus.completed)
       .fold(0.0, (sum, b) => sum + _fareOf(b));
 
-  int get selectedPeriodCancelled =>
-      _bookingsForSelectedPeriod.where((b) => b.status == BookingStatus.cancelled).length;
+  int get selectedPeriodCancelled => _bookingsForSelectedPeriod
+      .where((b) => b.status == BookingStatus.cancelled)
+      .length;
 
   int get selectedPeriodPendingOrActive => _bookingsForSelectedPeriod
-      .where((b) =>
-          b.status == BookingStatus.pending ||
-          b.status == BookingStatus.accepted ||
-          b.status == BookingStatus.onTheWay)
+      .where(
+        (b) =>
+            b.status == BookingStatus.pending ||
+            b.status == BookingStatus.accepted ||
+            b.status == BookingStatus.onTheWay,
+      )
       .length;
 
   List<BookingModel> get historyForSelectedPeriod {
@@ -182,19 +188,21 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
 
     await _loadStatements();
 
-    _subscription = _bookingRepository.streamOperatorBookingHistory(_operatorId).listen(
-      (bookings) {
-        _allBookings = bookings;
-        _isLoading = false;
-        _error = null;
-        notifyListeners();
-      },
-      onError: (Object e) {
-        _isLoading = false;
-        _error = 'Failed to load ride history: $e';
-        notifyListeners();
-      },
-    );
+    _subscription = _bookingRepository
+        .streamOperatorBookingHistory(_operatorId)
+        .listen(
+          (bookings) {
+            _allBookings = bookings;
+            _isLoading = false;
+            _error = null;
+            notifyListeners();
+          },
+          onError: (Object e) {
+            _isLoading = false;
+            _error = 'Failed to load ride history: $e';
+            notifyListeners();
+          },
+        );
   }
 
   void selectPeriod(SummaryPeriod period) {
@@ -234,8 +242,9 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
       final fileName = 'operator_statement_${period}_$timestamp.pdf';
       final filePath = await _persistPdf(bytes, fileName);
 
-      final completed =
-          data.where((b) => b.status == BookingStatus.completed).length;
+      final completed = data
+          .where((b) => b.status == BookingStatus.completed)
+          .length;
       final record = StatementRecord(
         filePath: filePath,
         fileName: fileName,
@@ -250,7 +259,9 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
 
       await Printing.sharePdf(bytes: bytes, filename: fileName);
 
-      return const OperationSuccess('Statement generated, saved, and ready to share.');
+      return const OperationSuccess(
+        'Statement generated, saved, and ready to share.',
+      );
     } catch (e) {
       return OperationFailure(
         'Statement export failed',
@@ -277,10 +288,7 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
       await Printing.sharePdf(bytes: bytes, filename: record.fileName);
       return const OperationSuccess('Statement shared successfully.');
     } catch (e) {
-      return OperationFailure(
-        'Share failed',
-        'Could not share statement: $e',
-      );
+      return OperationFailure('Share failed', 'Could not share statement: $e');
     }
   }
 
@@ -291,13 +299,18 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
         await file.delete();
       }
 
-      _statements = _statements.where((s) => s.filePath != record.filePath).toList();
+      _statements = _statements
+          .where((s) => s.filePath != record.filePath)
+          .toList();
       await _saveStatements();
       notifyListeners();
 
       return const OperationSuccess('Statement removed.');
     } catch (e) {
-      return OperationFailure('Delete failed', 'Could not delete statement: $e');
+      return OperationFailure(
+        'Delete failed',
+        'Could not delete statement: $e',
+      );
     }
   }
 
@@ -310,22 +323,27 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
         build: (_) => [
           pw.Text(
             'Operator Income Statement (${selectedPeriod.label})',
-            style: pw.TextStyle(
-              fontSize: 18,
-              fontWeight: pw.FontWeight.bold,
-            ),
+            style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
           ),
           pw.SizedBox(height: 8),
           pw.Text('Generated: ${_fmt(now)}'),
           pw.Text('Operator ID: $_operatorId'),
           pw.SizedBox(height: 12),
-          pw.Text('Summary', style: pw.TextStyle(fontWeight: pw.FontWeight.bold)),
+          pw.Text(
+            'Summary',
+            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
+          ),
           pw.Bullet(
-              text:
-                  'Completed rides: ${data.where((b) => b.status == BookingStatus.completed).length}'),
-          pw.Bullet(text: 'Pending or active rides: $selectedPeriodPendingOrActive'),
+            text:
+                'Completed rides: ${data.where((b) => b.status == BookingStatus.completed).length}',
+          ),
+          pw.Bullet(
+            text: 'Pending or active rides: $selectedPeriodPendingOrActive',
+          ),
           pw.Bullet(text: 'Cancelled rides: $selectedPeriodCancelled'),
-          pw.Bullet(text: 'Total earnings: ${_currency(selectedPeriodEarnings)}'),
+          pw.Bullet(
+            text: 'Total earnings: ${_currency(selectedPeriodEarnings)}',
+          ),
           pw.SizedBox(height: 16),
           pw.Text(
             'Detailed Ride History',
@@ -439,9 +457,10 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     }).length;
   }
 
-  double _fareOf(BookingModel b) => b.totalFare > 0 ? b.totalFare : b.fare;
+  double _fareOf(BookingModel b) => b.totalFare;
 
-  static DateTime _startOfDay(DateTime dt) => DateTime(dt.year, dt.month, dt.day);
+  static DateTime _startOfDay(DateTime dt) =>
+      DateTime(dt.year, dt.month, dt.day);
 
   static DateTime _startOfWeek(DateTime dt) {
     final weekday = dt.weekday;

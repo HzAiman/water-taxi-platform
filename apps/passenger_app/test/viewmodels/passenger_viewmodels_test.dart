@@ -68,6 +68,7 @@ void main() {
     test('getFareForSelectedRoute returns configured fare', () async {
       final fareRepo = FakeFareRepository(
         fare: const FareModel(
+          snapshotId: 'fare-a-b',
           origin: 'Terminal A',
           destination: 'Terminal B',
           adultFare: 12.5,
@@ -97,6 +98,7 @@ void main() {
       final viewModel = PaymentViewModel(
         fareRepo: FakeFareRepository(
           fare: const FareModel(
+            snapshotId: 'fare-a-b',
             origin: 'Terminal A',
             destination: 'Terminal B',
             adultFare: 10,
@@ -128,6 +130,7 @@ void main() {
       final viewModel = PaymentViewModel(
         fareRepo: FakeFareRepository(
           fare: const FareModel(
+            snapshotId: 'fare-a-b',
             origin: 'Terminal A',
             destination: 'Terminal B',
             adultFare: 8,
@@ -184,6 +187,7 @@ void main() {
       final viewModel = PaymentViewModel(
         fareRepo: FakeFareRepository(
           fare: const FareModel(
+            snapshotId: 'fare-a-b',
             origin: 'Terminal A',
             destination: 'Terminal B',
             adultFare: 8,
@@ -235,6 +239,7 @@ void main() {
         final viewModel = PaymentViewModel(
           fareRepo: FakeFareRepository(
             fare: const FareModel(
+              snapshotId: 'fare-a-b',
               origin: 'Terminal A',
               destination: 'Terminal B',
               adultFare: 8,
@@ -367,34 +372,40 @@ void main() {
       expect(viewModel.bookingHistory.first.status, BookingStatus.completed);
     });
 
-    test('deleteAccount returns success when repository deletion succeeds', () async {
-      final userRepo = FakeUserRepository();
-      final viewModel = ProfileViewModel(
-        userRepo: userRepo,
-        bookingRepo: FakeBookingRepository(),
-      );
+    test(
+      'deleteAccount returns success when repository deletion succeeds',
+      () async {
+        final userRepo = FakeUserRepository();
+        final viewModel = ProfileViewModel(
+          userRepo: userRepo,
+          bookingRepo: FakeBookingRepository(),
+        );
 
-      final result = await viewModel.deleteAccount('user-1');
+        final result = await viewModel.deleteAccount('user-1');
 
-      expect(result, isA<OperationSuccess>());
-      expect(userRepo.deleteCalled, isTrue);
-      expect(viewModel.isSaving, isFalse);
-    });
+        expect(result, isA<OperationSuccess>());
+        expect(userRepo.deleteCalled, isTrue);
+        expect(viewModel.isSaving, isFalse);
+      },
+    );
 
-    test('deleteAccount returns failure when repository deletion throws', () async {
-      final userRepo = FakeUserRepository()..throwOnDelete = true;
-      final viewModel = ProfileViewModel(
-        userRepo: userRepo,
-        bookingRepo: FakeBookingRepository(),
-      );
+    test(
+      'deleteAccount returns failure when repository deletion throws',
+      () async {
+        final userRepo = FakeUserRepository()..throwOnDelete = true;
+        final viewModel = ProfileViewModel(
+          userRepo: userRepo,
+          bookingRepo: FakeBookingRepository(),
+        );
 
-      final result = await viewModel.deleteAccount('user-1');
+        final result = await viewModel.deleteAccount('user-1');
 
-      expect(result, isA<OperationFailure>());
-      final failure = result as OperationFailure;
-      expect(failure.title, 'Delete failed');
-      expect(viewModel.isSaving, isFalse);
-    });
+        expect(result, isA<OperationFailure>());
+        final failure = result as OperationFailure;
+        expect(failure.title, 'Delete failed');
+        expect(viewModel.isSaving, isFalse);
+      },
+    );
   });
 }
 
@@ -579,11 +590,6 @@ BookingModel _sampleBooking({
     adultCount: 2,
     childCount: 1,
     passengerCount: 3,
-    adultFare: 10,
-    childFare: 5,
-    adultSubtotal: 20,
-    childSubtotal: 5,
-    fare: 25,
     totalFare: 25,
     paymentMethod: PaymentMethods.creditCard,
     paymentStatus: 'paid',

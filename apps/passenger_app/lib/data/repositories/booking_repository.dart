@@ -15,9 +15,9 @@ class BookingCreationParams {
     required this.destinationLng,
     required this.adultCount,
     required this.childCount,
-    required this.adultFare,
-    required this.childFare,
+    required this.totalFare,
     required this.paymentMethod,
+    required this.fareSnapshotId,
     this.orderNumber,
     this.transactionId,
   });
@@ -33,9 +33,9 @@ class BookingCreationParams {
   final double destinationLng;
   final int adultCount;
   final int childCount;
-  final double adultFare;
-  final double childFare;
+  final double totalFare;
   final String paymentMethod;
+  final String fareSnapshotId;
   final String? orderNumber;
   final String? transactionId;
 }
@@ -54,9 +54,6 @@ class BookingRepository {
     final ref = _db.collection(FirestoreCollections.bookings).doc();
     final id = ref.id;
     final passengerCount = p.adultCount + p.childCount;
-    final adultSubtotal = p.adultFare * p.adultCount;
-    final childSubtotal = p.childFare * p.childCount;
-    final total = adultSubtotal + childSubtotal;
     final routePolyline = await _buildRoutePolylineForBooking(
       originLat: p.originLat,
       originLng: p.originLng,
@@ -79,12 +76,8 @@ class BookingRepository {
       BookingFields.adultCount: p.adultCount,
       BookingFields.childCount: p.childCount,
       BookingFields.passengerCount: passengerCount,
-      BookingFields.adultFare: p.adultFare,
-      BookingFields.childFare: p.childFare,
-      BookingFields.adultSubtotal: adultSubtotal,
-      BookingFields.childSubtotal: childSubtotal,
-      BookingFields.fare: total,
-      BookingFields.totalFare: total,
+      BookingFields.totalFare: p.totalFare,
+      BookingFields.fareSnapshotId: p.fareSnapshotId,
       BookingFields.paymentMethod: p.paymentMethod,
       // Payment is authorized/held first and captured after trip completion.
       BookingFields.paymentStatus: 'authorized',
@@ -103,10 +96,52 @@ class BookingRepository {
 
   /// Cancels a booking owned by the current passenger.
   Future<void> cancelBooking(String bookingId) async {
-    await _db.collection(FirestoreCollections.bookings).doc(bookingId).update({
-      BookingFields.status: BookingStatus.cancelled.firestoreValue,
-      BookingFields.updatedAt: FieldValue.serverTimestamp(),
-      BookingFields.cancelledAt: FieldValue.serverTimestamp(),
+    await _db.runTransaction((tx) async {
+      final ref = _db.collection(FirestoreCollections.bookings).doc(bookingId);
+      final snap = await tx.get(ref);
+      if (!snap.exists || snap.data() == null) {
+        throw StateError('Booking does not exist.');
+      }
+
+      final data = snap.data()!;
+      final fromStatus = BookingStatus.fromString(
+        (data[BookingFields.status] ?? '').toString(),
+      );
+
+      tx.update(ref, {
+        BookingFields.status: BookingStatus.cancelled.firestoreValue,
+        BookingFields.updatedAt: FieldValue.serverTimestamp(),
+        BookingFields.cancelledAt: FieldValue.serverTimestamp(),
+      });
+
+      tx.set(ref.collection(BookingSubcollections.statusHistory).doc(), {
+        BookingStatusHistoryFields.from: fromStatus.firestoreValue,
+        BookingStatusHistoryFields.to: BookingStatus.cancelled.firestoreValue,
+        BookingStatusHistoryFields.changedBy:
+            data[BookingFields.userId] ?? 'passenger',
+        BookingStatusHistoryFields.timestamp: FieldValue.serverTimestamp(),
+      });
+    });
+  }
+
+  Future<void> reserveOrderNumber({
+    required String orderNumber,
+    required String userId,
+  }) async {
+    await _db.runTransaction((tx) async {
+      final ref = _db
+          .collection(FirestoreCollections.orderNumberIndex)
+          .doc(orderNumber);
+      final snap = await tx.get(ref);
+      if (snap.exists) {
+        throw StateError('Order number is already in use.');
+      }
+
+      tx.set(ref, {
+        'orderNumber': orderNumber,
+        'userId': userId,
+        'reservedAt': FieldValue.serverTimestamp(),
+      });
     });
   }
 

@@ -127,7 +127,7 @@ class RideHistoryTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fare = booking.totalFare > 0 ? booking.totalFare : booking.fare;
+    final fare = booking.totalFare;
     final updated = booking.updatedAt ?? booking.createdAt;
 
     return Container(

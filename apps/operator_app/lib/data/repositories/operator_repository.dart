@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -14,24 +16,66 @@ class OperatorRepository {
 
   /// Returns the operator document, or `null` if it doesn't exist.
   Future<OperatorModel?> getOperator(String uid) async {
-    final snap = await _db
+    final operatorSnap = await _db
         .collection(FirestoreCollections.operators)
         .doc(uid)
         .get();
-    if (!snap.exists || snap.data() == null) return null;
-    return _fromDoc(uid, snap.data()!);
+    if (!operatorSnap.exists || operatorSnap.data() == null) return null;
+
+    final presenceSnap = await _db
+        .collection(FirestoreCollections.operatorPresence)
+        .doc(uid)
+        .get();
+
+    return _fromDocs(uid, operatorSnap.data()!, presenceSnap.data());
   }
 
   /// Streams the operator document in real-time.
   Stream<OperatorModel?> streamOperator(String uid) {
-    return _db
-        .collection(FirestoreCollections.operators)
-        .doc(uid)
-        .snapshots()
-        .map((snap) {
-          if (!snap.exists || snap.data() == null) return null;
-          return _fromDoc(uid, snap.data()!);
-        });
+    final operatorRef = _db.collection(FirestoreCollections.operators).doc(uid);
+    final presenceRef = _db
+        .collection(FirestoreCollections.operatorPresence)
+        .doc(uid);
+
+    late final StreamController<OperatorModel?> controller;
+    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? operatorSub;
+    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? presenceSub;
+
+    Map<String, dynamic>? operatorData;
+    Map<String, dynamic>? presenceData;
+    var hasOperatorSnapshot = false;
+
+    void emitCurrent() {
+      if (!hasOperatorSnapshot) return;
+      if (operatorData == null) {
+        controller.add(null);
+        return;
+      }
+      controller.add(_fromDocs(uid, operatorData!, presenceData));
+    }
+
+    controller = StreamController<OperatorModel?>.broadcast(
+      onListen: () {
+        operatorSub = operatorRef.snapshots().listen((snap) {
+          hasOperatorSnapshot = true;
+          operatorData = snap.data();
+          emitCurrent();
+        }, onError: controller.addError);
+
+        presenceSub = presenceRef.snapshots().listen((snap) {
+          presenceData = snap.data();
+          if (hasOperatorSnapshot && operatorData != null) {
+            emitCurrent();
+          }
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        await operatorSub?.cancel();
+        await presenceSub?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   /// Creates or merges an operator document.
@@ -116,7 +160,6 @@ class OperatorRepository {
         OperatorFields.email: trimmedEmail,
         OperatorFields.operatorId: canonicalOperatorId,
         OperatorFields.operatorIdKey: operatorIdKey,
-        OperatorFields.isOnline: resolvedOnline,
         OperatorFields.updatedAt: FieldValue.serverTimestamp(),
         if (!operatorSnap.exists)
           OperatorFields.createdAt: FieldValue.serverTimestamp(),
@@ -177,22 +220,14 @@ class OperatorRepository {
 
   /// Sets the operator's online status.
   Future<void> setOnlineStatus(String uid, {required bool isOnline}) async {
-    final batch = _db.batch();
-    final operatorRef = _db.collection(FirestoreCollections.operators).doc(uid);
     final presenceRef = _db
         .collection(FirestoreCollections.operatorPresence)
         .doc(uid);
 
-    batch.update(operatorRef, {
-      OperatorFields.isOnline: isOnline,
-      OperatorFields.updatedAt: FieldValue.serverTimestamp(),
-    });
-    batch.set(presenceRef, {
+    await presenceRef.set({
       OperatorPresenceFields.isOnline: isOnline,
       OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
-
-    await batch.commit();
   }
 
   /// Mirrors the current online flag into the presence collection.
@@ -203,7 +238,18 @@ class OperatorRepository {
     }, SetOptions(merge: true));
   }
 
-  static OperatorModel _fromDoc(String uid, Map<String, dynamic> data) {
+  static OperatorModel _fromDocs(
+    String uid,
+    Map<String, dynamic> operatorData,
+    Map<String, dynamic>? presenceData,
+  ) {
+    final data = <String, dynamic>{
+      ...operatorData,
+      if (presenceData?[OperatorPresenceFields.isOnline] != null)
+        OperatorFields.isOnline:
+            presenceData?[OperatorPresenceFields.isOnline] == true,
+    };
+
     final createdAt = (data[OperatorFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[OperatorFields.updatedAt] as Timestamp?)?.toDate();
     return OperatorModel.fromMap(

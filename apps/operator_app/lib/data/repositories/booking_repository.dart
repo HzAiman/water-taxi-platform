@@ -133,14 +133,19 @@ class BookingRepository {
           throw StateError('You already rejected this booking.');
         }
 
-        final payload = <String, dynamic>{
+        tx.update(ref, {
           BookingFields.status: BookingStatus.accepted.firestoreValue,
           BookingFields.operatorUid: operatorId,
           BookingFields.operatorId: operatorId,
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
-        };
-
-        tx.update(ref, payload);
+        });
+        _appendStatusHistory(
+          tx: tx,
+          ref: ref,
+          from: status,
+          to: BookingStatus.accepted,
+          changedBy: operatorId,
+        );
       });
 
       return const OperationSuccess('Booking accepted successfully.');
@@ -192,13 +197,25 @@ class BookingRepository {
         final isFullyRejected =
             onlineIds.isNotEmpty && onlineIds.every(updated.contains);
 
+        final nextStatus = isFullyRejected
+            ? BookingStatus.rejected
+            : BookingStatus.pending;
+
         tx.update(ref, {
           BookingFields.rejectedBy: updated.toList(),
-          BookingFields.status: isFullyRejected
-              ? BookingStatus.rejected.firestoreValue
-              : BookingStatus.pending.firestoreValue,
+          BookingFields.status: nextStatus.firestoreValue,
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
         });
+
+        if (nextStatus != status) {
+          _appendStatusHistory(
+            tx: tx,
+            ref: ref,
+            from: status,
+            to: nextStatus,
+            changedBy: operatorId,
+          );
+        }
 
         return isFullyRejected;
       });
@@ -257,6 +274,14 @@ class BookingRepository {
             BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
             BookingFields.updatedAt: FieldValue.serverTimestamp(),
           });
+
+          _appendStatusHistory(
+            tx: tx,
+            ref: ref,
+            from: status,
+            to: BookingStatus.pending,
+            changedBy: operatorId,
+          );
         }),
       );
 
@@ -350,14 +375,35 @@ class BookingRepository {
     }).toList();
 
     for (final doc in accepted) {
-      final rejectedBy = _strList(doc.data()[BookingFields.rejectedBy]);
       await _runWithRetry(
-        () => doc.reference.update({
-          BookingFields.status: BookingStatus.pending.firestoreValue,
-          BookingFields.operatorUid: null,
-          BookingFields.operatorId: null,
-          BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
-          BookingFields.updatedAt: FieldValue.serverTimestamp(),
+        () => _db.runTransaction((tx) async {
+          final ref = doc.reference;
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            return;
+          }
+
+          final data = snap.data()!;
+          final currentStatus = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          final rejectedBy = _strList(data[BookingFields.rejectedBy]);
+
+          tx.update(ref, {
+            BookingFields.status: BookingStatus.pending.firestoreValue,
+            BookingFields.operatorUid: null,
+            BookingFields.operatorId: null,
+            BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          _appendStatusHistory(
+            tx: tx,
+            ref: ref,
+            from: currentStatus,
+            to: BookingStatus.pending,
+            changedBy: operatorId,
+          );
         }),
       );
     }
@@ -375,23 +421,42 @@ class BookingRepository {
     double? operatorLng,
   }) async {
     try {
-      final payload = <String, dynamic>{
-        BookingFields.status: status.firestoreValue,
-        BookingFields.operatorUid: operatorId,
-        BookingFields.operatorId: operatorId,
-        BookingFields.updatedAt: FieldValue.serverTimestamp(),
-      };
-
-      if (operatorLat != null && operatorLng != null) {
-        payload[BookingFields.operatorLat] = operatorLat;
-        payload[BookingFields.operatorLng] = operatorLng;
-      }
-
       await _runWithRetry(
-        () => _db
-            .collection(FirestoreCollections.bookings)
-            .doc(bookingId)
-            .update(payload),
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snap.data()!;
+          final currentStatus = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+
+          final payload = <String, dynamic>{
+            BookingFields.status: status.firestoreValue,
+            BookingFields.operatorUid: operatorId,
+            BookingFields.operatorId: operatorId,
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          };
+
+          if (operatorLat != null && operatorLng != null) {
+            payload[BookingFields.operatorLat] = operatorLat;
+            payload[BookingFields.operatorLng] = operatorLng;
+          }
+
+          tx.update(ref, payload);
+          _appendStatusHistory(
+            tx: tx,
+            ref: ref,
+            from: currentStatus,
+            to: status,
+            changedBy: operatorId,
+          );
+        }),
       );
 
       final label = status == BookingStatus.onTheWay ? 'started' : 'completed';
@@ -468,7 +533,9 @@ class BookingRepository {
   }
 
   static String _assignedOperatorUid(Map<String, dynamic> data) {
-    return (data[BookingFields.operatorUid] ?? data[BookingFields.operatorId] ?? '')
+    return (data[BookingFields.operatorUid] ??
+            data[BookingFields.operatorId] ??
+            '')
         .toString();
   }
 
@@ -536,5 +603,20 @@ class BookingRepository {
     if (value is double) return value;
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
+  }
+
+  void _appendStatusHistory({
+    required Transaction tx,
+    required DocumentReference<Map<String, dynamic>> ref,
+    required BookingStatus from,
+    required BookingStatus to,
+    required String changedBy,
+  }) {
+    tx.set(ref.collection(BookingSubcollections.statusHistory).doc(), {
+      BookingStatusHistoryFields.from: from.firestoreValue,
+      BookingStatusHistoryFields.to: to.firestoreValue,
+      BookingStatusHistoryFields.changedBy: changedBy,
+      BookingStatusHistoryFields.timestamp: FieldValue.serverTimestamp(),
+    });
   }
 }

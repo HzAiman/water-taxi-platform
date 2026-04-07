@@ -7,7 +7,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
   group('OperatorRepository', () {
-    test('setOnlineStatus mirrors operator presence document', () async {
+    test('setOnlineStatus updates only operator presence document', () async {
       final firestore = FakeFirebaseFirestore();
       final repository = OperatorRepository(firestore: firestore);
 
@@ -32,7 +32,7 @@ void main() {
           .doc('operator-1')
           .get();
 
-      expect(operatorSnap.data()?[OperatorFields.isOnline], isTrue);
+      expect(operatorSnap.data()?[OperatorFields.isOnline], isFalse);
       expect(presenceSnap.data()?[OperatorPresenceFields.isOnline], isTrue);
     });
   });
@@ -57,12 +57,8 @@ void main() {
             BookingFields.adultCount: 1,
             BookingFields.childCount: 0,
             BookingFields.passengerCount: 1,
-            BookingFields.adultFare: 10.0,
-            BookingFields.childFare: 5.0,
-            BookingFields.adultSubtotal: 10.0,
-            BookingFields.childSubtotal: 0.0,
-            BookingFields.fare: 10.0,
             BookingFields.totalFare: 10.0,
+            BookingFields.fareSnapshotId: 'fare-snapshot-test',
             BookingFields.paymentMethod: PaymentMethods.onlineBanking,
             BookingFields.paymentStatus: 'paid',
             BookingFields.status: BookingStatus.pending.firestoreValue,
@@ -94,6 +90,23 @@ void main() {
           {'lat': 2.3, 'lng': 102.3},
         ]),
       );
+
+      final historySnap = await bookingSnap.reference
+          .collection(BookingSubcollections.statusHistory)
+          .get();
+      expect(historySnap.docs, hasLength(1));
+      expect(
+        historySnap.docs.first.data()[BookingStatusHistoryFields.from],
+        BookingStatus.pending.firestoreValue,
+      );
+      expect(
+        historySnap.docs.first.data()[BookingStatusHistoryFields.to],
+        BookingStatus.accepted.firestoreValue,
+      );
+      expect(
+        historySnap.docs.first.data()[BookingStatusHistoryFields.changedBy],
+        'operator-1',
+      );
     });
 
     test('acceptBooking succeeds without optional route config', () async {
@@ -115,12 +128,8 @@ void main() {
             BookingFields.adultCount: 1,
             BookingFields.childCount: 0,
             BookingFields.passengerCount: 1,
-            BookingFields.adultFare: 10.0,
-            BookingFields.childFare: 5.0,
-            BookingFields.adultSubtotal: 10.0,
-            BookingFields.childSubtotal: 0.0,
-            BookingFields.fare: 10.0,
             BookingFields.totalFare: 10.0,
+            BookingFields.fareSnapshotId: 'fare-snapshot-test',
             BookingFields.paymentMethod: PaymentMethods.onlineBanking,
             BookingFields.paymentStatus: 'paid',
             BookingFields.status: BookingStatus.pending.firestoreValue,
@@ -166,12 +175,8 @@ void main() {
               BookingFields.adultCount: 1,
               BookingFields.childCount: 0,
               BookingFields.passengerCount: 1,
-              BookingFields.adultFare: 10.0,
-              BookingFields.childFare: 5.0,
-              BookingFields.adultSubtotal: 10.0,
-              BookingFields.childSubtotal: 0.0,
-              BookingFields.fare: 10.0,
               BookingFields.totalFare: 10.0,
+              BookingFields.fareSnapshotId: 'fare-snapshot-test',
               BookingFields.paymentMethod: PaymentMethods.onlineBanking,
               BookingFields.paymentStatus: 'paid',
               BookingFields.status: BookingStatus.pending.firestoreValue,
@@ -224,12 +229,8 @@ void main() {
               BookingFields.adultCount: 1,
               BookingFields.childCount: 0,
               BookingFields.passengerCount: 1,
-              BookingFields.adultFare: 10.0,
-              BookingFields.childFare: 5.0,
-              BookingFields.adultSubtotal: 10.0,
-              BookingFields.childSubtotal: 0.0,
-              BookingFields.fare: 10.0,
               BookingFields.totalFare: 10.0,
+              BookingFields.fareSnapshotId: 'fare-snapshot-test',
               BookingFields.paymentMethod: PaymentMethods.onlineBanking,
               BookingFields.paymentStatus: 'paid',
               BookingFields.status: BookingStatus.pending.firestoreValue,

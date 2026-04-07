@@ -20,6 +20,7 @@ abstract final class BookingFields {
   static const String childSubtotal = 'childSubtotal';
   static const String fare = 'fare';
   static const String totalFare = 'totalFare';
+  static const String fareSnapshotId = 'fareSnapshotId';
   static const String paymentMethod = 'paymentMethod';
   static const String paymentStatus = 'paymentStatus';
   static const String orderNumber = 'orderNumber';
@@ -33,6 +34,19 @@ abstract final class BookingFields {
   static const String createdAt = 'createdAt';
   static const String updatedAt = 'updatedAt';
   static const String cancelledAt = 'cancelledAt';
+}
+
+/// Field name constants for booking subcollections.
+abstract final class BookingSubcollections {
+  static const String statusHistory = 'statusHistory';
+}
+
+/// Field name constants for `bookings/{id}/statusHistory` documents.
+abstract final class BookingStatusHistoryFields {
+  static const String from = 'from';
+  static const String to = 'to';
+  static const String changedBy = 'changedBy';
+  static const String timestamp = 'timestamp';
 }
 
 /// Field name constants for the `users` Firestore collection.
