@@ -244,6 +244,7 @@ void main() {
         BookingFields.operatorUid: 'operator-1',
         BookingFields.operatorId: 'operator-1',
         BookingFields.updatedAt: Timestamp.now(),
+        BookingFields.routePolyline: FieldValue.delete(),
         'routeCoordinates': const [
           {'lat': 2.2000, 'lng': 102.2600},
           {'lat': 2.2100, 'lng': 102.2700},

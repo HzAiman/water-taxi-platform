@@ -18,6 +18,77 @@ Top-level collections:
 - user_devices
 - users
 
+## Schema Review Notes
+
+Priority migration items identified during review:
+
+1. Booking fare denormalization
+- Current bookings store `adultFare`, `childFare`, `adultSubtotal`, `childSubtotal`, `fare`, and `totalFare`.
+- Recommended direction: keep only the final booking total plus a `fareSnapshotId` that points to the fare document used at booking time.
+- If subtotals are needed for display, derive them from the snapshot instead of storing multiple copies on the booking.
+
+2. Operator online state duplication
+- `operator_presence.isOnline` and `operators.isOnline` currently duplicate the same state.
+- Recommended direction: keep online state only in `operator_presence` and remove `isOnline` from `operators`.
+- `operator_presence` is the better fit for high-frequency presence writes.
+
+3. Legacy booking polyline fields
+- `routeCoordinates`, `polylineCoordinates`, and `routePoints` are legacy compatibility fields alongside `routePolyline`.
+- Recommended direction: consolidate booking route storage to one canonical reference, ideally a `polylines` document id instead of embedding geometry in every booking.
+- Keep legacy reads during migration, but stop writing the older variants for new bookings.
+
+4. Booking status history
+- Current bookings do not retain an audit trail for status transitions.
+- Recommended direction: add a `bookings/{id}/statusHistory` subcollection with records shaped like `{ from, to, changedBy, timestamp }`.
+- This would provide a durable dispute timeline without changing the main booking document.
+
+5. Rejection tracking
+- `rejectedBy` is currently a booking field, but its query semantics are not documented.
+- Recommended direction: clarify whether it stores operator UIDs, or move rejection events into a per-booking subcollection if you need efficient operator-based queries.
+
+6. Passenger snapshot fields
+- `userName` and `userPhone` on bookings may intentionally act as a receipt snapshot, but that intent is not documented.
+- Recommended direction: document snapshot semantics explicitly, or add a backfill path if booking records must always mirror the latest profile data.
+
+7. Booking archival
+- Completed and cancelled bookings will grow without bound.
+- Recommended direction: define an archival policy, such as moving old bookings to `bookings_archive` or exporting them to BigQuery after N days.
+
+8. Order number uniqueness
+- `orderNumber` is not protected by a Firestore unique constraint.
+- Recommended direction: enforce uniqueness in application code with a transaction-backed order index or counter collection.
+
+Quick wins that can be applied with low risk:
+- Drop `isOnline` from `operators` and keep presence state in `operator_presence` only.
+- Stop writing the legacy booking polyline fields on new writes, while continuing to read them until migration completes.
+- Add the `statusHistory` subcollection as an additive audit trail.
+
+## Migration Plan
+
+Phase 1: Stop the drift sources
+- Remove `operators.isOnline` from new writes and treat `operator_presence.isOnline` as the single source of truth.
+- Stop writing `routeCoordinates`, `polylineCoordinates`, and `routePoints` on new bookings.
+- Add `bookings/{id}/statusHistory` for all future status changes.
+
+Phase 2: Tighten booking snapshots
+- Replace the repeated fare fields on bookings with a single `totalFare` plus `fareSnapshotId`.
+- Document whether `userName` and `userPhone` are immutable booking snapshots or should be backfilled.
+- Clarify `rejectedBy` semantics and decide whether it should remain a field or move into a subcollection.
+
+Phase 3: Normalize route storage
+- Move booking route references from embedded geometry to a canonical `polylines` document reference.
+- Keep legacy read paths in place until older booking records are migrated or expired.
+
+Phase 4: Lifecycle and retention
+- Define a booking archival policy for completed and cancelled records.
+- Add an application-level uniqueness strategy for `orderNumber` using a transactional index or counter collection.
+
+Suggested acceptance criteria:
+- No new booking writes include the deprecated polyline fields.
+- No new operator profile writes set `isOnline`.
+- Status changes append a `statusHistory` event.
+- Booking reads still tolerate legacy polyline documents until migration is complete.
+
 ## 1) bookings
 
 Purpose:
