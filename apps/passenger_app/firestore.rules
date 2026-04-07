@@ -287,6 +287,11 @@ service cloud.firestore {
       allow create, update, delete: if false;
     }
 
+    match /polylines/{polylineId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+    }
+
     match /bookings/{bookingId} {
       allow read: if isOwner(resource.data.userId)
         || (

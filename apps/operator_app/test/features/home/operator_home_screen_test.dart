@@ -360,8 +360,6 @@ void main() {
       _sampleBooking(
         id: 'active-guidance-1',
         status: BookingStatus.onTheWay,
-        routeStartSeq: 1,
-        routeEndSeq: 4,
         operatorLat: 2.2012,
         operatorLng: 102.2512,
         routePolyline: const [
@@ -411,8 +409,6 @@ void main() {
       _sampleBooking(
         id: 'active-no-guidance-1',
         status: BookingStatus.accepted,
-        routeStartSeq: 1,
-        routeEndSeq: 4,
       ),
     ]);
     await tester.pumpAndSettle();
@@ -452,8 +448,6 @@ void main() {
         _sampleBooking(
           id: 'active-guidance-offroute-1',
           status: BookingStatus.onTheWay,
-          routeStartSeq: 1,
-          routeEndSeq: 2,
           operatorLat: 2.2010,
           operatorLng: 102.2550,
           routePolyline: const [
@@ -587,8 +581,6 @@ class _FakeBookingRepository extends BookingRepository {
 BookingModel _sampleBooking({
   required String id,
   required BookingStatus status,
-  int? routeStartSeq,
-  int? routeEndSeq,
   double? operatorLat,
   double? operatorLng,
   List<BookingRoutePoint> routePolyline = const [],
@@ -600,8 +592,6 @@ BookingModel _sampleBooking({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
-    originCheckpointSeq: routeStartSeq,
-    destinationCheckpointSeq: routeEndSeq,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,

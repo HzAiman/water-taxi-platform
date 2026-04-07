@@ -75,6 +75,74 @@ void main() {
       expect((last['lat'] as num).toDouble(), closeTo(2.2130, 0.000001));
       expect((last['lng'] as num).toDouble(), closeTo(102.2485, 0.000001));
     });
+
+    test('falls back to legacy navigation corridor geometry when polylines are unavailable', () async {
+      final firestore = FakeFirebaseFirestore();
+      await firestore
+          .collection(FirestoreCollections.navigationCorridors)
+          .doc('melaka_main_01')
+          .set({
+            NavigationCorridorFields.polyline: const [
+              {'lat': 2.2000, 'lng': 102.2500},
+              {'lat': 2.2010, 'lng': 102.2510},
+              {'lat': 2.2020, 'lng': 102.2520},
+              {'lat': 2.2030, 'lng': 102.2530},
+            ],
+          });
+
+      final repo = BookingRepository(firestore: firestore);
+      final bookingId = await repo.createBooking(
+        _params(
+          originLat: 2.2002,
+          originLng: 102.2502,
+          destinationLat: 2.2028,
+          destinationLng: 102.2528,
+        ),
+      );
+
+      final bookingDoc = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      final data = bookingDoc.data();
+
+      expect(data, isNotNull);
+      final polyline = data![BookingFields.routePolyline] as List<dynamic>;
+      expect(polyline.length, greaterThanOrEqualTo(3));
+    });
+
+    test('parses nested coordinate path formats', () async {
+      final firestore = FakeFirebaseFirestore();
+      await firestore.collection('polylines').doc('route_nested').set({
+        'path': {
+          'coordinates': const [
+            {'lat': 2.2000, 'lng': 102.2500},
+            {'lat': 2.2010, 'lng': 102.2510},
+            {'lat': 2.2020, 'lng': 102.2520},
+          ],
+        },
+      });
+
+      final repo = BookingRepository(firestore: firestore);
+      final bookingId = await repo.createBooking(
+        _params(
+          originLat: 2.2002,
+          originLng: 102.2502,
+          destinationLat: 2.2018,
+          destinationLng: 102.2518,
+        ),
+      );
+
+      final bookingDoc = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      final data = bookingDoc.data();
+
+      expect(data, isNotNull);
+      final polyline = data![BookingFields.routePolyline] as List<dynamic>;
+      expect(polyline.length, greaterThanOrEqualTo(3));
+    });
   });
 }
 

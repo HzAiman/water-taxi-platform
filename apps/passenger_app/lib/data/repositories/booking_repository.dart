@@ -202,53 +202,92 @@ class BookingRepository {
   }) async {
     final origin = _LatLngPoint(lat: originLat, lng: originLng);
     final destination = _LatLngPoint(lat: destinationLat, lng: destinationLng);
+    final polylineSources = await _loadPolylineSources();
+    _PolylineMatch? bestMatch;
 
-    try {
-      final snap = await _db.collection(FirestoreCollections.polylines).get();
-      _PolylineMatch? bestMatch;
+    for (final raw in polylineSources) {
+      final parsed = _normaliseRoutePolyline(raw);
+      if (parsed == null || parsed.length < 2) {
+        continue;
+      }
 
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final raw =
-            data['path'] ?? data['polyline'] ?? data[BookingFields.routePolyline];
-        final parsed = _normaliseRoutePolyline(raw);
-        if (parsed == null || parsed.length < 2) {
-          continue;
-        }
+      final points = parsed
+          .map((p) => _LatLngPoint(lat: p['lat']!, lng: p['lng']!))
+          .toList();
+      final startSnap = _snapPointToPolyline(origin, points);
+      final endSnap = _snapPointToPolyline(destination, points);
+      final score = startSnap.distanceSquared + endSnap.distanceSquared;
 
-        final points = parsed
-            .map((p) => _LatLngPoint(lat: p['lat']!, lng: p['lng']!))
+      if (bestMatch == null || score < bestMatch.score) {
+        bestMatch = _PolylineMatch(
+          polyline: points,
+          start: startSnap,
+          end: endSnap,
+          score: score,
+        );
+      }
+    }
+
+    if (bestMatch != null) {
+      final segment = _extractSegment(bestMatch);
+      if (segment.length >= 3) {
+        return segment
+            .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
             .toList();
-        final startSnap = _snapPointToPolyline(origin, points);
-        final endSnap = _snapPointToPolyline(destination, points);
-        final score = startSnap.distanceSquared + endSnap.distanceSquared;
-
-        if (bestMatch == null || score < bestMatch.score) {
-          bestMatch = _PolylineMatch(
-            polyline: points,
-            start: startSnap,
-            end: endSnap,
-            score: score,
-          );
-        }
       }
 
-      if (bestMatch != null) {
-        final segment = _extractSegment(bestMatch);
-        if (segment.length >= 2) {
-          return segment
-              .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
-              .toList();
-        }
+      // If snapped segment is too short but source geometry is richer,
+      // keep the richer route to avoid rendering a misleading straight line.
+      if (bestMatch.polyline.length >= 3) {
+        return bestMatch.polyline
+            .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
+            .toList();
       }
-    } catch (_) {
-      // Fall back to direct origin→destination line when route docs are missing.
     }
 
     return [
       <String, double>{'lat': origin.lat, 'lng': origin.lng},
       <String, double>{'lat': destination.lat, 'lng': destination.lng},
     ];
+  }
+
+  Future<List<dynamic>> _loadPolylineSources() async {
+    final sources = <dynamic>[];
+
+    try {
+      final snap = await _db.collection(FirestoreCollections.polylines).get();
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        sources.add(
+          data['path'] ??
+              data['coordinates'] ??
+              data['polyline'] ??
+              data['geometry'] ??
+              data[BookingFields.routePolyline],
+        );
+      }
+    } catch (_) {
+      // Continue with legacy fallback below.
+    }
+
+    if (sources.isNotEmpty) {
+      return sources;
+    }
+
+    try {
+      final legacySnap = await _db
+          .collection(FirestoreCollections.navigationCorridors)
+          .limit(5)
+          .get();
+      for (final doc in legacySnap.docs) {
+        final data = doc.data();
+        sources.add(data[NavigationCorridorFields.polyline]);
+      }
+    } catch (_) {
+      // No legacy fallback available.
+    }
+
+    return sources;
   }
 
   static _SnapResult _snapPointToPolyline(
@@ -377,6 +416,30 @@ class BookingRepository {
   }
 
   static List<Map<String, double>>? _normaliseRoutePolyline(dynamic raw) {
+    if (raw is Map) {
+      raw =
+          raw['path'] ??
+          raw['coordinates'] ??
+          raw['polyline'] ??
+          raw['points'] ??
+          raw['geometry'];
+    }
+
+    if (raw is String) {
+      final compact = raw.trim();
+      if (compact.contains(';')) {
+        final pairs = compact.split(';').map((e) => e.trim()).where((e) => e.isNotEmpty);
+        final points = <Map<String, double>>[];
+        for (final pair in pairs) {
+          final point = _toRoutePointMap(pair);
+          if (point != null) {
+            points.add(point);
+          }
+        }
+        return points.isEmpty ? null : points;
+      }
+    }
+
     if (raw is! Iterable) return null;
 
     final points = <Map<String, double>>[];

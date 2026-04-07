@@ -290,8 +290,6 @@ Fields:
 ## Live Composite Indexes Retrieved
 
 Collection group bookings:
-- corridorId ASC, status ASC, updatedAt DESC
-- corridorId ASC, originCheckpointSeq ASC, destinationCheckpointSeq ASC, createdAt DESC
 - status ASC, operatorId ASC, createdAt ASC
 - operatorId ASC, status ASC, updatedAt DESC
 - userId ASC, createdAt DESC
