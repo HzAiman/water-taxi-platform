@@ -8,10 +8,6 @@ abstract final class BookingFields {
   static const String destination = 'destination';
   @Deprecated('No longer used for booking writes.')
   static const String routeKey = 'routeKey';
-  static const String corridorId = 'corridorId';
-  static const String corridorVersion = 'corridorVersion';
-  static const String originCheckpointSeq = 'originCheckpointSeq';
-  static const String destinationCheckpointSeq = 'destinationCheckpointSeq';
   static const String originCoords = 'originCoords';
   static const String destinationCoords = 'destinationCoords';
   static const String routePolyline = 'routePolyline';
@@ -88,18 +84,4 @@ abstract final class FareFields {
   static const String destination = 'destination';
   static const String adultFare = 'adultFare';
   static const String childFare = 'childFare';
-}
-
-/// Field name constants for the `navigation_corridors` collection.
-abstract final class NavigationCorridorFields {
-  static const String corridorId = 'corridorId';
-  static const String corridorName = 'corridorName';
-  static const String riverName = 'riverName';
-  static const String isActive = 'isActive';
-  static const String version = 'version';
-  static const String checkpointCount = 'checkpointCount';
-  static const String checkpointOrder = 'checkpointOrder';
-  static const String checkpoints = 'checkpoints';
-  static const String polyline = 'polyline';
-  static const String updatedAt = 'updatedAt';
 }

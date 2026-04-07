@@ -11,26 +11,31 @@ void main() {
   ) async {
     final firestore = FakeFirebaseFirestore();
 
-    await firestore.collection(FirestoreCollections.operators).doc('operator-1').set({
-      OperatorFields.operatorId: 'OP-1',
-      OperatorFields.name: 'Captain Aiman',
-      OperatorFields.email: 'captain@example.com',
-      OperatorFields.isOnline: true,
-    });
+    await firestore
+        .collection(FirestoreCollections.operators)
+        .doc('operator-1')
+        .set({
+          OperatorFields.operatorId: 'OP-1',
+          OperatorFields.name: 'Captain Aiman',
+          OperatorFields.email: 'captain@example.com',
+          OperatorFields.isOnline: true,
+        });
     await firestore
         .collection(FirestoreCollections.operatorPresence)
         .doc('operator-1')
         .set({
-      OperatorPresenceFields.isOnline: true,
-      OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime(2026, 3, 15, 10, 0)),
-    });
+          OperatorPresenceFields.isOnline: true,
+          OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime.now()),
+        });
     await firestore
         .collection(FirestoreCollections.operatorPresence)
         .doc('operator-2')
         .set({
-      OperatorPresenceFields.isOnline: false,
-      OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime(2020, 1, 1, 0, 0)),
-    });
+          OperatorPresenceFields.isOnline: false,
+          OperatorPresenceFields.updatedAt: Timestamp.fromDate(
+            DateTime(2020, 1, 1, 0, 0),
+          ),
+        });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -44,7 +49,10 @@ void main() {
 
     expect(find.text('Presence Summary'), findsOneWidget);
     expect(find.text('Current Operator'), findsOneWidget);
-    expect(find.text('Presence sync looks consistent for this operator.'), findsOneWidget);
+    expect(
+      find.text('Presence sync looks consistent for this operator.'),
+      findsOneWidget,
+    );
     expect(find.text('Sync My Presence Now'), findsOneWidget);
 
     await tester.scrollUntilVisible(
@@ -60,7 +68,9 @@ void main() {
     expect(find.text('OFFLINE'), findsOneWidget);
     expect(find.text('Mark Stale Offline (Server Admin)'), findsOneWidget);
     expect(
-      find.text('Disabled in client app. Use the server-admin operation path for cleanup.'),
+      find.text(
+        'Disabled in client app. Use the server-admin operation path for cleanup.',
+      ),
       findsOneWidget,
     );
     expect(find.text('operator-1 (current)'), findsOneWidget);
@@ -72,19 +82,24 @@ void main() {
   ) async {
     final firestore = FakeFirebaseFirestore();
 
-    await firestore.collection(FirestoreCollections.operators).doc('operator-1').set({
-      OperatorFields.operatorId: 'OP-1',
-      OperatorFields.name: 'Captain Aiman',
-      OperatorFields.email: 'captain@example.com',
-      OperatorFields.isOnline: true,
-    });
+    await firestore
+        .collection(FirestoreCollections.operators)
+        .doc('operator-1')
+        .set({
+          OperatorFields.operatorId: 'OP-1',
+          OperatorFields.name: 'Captain Aiman',
+          OperatorFields.email: 'captain@example.com',
+          OperatorFields.isOnline: true,
+        });
     await firestore
         .collection(FirestoreCollections.operatorPresence)
         .doc('operator-1')
         .set({
-      OperatorPresenceFields.isOnline: false,
-      OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime(2026, 3, 15, 9, 59)),
-    });
+          OperatorPresenceFields.isOnline: false,
+          OperatorPresenceFields.updatedAt: Timestamp.fromDate(
+            DateTime(2026, 3, 15, 9, 59),
+          ),
+        });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -115,26 +130,31 @@ void main() {
   ) async {
     final firestore = FakeFirebaseFirestore();
 
-    await firestore.collection(FirestoreCollections.operators).doc('operator-1').set({
-      OperatorFields.operatorId: 'OP-1',
-      OperatorFields.name: 'Captain Aiman',
-      OperatorFields.email: 'captain@example.com',
-      OperatorFields.isOnline: true,
-    });
+    await firestore
+        .collection(FirestoreCollections.operators)
+        .doc('operator-1')
+        .set({
+          OperatorFields.operatorId: 'OP-1',
+          OperatorFields.name: 'Captain Aiman',
+          OperatorFields.email: 'captain@example.com',
+          OperatorFields.isOnline: true,
+        });
     await firestore
         .collection(FirestoreCollections.operatorPresence)
         .doc('operator-1')
         .set({
-      OperatorPresenceFields.isOnline: true,
-      OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime.now()),
-    });
+          OperatorPresenceFields.isOnline: true,
+          OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime.now()),
+        });
     await firestore
         .collection(FirestoreCollections.operatorPresence)
         .doc('operator-2')
         .set({
-      OperatorPresenceFields.isOnline: true,
-      OperatorPresenceFields.updatedAt: Timestamp.fromDate(DateTime(2020, 1, 1, 0, 0)),
-    });
+          OperatorPresenceFields.isOnline: true,
+          OperatorPresenceFields.updatedAt: Timestamp.fromDate(
+            DateTime(2020, 1, 1, 0, 0),
+          ),
+        });
 
     await tester.pumpWidget(
       MaterialApp(
@@ -157,7 +177,9 @@ void main() {
     expect(find.text('operator-2'), findsWidgets);
     expect(find.text('Mark Stale Offline (Server Admin)'), findsOneWidget);
     expect(
-      find.text('Disabled in client app. Use the server-admin operation path for cleanup.'),
+      find.text(
+        'Disabled in client app. Use the server-admin operation path for cleanup.',
+      ),
       findsOneWidget,
     );
   });

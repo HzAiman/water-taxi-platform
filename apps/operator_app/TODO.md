@@ -17,28 +17,28 @@ Prepare `operator_app` for reliable end-to-end booking lifecycle with `passenger
 ### P2: Cross-App Roadmap - River Navigation (14 Jetties)
 
 #### Phase A: Contract and Data Foundation (Blocking)
-- [x] Define canonical Firestore corridor schema for one river route with ordered checkpoints (14 jetties), including sequence constraints and read-only client policy.
-- [x] Extend shared booking/domain contracts with corridor metadata needed for operator navigation while preserving existing booking lifecycle compatibility.
-- [x] Update and deploy Firestore rules and indexes for corridor reads and corridor-linked booking queries.
+- [x] Define canonical Firestore route polyline schema for one river route (14 jetties coverage) with read-only client policy.
+- [x] Extend shared booking/domain contracts with route polyline metadata needed for operator navigation while preserving existing booking lifecycle compatibility.
+- [x] Update and deploy Firestore rules and indexes for polyline reads and booking queries.
 - [x] Keep this roadmap synchronized with passenger TODO for shared milestone visibility.
 
 #### Phase B: Operator Navigation Engine (Depends on Phase A)
-- [x] Add operator corridor data access and origin/destination to checkpoint-sequence binding.
-- [x] Implement navigation logic: nearest checkpoint resolution, progress detection, off-route tolerance, remaining distance, and speed-based ETA.
+- [x] Add operator polyline route access and origin/destination route-segment binding.
+- [x] Implement navigation logic: nearest route marker resolution, progress detection, off-route tolerance, remaining distance, and speed-based ETA.
 - [x] Integrate navigation lifecycle into operator home view model so it starts/stops with active bookings and respects existing refresh/reconnect behavior.
-- [x] Add basic guidance UI in operator home (progress, next checkpoint, remaining distance, ETA) without turn-by-turn prompts.
-- [x] Add lightweight checkpoint/off-route/resume event notifications via existing notification coordinator and channels.
+- [x] Add basic guidance UI in operator home (progress, next route marker, remaining distance, ETA) without turn-by-turn prompts.
+- [x] Add lightweight route-marker/off-route/resume event notifications via existing notification coordinator and channels.
 
 #### Phase C: Cross-App Visibility and Resilience (Depends on Phase B)
 - [x] Add passenger/shared tracking alignment notes and minimal passenger metadata handling where required.
-- [x] Implement graceful fallback when corridor config is unavailable so booking actions remain fully functional.
+- [x] Implement graceful fallback when route polyline config is unavailable so booking actions remain fully functional.
 - [x] Regression-check dispatch contention, cancellation, and reject/release reliability paths to ensure no behavior drift.
 - [x] Ensure passenger can track operator approach to pickup after status becomes `on_the_way`.
 
 #### Phase D: Verification and Rollout Hardening (Parallelizable After Core Integration)
-- [x] Add unit tests for corridor parsing, progression logic, off-route threshold behavior, and ETA calculations.
+- [x] Add unit tests for route polyline parsing, progression logic, off-route threshold behavior, and ETA calculations.
 - [x] Add view model/widget tests for guidance rendering and booking-state transitions.
-- [x] Add integration flow coverage: accept -> start -> checkpoint progression -> off-route/recover -> complete.
+- [x] Add integration flow coverage: accept -> start -> route progression -> off-route/recover -> complete.
 - [x] Run Android/iOS smoke checks for map, permissions, overlay readability, and stream-refresh stability.
   - [x] Android smoke launch verified on device `CLK NX1` (19 Mar 2026, debug no-resident run for `operator_app` and `passenger_app`).
   - [x] iOS smoke check deferred (out of current scope: Android-first release).

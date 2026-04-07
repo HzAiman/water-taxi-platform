@@ -74,7 +74,7 @@ void main() {
   });
 
   group('BookingTrackingScreen widgets', () {
-    testWidgets('renders accepted status with cancel action', (tester) async {
+    testWidgets('renders accepted status with close action', (tester) async {
       final bookingRepo = _FakeBookingRepository();
       final vm = BookingTrackingViewModel(bookingRepo: bookingRepo);
 
@@ -86,7 +86,7 @@ void main() {
               bookingId: 'booking-1',
               origin: 'Jetty A',
               destination: 'Jetty B',
-              passengerCount: 2,
+              passengerCount: 1,
               mapBuilder:
                   ({
                     required initialCameraPosition,
@@ -105,53 +105,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('mock-tracking-map')), findsOneWidget);
       expect(find.text('Booking Confirmed'), findsOneWidget);
       expect(
         find.text('An operator has accepted your booking.'),
-        findsOneWidget,
-      );
-      expect(find.text('Booking Progress'), findsOneWidget);
-      expect(find.text('Request Sent'), findsOneWidget);
-      expect(find.text('Operator Assigned'), findsOneWidget);
-      expect(find.text('Trip In Progress'), findsOneWidget);
-      expect(find.text('Trip Completed'), findsOneWidget);
-    });
-
-    testWidgets('renders completed status with close action', (tester) async {
-      final bookingRepo = _FakeBookingRepository();
-      final vm = BookingTrackingViewModel(bookingRepo: bookingRepo);
-
-      await tester.pumpWidget(
-        ChangeNotifierProvider<BookingTrackingViewModel>.value(
-          value: vm,
-          child: MaterialApp(
-            home: BookingTrackingScreen(
-              bookingId: 'booking-2',
-              origin: 'Jetty A',
-              destination: 'Jetty B',
-              passengerCount: 2,
-              mapBuilder:
-                  ({
-                    required initialCameraPosition,
-                    required markers,
-                    required polylines,
-                  }) {
-                    return const SizedBox(key: ValueKey('mock-tracking-map'));
-                  },
-            ),
-          ),
-        ),
-      );
-
-      bookingRepo.emitTrackedBooking(
-        _sampleBooking(id: 'booking-2', status: BookingStatus.completed),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Trip Completed'), findsAtLeastNWidgets(1));
-      expect(
-        find.text('This booking has been completed successfully.'),
         findsOneWidget,
       );
     });
@@ -196,7 +152,7 @@ void main() {
       );
     });
 
-    testWidgets('renders corridor metadata notice when available', (
+    testWidgets('does not render legacy corridor metadata notice', (
       tester,
     ) async {
       final bookingRepo = _FakeBookingRepository();
@@ -225,131 +181,111 @@ void main() {
       );
 
       bookingRepo.emitTrackedBooking(
-        _sampleBooking(
-          id: 'booking-3a',
-          status: BookingStatus.onTheWay,
-          corridorId: 'melaka_main_01',
-          corridorVersion: 1,
-          originCheckpointSeq: 3,
-          destinationCheckpointSeq: 10,
-        ),
+        _sampleBooking(id: 'booking-3a', status: BookingStatus.onTheWay),
       );
       await tester.pumpAndSettle();
 
       await tester.drag(find.byType(ListView).first, const Offset(0, -240));
       await tester.pumpAndSettle();
 
-      expect(find.text('Route Corridor'), findsOneWidget);
-      expect(
-        find.text(
-          'Corridor melaka_main_01 (v1) - Segment checkpoint 3 to 10.',
-        ),
-        findsOneWidget,
-      );
+      expect(find.text('Route Corridor'), findsNothing);
     });
 
-    testWidgets(
-      'uses route polyline and gates operator marker to on_the_way',
-      (tester) async {
-        final bookingRepo = _FakeBookingRepository();
-        final vm = BookingTrackingViewModel(bookingRepo: bookingRepo);
+    testWidgets('uses route polyline and gates operator marker to on_the_way', (
+      tester,
+    ) async {
+      final bookingRepo = _FakeBookingRepository();
+      final vm = BookingTrackingViewModel(bookingRepo: bookingRepo);
 
-        Set<Marker> latestMarkers = const <Marker>{};
-        Set<Polyline> latestPolylines = const <Polyline>{};
+      Set<Marker> latestMarkers = const <Marker>{};
+      Set<Polyline> latestPolylines = const <Polyline>{};
 
-        await tester.pumpWidget(
-          ChangeNotifierProvider<BookingTrackingViewModel>.value(
-            value: vm,
-            child: MaterialApp(
-              home: BookingTrackingScreen(
-                bookingId: 'booking-4',
-                origin: 'Jetty A',
-                destination: 'Jetty B',
-                passengerCount: 2,
-                mapBuilder:
-                    ({
-                      required initialCameraPosition,
-                      required markers,
-                      required polylines,
-                    }) {
-                      latestMarkers = markers;
-                      latestPolylines = polylines;
-                      return const SizedBox(key: ValueKey('mock-tracking-map'));
-                    },
-              ),
+      await tester.pumpWidget(
+        ChangeNotifierProvider<BookingTrackingViewModel>.value(
+          value: vm,
+          child: MaterialApp(
+            home: BookingTrackingScreen(
+              bookingId: 'booking-4',
+              origin: 'Jetty A',
+              destination: 'Jetty B',
+              passengerCount: 2,
+              mapBuilder:
+                  ({
+                    required initialCameraPosition,
+                    required markers,
+                    required polylines,
+                  }) {
+                    latestMarkers = markers;
+                    latestPolylines = polylines;
+                    return const SizedBox(key: ValueKey('mock-tracking-map'));
+                  },
             ),
           ),
-        );
+        ),
+      );
 
-        bookingRepo.emitTrackedBooking(
-          _sampleBooking(
-            id: 'booking-4',
-            status: BookingStatus.accepted,
-            operatorLat: 2.10,
-            operatorLng: 102.10,
-            routePolyline: const [
-              BookingRoutePoint(lat: 2.00, lng: 102.00),
-              BookingRoutePoint(lat: 2.05, lng: 102.05),
-              BookingRoutePoint(lat: 2.10, lng: 102.10),
-            ],
-          ),
-        );
-        await tester.pumpAndSettle();
+      bookingRepo.emitTrackedBooking(
+        _sampleBooking(
+          id: 'booking-4',
+          status: BookingStatus.accepted,
+          operatorLat: 2.10,
+          operatorLng: 102.10,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.00, lng: 102.00),
+            BookingRoutePoint(lat: 2.05, lng: 102.05),
+            BookingRoutePoint(lat: 2.10, lng: 102.10),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        expect(latestPolylines, hasLength(1));
-        expect(latestPolylines.first.points, hasLength(3));
-        expect(
-          latestMarkers.any(
-            (m) => m.markerId == const MarkerId('operator_live'),
-          ),
-          isFalse,
-        );
+      expect(latestPolylines, hasLength(1));
+      expect(latestPolylines.first.points, hasLength(3));
+      expect(
+        latestMarkers.any((m) => m.markerId == const MarkerId('operator_live')),
+        isFalse,
+      );
 
-        bookingRepo.emitTrackedBooking(
-          _sampleBooking(
-            id: 'booking-4',
-            status: BookingStatus.onTheWay,
-            operatorLat: 2.10,
-            operatorLng: 102.10,
-            routePolyline: const [
-              BookingRoutePoint(lat: 2.00, lng: 102.00),
-              BookingRoutePoint(lat: 2.05, lng: 102.05),
-              BookingRoutePoint(lat: 2.10, lng: 102.10),
-            ],
-          ),
-        );
-        await tester.pumpAndSettle();
+      bookingRepo.emitTrackedBooking(
+        _sampleBooking(
+          id: 'booking-4',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.10,
+          operatorLng: 102.10,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.00, lng: 102.00),
+            BookingRoutePoint(lat: 2.05, lng: 102.05),
+            BookingRoutePoint(lat: 2.10, lng: 102.10),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        expect(
-          latestMarkers.any(
-            (m) => m.markerId == const MarkerId('operator_live'),
-          ),
-          isTrue,
-        );
+      expect(
+        latestMarkers.any((m) => m.markerId == const MarkerId('operator_live')),
+        isTrue,
+      );
 
-        bookingRepo.emitTrackedBooking(
-          _sampleBooking(
-            id: 'booking-4',
-            status: BookingStatus.completed,
-            operatorLat: 2.10,
-            operatorLng: 102.10,
-            routePolyline: const [
-              BookingRoutePoint(lat: 2.00, lng: 102.00),
-              BookingRoutePoint(lat: 2.05, lng: 102.05),
-              BookingRoutePoint(lat: 2.10, lng: 102.10),
-            ],
-          ),
-        );
-        await tester.pumpAndSettle();
+      bookingRepo.emitTrackedBooking(
+        _sampleBooking(
+          id: 'booking-4',
+          status: BookingStatus.completed,
+          operatorLat: 2.10,
+          operatorLng: 102.10,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.00, lng: 102.00),
+            BookingRoutePoint(lat: 2.05, lng: 102.05),
+            BookingRoutePoint(lat: 2.10, lng: 102.10),
+          ],
+        ),
+      );
+      await tester.pumpAndSettle();
 
-        expect(
-          latestMarkers.any(
-            (m) => m.markerId == const MarkerId('operator_live'),
-          ),
-          isFalse,
-        );
-      },
-    );
+      expect(
+        latestMarkers.any((m) => m.markerId == const MarkerId('operator_live')),
+        isFalse,
+      );
+    });
   });
 
   group('Profile booking history filters', () {
@@ -478,10 +414,6 @@ BookingModel _sampleBooking({
   required BookingStatus status,
   double? operatorLat,
   double? operatorLng,
-  String? corridorId,
-  int? corridorVersion,
-  int? originCheckpointSeq,
-  int? destinationCheckpointSeq,
   List<BookingRoutePoint> routePolyline = const <BookingRoutePoint>[],
 }) {
   return BookingModel(
@@ -491,10 +423,6 @@ BookingModel _sampleBooking({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
-    corridorId: corridorId,
-    corridorVersion: corridorVersion,
-    originCheckpointSeq: originCheckpointSeq,
-    destinationCheckpointSeq: destinationCheckpointSeq,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,

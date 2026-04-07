@@ -2,8 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
-  group('BookingModel corridor parsing', () {
-    test('fromMap parses corridor metadata and route polyline points', () {
+  group('BookingModel route parsing', () {
+    test('fromMap parses route polyline points from mixed coordinate keys', () {
       final model = BookingModel.fromMap(
         {
           'bookingId': 'booking-parse-1',
@@ -12,10 +12,6 @@ void main() {
           'userPhone': '0123456789',
           'origin': 'Jetty A',
           'destination': 'Jetty B',
-          'corridorId': 'melaka_main_01',
-          'corridorVersion': '2',
-          'originCheckpointSeq': '3',
-          'destinationCheckpointSeq': 9,
           'routePoints': const [
             {'latitude': 2.2000, 'longitude': 102.2500},
             {'lat': 2.2100, 'lng': 102.2600},
@@ -40,16 +36,12 @@ void main() {
         destinationLng: 102.2600,
       );
 
-      expect(model.corridorId, 'melaka_main_01');
-      expect(model.corridorVersion, 2);
-      expect(model.originCheckpointSeq, 3);
-      expect(model.destinationCheckpointSeq, 9);
       expect(model.routePolyline, hasLength(2));
       expect(model.routePolyline.first.lat, closeTo(2.2000, 0.0000001));
       expect(model.routePolyline.first.lng, closeTo(102.2500, 0.0000001));
     });
 
-    test('fromMap ignores empty/invalid corridor metadata values', () {
+    test('fromMap ignores invalid route points', () {
       final model = BookingModel.fromMap(
         {
           'bookingId': 'booking-parse-2',
@@ -58,10 +50,10 @@ void main() {
           'userPhone': '0123456789',
           'origin': 'Jetty A',
           'destination': 'Jetty B',
-          'corridorId': '',
-          'corridorVersion': 'not-an-int',
-          'originCheckpointSeq': null,
-          'destinationCheckpointSeq': 'bad',
+          'routePoints': const [
+            {'lat': null, 'lng': 102.2500},
+            {'lat': 2.2100, 'lng': 102.2600},
+          ],
           'adultCount': 1,
           'childCount': 0,
           'passengerCount': 1,
@@ -82,10 +74,9 @@ void main() {
         destinationLng: 102.2600,
       );
 
-      expect(model.corridorId, isNull);
-      expect(model.corridorVersion, isNull);
-      expect(model.originCheckpointSeq, isNull);
-      expect(model.destinationCheckpointSeq, isNull);
+      expect(model.routePolyline, hasLength(1));
+      expect(model.routePolyline.first.lat, closeTo(2.2100, 0.0000001));
+      expect(model.routePolyline.first.lng, closeTo(102.2600, 0.0000001));
     });
   });
 }

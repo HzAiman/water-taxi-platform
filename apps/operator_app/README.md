@@ -255,7 +255,6 @@ Documentation sync: March 2026 (includes live tracking + route polyline compatib
 ## Future Planning: River Navigation Delivery (14 Jetties)
 
 - Phased delivery is planned in `TODO.md` under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
-- Corridor data will be Firestore-backed with ordered checkpoints and read-only client policy.
-- Operator MVP guidance target: progress, next checkpoint, remaining distance, and speed-based ETA.
+- Operator route guidance target: progress, next route marker, remaining distance, and speed-based ETA.
 - Cross-app requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.
 

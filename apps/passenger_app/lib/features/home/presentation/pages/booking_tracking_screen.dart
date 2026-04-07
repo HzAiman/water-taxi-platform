@@ -195,19 +195,20 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     final canCancel = status.canBeCancelledByPassenger;
     final isRejected = status == BookingStatus.rejected;
     final hasOperatorLocation =
-      booking.operatorLat != null && booking.operatorLng != null;
+        booking.operatorLat != null && booking.operatorLng != null;
     final isLocatingOperator =
-      status == BookingStatus.onTheWay && !hasOperatorLocation;
+        status == BookingStatus.onTheWay && !hasOperatorLocation;
     final isOperatorLocationStale =
-      status == BookingStatus.onTheWay &&
-      hasOperatorLocation &&
-      booking.updatedAt != null &&
-      DateTime.now().difference(booking.updatedAt!) >
-        const Duration(seconds: 35);
+        status == BookingStatus.onTheWay &&
+        hasOperatorLocation &&
+        booking.updatedAt != null &&
+        DateTime.now().difference(booking.updatedAt!) >
+            const Duration(seconds: 35);
     final paymentMethod = booking.paymentMethod;
     final paymentStatus = booking.paymentStatus;
-    final rejectedPaymentMessage =
-      isRejected ? _rejectedPaymentMessage(paymentStatus) : null;
+    final rejectedPaymentMessage = isRejected
+        ? _rejectedPaymentMessage(paymentStatus)
+        : null;
 
     final originPoint = _latLngOrNull(booking.originLat, booking.originLng);
     final destinationPoint = _latLngOrNull(
@@ -369,10 +370,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       ],
                       const SizedBox(height: 14),
                       _buildStatusTimeline(status),
-                      if (_hasCorridorMetadata(booking)) ...[
-                        const SizedBox(height: 12),
-                        _buildCorridorMetadataNotice(booking),
-                      ],
                       if (isLocatingOperator || isOperatorLocationStale) ...[
                         const SizedBox(height: 12),
                         _buildLocationStatusNotice(
@@ -796,7 +793,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         lastPoint == null ||
         lastAt == null ||
         DateTime.now().difference(lastAt) >= _followRecenterInterval ||
-        _distanceMeters(lastPoint, operatorPoint) >= _followRecenterDistanceMeters;
+        _distanceMeters(lastPoint, operatorPoint) >=
+            _followRecenterDistanceMeters;
 
     if (!shouldFocus) {
       return;
@@ -939,7 +937,9 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       step.label,
                       style: TextStyle(
                         fontSize: 12,
-                        fontWeight: isCurrent ? FontWeight.w700 : FontWeight.w500,
+                        fontWeight: isCurrent
+                            ? FontWeight.w700
+                            : FontWeight.w500,
                         color: reached
                             ? const Color(0xFF1A1A1A)
                             : const Color(0xFF8A97A8),
@@ -1003,52 +1003,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                 color: Color(0xFF0E4A8A),
                 fontWeight: FontWeight.w600,
               ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  bool _hasCorridorMetadata(BookingModel booking) {
-    return booking.corridorId != null &&
-        booking.corridorVersion != null &&
-        booking.originCheckpointSeq != null &&
-        booking.destinationCheckpointSeq != null;
-  }
-
-  Widget _buildCorridorMetadataNotice(BookingModel booking) {
-    final corridorId = booking.corridorId ?? 'unknown';
-    final corridorVersion = booking.corridorVersion ?? 0;
-    final originSeq = booking.originCheckpointSeq ?? 0;
-    final destinationSeq = booking.destinationCheckpointSeq ?? 0;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEAF4FF),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFBFD9FF)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Route Corridor',
-            style: TextStyle(
-              fontSize: 12,
-              color: Color(0xFF0E4A8A),
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            'Corridor $corridorId (v$corridorVersion) - Segment checkpoint $originSeq to $destinationSeq.',
-            style: const TextStyle(
-              fontSize: 12,
-              color: Color(0xFF0E4A8A),
-              fontWeight: FontWeight.w600,
             ),
           ),
         ],

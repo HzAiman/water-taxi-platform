@@ -7,7 +7,11 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
+import 'package:operator_app/features/home/presentation/location/operator_location_coordinator.dart';
+import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
 import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
+import 'package:operator_app/features/home/presentation/widgets/operator_info_card.dart';
+import 'package:operator_app/features/home/presentation/widgets/operator_stat_tile.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -51,6 +55,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   bool _hasInitializedViewModel = false;
   StreamSubscription<User?>? _authSubscription;
   DateTime? _lastRecoveryAttempt;
+  final OperatorLocationCoordinator _locationCoordinator =
+      const OperatorLocationCoordinator();
 
   late GoogleMapController _mapController;
   CameraPosition _initialCameraPosition = const CameraPosition(
@@ -198,13 +204,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }
 
   Future<void> _bootstrapLocation() async {
-    final granted = await _ensureLocationPermission();
-    if (!granted) {
+    final access = await _resolveLocationAccess();
+    if (access != OperatorLocationAccess.granted) {
       return;
     }
 
     try {
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await _locationCoordinator.getCurrentPosition();
       if (!mounted) {
         return;
       }
@@ -233,49 +239,45 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
   }
 
-  Future<bool> _ensureLocationPermission() async {
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      if (mounted) {
-        showTopInfo(
-          context,
-          title: 'Location services off',
-          message: 'Enable location services to show your position.',
-          actionLabel: 'Open Settings',
-          onAction: Geolocator.openLocationSettings,
-        );
-      }
-      setState(() => _hasLocationPermission = false);
-      return false;
-    }
+  Future<OperatorLocationAccess> _resolveLocationAccess() async {
+    final access = await _locationCoordinator.ensureLocationAccess();
 
-    LocationPermission permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-    }
-
-    if (permission == LocationPermission.deniedForever) {
-      if (mounted) {
-        showTopInfo(
-          context,
-          title: 'Permission required',
-          message:
-              'Location permission was denied permanently. Enable it in Settings.',
-          actionLabel: 'Open Settings',
-          onAction: openAppSettings,
-        );
-      }
-      setState(() => _hasLocationPermission = false);
-      return false;
-    }
-
-    final granted =
-        permission == LocationPermission.always ||
-        permission == LocationPermission.whileInUse;
     if (mounted) {
-      setState(() => _hasLocationPermission = granted);
+      setState(
+        () => _hasLocationPermission = access == OperatorLocationAccess.granted,
+      );
     }
-    return granted;
+
+    switch (access) {
+      case OperatorLocationAccess.serviceDisabled:
+        if (mounted) {
+          showTopInfo(
+            context,
+            title: 'Location services off',
+            message: 'Enable location services to show your position.',
+            actionLabel: 'Open Settings',
+            onAction: Geolocator.openLocationSettings,
+          );
+        }
+        break;
+      case OperatorLocationAccess.deniedForever:
+        if (mounted) {
+          showTopInfo(
+            context,
+            title: 'Permission required',
+            message:
+                'Location permission was denied permanently. Enable it in Settings.',
+            actionLabel: 'Open Settings',
+            onAction: openAppSettings,
+          );
+        }
+        break;
+      case OperatorLocationAccess.denied:
+      case OperatorLocationAccess.granted:
+        break;
+    }
+
+    return access;
   }
 
   Future<void> _centerOnUser() async {
@@ -288,13 +290,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return;
     }
 
-    final granted = await _ensureLocationPermission();
-    if (!granted) {
+    final access = await _resolveLocationAccess();
+    if (access != OperatorLocationAccess.granted) {
       return;
     }
 
     try {
-      final pos = await Geolocator.getCurrentPosition();
+      final pos = await _locationCoordinator.getCurrentPosition();
       if (!mounted) {
         return;
       }
@@ -385,9 +387,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                   padding: const EdgeInsets.only(top: 12),
                   child: activeBooking != null
                       ? _buildActiveBookingCard(activeBooking, viewModel)
-                      : _buildInfoCard(
+                      : const OperatorInfoCard(
                           icon: Icons.directions_boat_filled_outlined,
-                          iconColor: const Color(0xFF0066CC),
+                          iconColor: Color(0xFF0066CC),
                           title: 'No active trip',
                           subtitle:
                               'Accept a booking from the queue to start operating.',
@@ -408,7 +410,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                           pendingCount,
                           viewModel,
                         )
-                      : _buildInfoCard(
+                      : const OperatorInfoCard(
                           icon: Icons.hourglass_top,
                           iconColor: Colors.orange,
                           title: 'No pending bookings',
@@ -453,7 +455,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       child: Row(
         children: [
           Expanded(
-            child: _buildStatTile(
+            child: OperatorStatTile(
               label: 'Pending Queue',
               value: pendingCount.toString(),
               color: Colors.orange,
@@ -471,7 +473,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           ],
           Container(width: 1, height: 36, color: Colors.grey[300]),
           Expanded(
-            child: _buildStatTile(
+            child: OperatorStatTile(
               label: 'Active Trip',
               value: activeCount.toString(),
               color: const Color(0xFF0066CC),
@@ -480,51 +482,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildStatTile({
-    required String label,
-    required String value,
-    required Color color,
-    required bool isExpanded,
-    required VoidCallback onTap,
-  }) {
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
-                    color: color,
-                  ),
-                ),
-                const SizedBox(width: 4),
-                Icon(
-                  isExpanded ? Icons.expand_less : Icons.expand_more,
-                  size: 16,
-                  color: Colors.grey[700],
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: TextStyle(fontSize: 12, color: Colors.grey[700]),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -554,7 +511,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       subtitle = '$subtitle\n\n${_buildNavigationGuidanceText(guidance)}';
     }
 
-    return _buildInfoCard(
+    return OperatorInfoCard(
       icon: isAccepted ? Icons.directions_boat : Icons.route,
       iconColor: actionColor,
       title: 'Current Booking: ${formatStatusLabel(status.firestoreValue)}',
@@ -593,7 +550,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     int pendingCount,
     OperatorHomeViewModel viewModel,
   ) {
-    return _buildInfoCard(
+    return OperatorInfoCard(
       icon: Icons.notifications_active,
       iconColor: Colors.orange,
       title: pendingCount > 1
@@ -683,113 +640,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     return rem == 0 ? '$hours h' : '$hours h $rem min';
   }
 
-  Widget _buildInfoCard({
-    required IconData icon,
-    required Color iconColor,
-    required String title,
-    required String subtitle,
-    String? actionLabel,
-    String? secondaryActionLabel,
-    Color actionColor = const Color(0xFF0066CC),
-    Color secondaryActionColor = const Color(0xFFF3F4F6),
-    Color secondaryActionTextColor = const Color(0xFF1F2937),
-    bool showActionLoading = false,
-    Future<void> Function()? onAction,
-    Future<void> Function()? onSecondaryAction,
-  }) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(icon, color: iconColor, size: 28),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.grey[800],
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          Text(
-            subtitle,
-            style: TextStyle(fontSize: 14, color: Colors.grey[600]),
-          ),
-          if (actionLabel != null) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                if (secondaryActionLabel != null) ...[
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: onSecondaryAction == null
-                          ? null
-                          : () => unawaited(onSecondaryAction()),
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: secondaryActionColor,
-                        foregroundColor: secondaryActionTextColor,
-                        side: BorderSide(
-                          color: secondaryActionTextColor.withValues(
-                            alpha: 0.2,
-                          ),
-                        ),
-                      ),
-                      child: Text(secondaryActionLabel),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: onAction == null
-                        ? null
-                        : () => unawaited(onAction()),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: actionColor,
-                      foregroundColor: Colors.white,
-                    ),
-                    child: showActionLoading
-                        ? const SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
-                          )
-                        : Text(actionLabel),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
   void _showOperationResult(OperationResult result) {
     switch (result) {
       case OperationSuccess(:final message):
@@ -807,6 +657,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   Widget build(BuildContext context) {
     final operatorId = _operatorId;
     final viewModel = context.watch<OperatorHomeViewModel>();
+    final activeBooking = viewModel.activeBookings.isNotEmpty
+        ? viewModel.activeBookings.first
+        : null;
     final isLoading = _isInitializingViewModel;
 
     return Scaffold(
@@ -833,8 +686,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                         compassEnabled: true,
                         zoomControlsEnabled: false,
                         mapToolbarEnabled: false,
-                        markers: _buildMarkers(viewModel),
-                        polylines: _buildPolylines(viewModel),
+                        markers: OperatorMapLayers.buildMarkers(activeBooking),
+                        polylines: OperatorMapLayers.buildPolylines(
+                          activeBooking,
+                        ),
                         onMapCreated: (GoogleMapController controller) {
                           _mapController = controller;
                           _mapReady = true;
@@ -856,7 +711,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                             if (viewModel.isOnline) ...[
                               _buildBookingActionCard(operatorId, viewModel),
                             ] else ...[
-                              _buildInfoCard(
+                              const OperatorInfoCard(
                                 icon: Icons.power_settings_new,
                                 iconColor: Colors.red,
                                 title: 'You are offline',
@@ -927,123 +782,5 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
               ],
             ),
     );
-  }
-
-  Set<Marker> _buildMarkers(OperatorHomeViewModel viewModel) {
-    final markers = <Marker>{};
-    final activeBooking = viewModel.activeBookings.isNotEmpty
-        ? viewModel.activeBookings.first
-        : null;
-
-    if (activeBooking == null) {
-      return markers;
-    }
-
-    // Origin marker
-    final originLat = activeBooking.originLat;
-    final originLng = activeBooking.originLng;
-    if (_isValidLatLng(originLat, originLng)) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('origin'),
-          position: LatLng(originLat, originLng),
-          infoWindow: InfoWindow(
-            title: 'Pick-up',
-            snippet: activeBooking.origin,
-          ),
-        ),
-      );
-    }
-
-    // Destination marker (blue)
-    final destLat = activeBooking.destinationLat;
-    final destLng = activeBooking.destinationLng;
-    if (_isValidLatLng(destLat, destLng)) {
-      markers.add(
-        Marker(
-          markerId: const MarkerId('destination'),
-          position: LatLng(destLat, destLng),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
-          infoWindow: InfoWindow(
-            title: 'Drop-off',
-            snippet: activeBooking.destination,
-          ),
-        ),
-      );
-    }
-
-    // Operator current location marker (green) for on-the-way bookings
-    if (activeBooking.status == BookingStatus.onTheWay) {
-      final opLat = activeBooking.operatorLat;
-      final opLng = activeBooking.operatorLng;
-      if (opLat != null && opLng != null) {
-        markers.add(
-          Marker(
-            markerId: const MarkerId('operator_location'),
-            position: LatLng(opLat, opLng),
-            icon: BitmapDescriptor.defaultMarkerWithHue(
-              BitmapDescriptor.hueGreen,
-            ),
-            infoWindow: const InfoWindow(
-              title: 'Your Location',
-              snippet: 'Current operator position',
-            ),
-          ),
-        );
-      }
-    }
-
-    return markers;
-  }
-
-  Set<Polyline> _buildPolylines(OperatorHomeViewModel viewModel) {
-    final activeBooking = viewModel.activeBookings.isNotEmpty
-        ? viewModel.activeBookings.first
-        : null;
-
-    if (activeBooking == null) {
-      return const <Polyline>{};
-    }
-
-    final routePoints = activeBooking.routePolyline
-        .map((p) => LatLng(p.lat, p.lng))
-        .toList(growable: false);
-
-    if (routePoints.length >= 2) {
-      return {
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: routePoints,
-          color: const Color(0xFF0066CC),
-          width: 4,
-        ),
-      };
-    }
-
-    // Fallback: draw direct line if no polyline available
-    final originLat = activeBooking.originLat;
-    final originLng = activeBooking.originLng;
-    final destLat = activeBooking.destinationLat;
-    final destLng = activeBooking.destinationLng;
-
-    if (_isValidLatLng(originLat, originLng) &&
-        _isValidLatLng(destLat, destLng)) {
-      return {
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: [LatLng(originLat, originLng), LatLng(destLat, destLng)],
-          color: const Color(0xFF0066CC),
-          width: 4,
-        ),
-      };
-    }
-
-    return const <Polyline>{};
-  }
-
-  bool _isValidLatLng(double lat, double lng) {
-    return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
   }
 }

@@ -14,10 +14,6 @@ class BookingModel {
     required this.userPhone,
     required this.origin,
     required this.destination,
-    this.corridorId,
-    this.corridorVersion,
-    this.originCheckpointSeq,
-    this.destinationCheckpointSeq,
     required this.originLat,
     required this.originLng,
     required this.destinationLat,
@@ -53,10 +49,6 @@ class BookingModel {
   final String userPhone;
   final String origin;
   final String destination;
-  final String? corridorId;
-  final int? corridorVersion;
-  final int? originCheckpointSeq;
-  final int? destinationCheckpointSeq;
   final double originLat;
   final double originLng;
   final double destinationLat;
@@ -106,10 +98,6 @@ class BookingModel {
       userPhone: _str(data['userPhone']),
       origin: _str(data['origin']),
       destination: _str(data['destination']),
-      corridorId: _nullableStr(data['corridorId']),
-      corridorVersion: _nullableInt(data['corridorVersion']),
-      originCheckpointSeq: _nullableInt(data['originCheckpointSeq']),
-      destinationCheckpointSeq: _nullableInt(data['destinationCheckpointSeq']),
       originLat: originLat,
       originLng: originLng,
       destinationLat: destinationLat,
@@ -146,10 +134,6 @@ class BookingModel {
     String? userPhone,
     String? origin,
     String? destination,
-    String? corridorId,
-    int? corridorVersion,
-    int? originCheckpointSeq,
-    int? destinationCheckpointSeq,
     double? originLat,
     double? originLng,
     double? destinationLat,
@@ -185,11 +169,6 @@ class BookingModel {
       userPhone: userPhone ?? this.userPhone,
       origin: origin ?? this.origin,
       destination: destination ?? this.destination,
-      corridorId: corridorId ?? this.corridorId,
-      corridorVersion: corridorVersion ?? this.corridorVersion,
-      originCheckpointSeq: originCheckpointSeq ?? this.originCheckpointSeq,
-      destinationCheckpointSeq:
-          destinationCheckpointSeq ?? this.destinationCheckpointSeq,
       originLat: originLat ?? this.originLat,
       originLng: originLng ?? this.originLng,
       destinationLat: destinationLat ?? this.destinationLat,
@@ -223,13 +202,6 @@ class BookingModel {
 
   static String _str(dynamic v) => (v ?? '').toString();
 
-  static String? _nullableStr(dynamic v) {
-    if (v == null) return null;
-    final parsed = v.toString();
-    if (parsed.isEmpty) return null;
-    return parsed;
-  }
-
   static double _double(dynamic v) {
     if (v is double) return v;
     if (v is num) return v.toDouble();
@@ -247,13 +219,6 @@ class BookingModel {
     if (v is int) return v;
     if (v is num) return v.truncate();
     return int.tryParse(v?.toString() ?? '') ?? 0;
-  }
-
-  static int? _nullableInt(dynamic v) {
-    if (v == null) return null;
-    if (v is int) return v;
-    if (v is num) return v.truncate();
-    return int.tryParse(v.toString());
   }
 
   static List<String> _strList(dynamic v) {

@@ -32,9 +32,8 @@ Each app is a standalone Flutter project with its own Firebase config and featur
 - Attempt-scoped idempotency to prevent stale PaymentIntent reuse.
 - Live tracking screen that reacts to booking status updates.
 - Live operator tracking after `on_the_way` using booking-stream coordinates (`operatorLat`, `operatorLng`).
-- Tracking map route rendering from Firestore polyline coordinates (with legacy key compatibility).
+- Tracking map route rendering from Firestore polyline coordinates.
 - Tracking map auto-fit to route and operator recenter behavior during active trip.
-- Passive display of corridor-linked segment metadata in tracking when booking includes corridor fields.
 - Current-booking resume card on the home screen.
 - Booking history and account management in profile.
 - Refactored UI logic into repositories + view models using Provider.
@@ -84,9 +83,7 @@ Remaining lifecycle hardening work is tracked in app TODO files:
 - `apps/passenger_app/TODO.md`
 - `apps/operator_app/TODO.md`
 
-River navigation future planning (14 jetties corridor) is also tracked in both TODO files under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
-Canonical corridor schema details are documented in `docs/firestore_navigation_corridor_schema.md`.
-Passenger tracking now treats corridor linkage fields as optional metadata, preserving existing behavior when fields are missing.
+River navigation route quality improvements are tracked in both app TODO files.
 
 ## Tech Stack
 

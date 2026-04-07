@@ -10,5 +10,4 @@ abstract final class FirestoreCollections {
   static const String jetties = 'jetties';
   static const String polylines = 'polylines';
   static const String fares = 'fares';
-  static const String navigationCorridors = 'navigation_corridors';
 }

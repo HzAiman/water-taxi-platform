@@ -267,24 +267,7 @@ class BookingRepository {
         );
       }
     } catch (_) {
-      // Continue with legacy fallback below.
-    }
-
-    if (sources.isNotEmpty) {
-      return sources;
-    }
-
-    try {
-      final legacySnap = await _db
-          .collection(FirestoreCollections.navigationCorridors)
-          .limit(5)
-          .get();
-      for (final doc in legacySnap.docs) {
-        final data = doc.data();
-        sources.add(data[NavigationCorridorFields.polyline]);
-      }
-    } catch (_) {
-      // No legacy fallback available.
+      // No polyline source available.
     }
 
     return sources;
@@ -428,7 +411,10 @@ class BookingRepository {
     if (raw is String) {
       final compact = raw.trim();
       if (compact.contains(';')) {
-        final pairs = compact.split(';').map((e) => e.trim()).where((e) => e.isNotEmpty);
+        final pairs = compact
+            .split(';')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty);
         final points = <Map<String, double>>[];
         for (final pair in pairs) {
           final point = _toRoutePointMap(pair);
@@ -497,7 +483,6 @@ class BookingRepository {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
   }
-
 }
 
 class _LatLngPoint {

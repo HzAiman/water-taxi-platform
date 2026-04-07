@@ -249,7 +249,7 @@ Additional coverage now includes:
 - tracking widget regression for route polyline rendering and operator marker status gating
 - integration validation for operator location stream propagation to passenger tracking
 - integration regression for legacy route polyline key variants
-- tracking metadata alignment for optional corridor linkage fields (`corridorId`, `corridorVersion`, `originCheckpointSeq`, `destinationCheckpointSeq`)
+- tracking metadata alignment for route polyline rendering and fallback behavior
 
 Run from this folder:
 
@@ -281,7 +281,7 @@ The live task tracker is in `TODO.md`.
 ## Future Planning: River Navigation Delivery (14 Jetties)
 
 - Phased delivery is planned in `TODO.md` under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
-- Corridor data will be Firestore-backed with ordered checkpoints and read-only client policy.
-- Operator MVP guidance target: progress, next checkpoint, remaining distance, and speed-based ETA.
+- Route polyline data will be Firestore-backed and read-only for client apps.
+- Operator MVP guidance target: progress, next route marker, remaining distance, and speed-based ETA.
 - Passenger tracking requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.
 
