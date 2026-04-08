@@ -76,7 +76,25 @@ class PaymentViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final fare = await _fareRepo.getFare(origin, destination);
+      final originJettyFuture = _jettyRepo.getJettyByName(origin);
+      final destJettyFuture = _jettyRepo.getJettyByName(destination);
+      final jetties = await Future.wait([originJettyFuture, destJettyFuture]);
+      final originJetty = jetties[0];
+      final destJetty = jetties[1];
+      final originJettyId = _resolveCanonicalJettyId(originJetty);
+      final destinationJettyId = _resolveCanonicalJettyId(destJetty);
+
+      if (originJettyId == null || destinationJettyId == null) {
+        _fareError = 'Canonical jetty ID missing for selected route';
+        return;
+      }
+
+      final fare = await _fareRepo.getFare(
+        origin,
+        destination,
+        originJettyId: originJettyId,
+        destinationJettyId: destinationJettyId,
+      );
       if (fare == null) {
         _fareError = 'Fare not found for this route';
         return;
@@ -149,6 +167,15 @@ class PaymentViewModel extends ChangeNotifier {
         );
       }
 
+      final originJettyId = _resolveCanonicalJettyId(originJetty);
+      final destinationJettyId = _resolveCanonicalJettyId(destJetty);
+      if (originJettyId == null || destinationJettyId == null) {
+        return const OperationFailure(
+          'Jetty error',
+          'Canonical jetty ID is required for booking creation.',
+        );
+      }
+
       final paymentAttemptId = _buildPaymentAttemptId(
         userId: userId,
         origin: origin,
@@ -215,6 +242,8 @@ class PaymentViewModel extends ChangeNotifier {
           userPhone: user?.phoneNumber ?? '',
           origin: origin,
           destination: destination,
+          originJettyId: originJettyId,
+          destinationJettyId: destinationJettyId,
           originLat: originJetty.lat,
           originLng: originJetty.lng,
           destinationLat: destJetty.lat,
@@ -254,6 +283,15 @@ class PaymentViewModel extends ChangeNotifier {
     final normalizedDestination = destination.trim().toLowerCase();
     final amountCents = (amount * 100).toStringAsFixed(0);
     return '$userId|$normalizedOrigin|$normalizedDestination|$adultCount|$childCount|$amountCents|$paymentAttemptId';
+  }
+
+  static String? _resolveCanonicalJettyId(JettyModel? jetty) {
+    if (jetty == null) {
+      return null;
+    }
+
+    final normalized = jetty.jettyId.trim();
+    return normalized.isEmpty ? null : normalized;
   }
 
   static String _buildPaymentAttemptId({

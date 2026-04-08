@@ -111,7 +111,26 @@ class HomeViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      return await _fareRepo.getFare(_selectedOrigin!, _selectedDestination!);
+      final originJetty = await _jettyRepo.getJettyByName(_selectedOrigin!);
+      final destinationJetty = await _jettyRepo.getJettyByName(
+        _selectedDestination!,
+      );
+
+      final originJettyId = originJetty?.jettyId.trim();
+      final destinationJettyId = destinationJetty?.jettyId.trim();
+      if (originJettyId == null ||
+          originJettyId.isEmpty ||
+          destinationJettyId == null ||
+          destinationJettyId.isEmpty) {
+        return null;
+      }
+
+      return await _fareRepo.getFare(
+        _selectedOrigin!,
+        _selectedDestination!,
+        originJettyId: originJettyId,
+        destinationJettyId: destinationJettyId,
+      );
     } finally {
       _isCheckingFare = false;
       notifyListeners();

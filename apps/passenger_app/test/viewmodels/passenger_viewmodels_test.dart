@@ -78,7 +78,12 @@ void main() {
       final viewModel =
           HomeViewModel(
               userRepo: FakeUserRepository(),
-              jettyRepo: FakeJettyRepository(),
+              jettyRepo: FakeJettyRepository(
+                jetties: const [
+                  JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+                  JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+                ],
+              ),
               fareRepo: fareRepo,
               bookingRepo: FakeBookingRepository(),
             )
@@ -105,7 +110,12 @@ void main() {
             childFare: 4,
           ),
         ),
-        jettyRepo: FakeJettyRepository(),
+        jettyRepo: FakeJettyRepository(
+          jetties: const [
+            JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+            JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+          ],
+        ),
         userRepo: FakeUserRepository(),
         bookingRepo: FakeBookingRepository(),
         paymentGateway: FakePaymentGatewayService(),
@@ -178,6 +188,8 @@ void main() {
       );
       expect(bookingRepo.lastCreatedParams?.adultCount, 2);
       expect(bookingRepo.lastCreatedParams?.childCount, 1);
+      expect(bookingRepo.lastCreatedParams?.originJettyId, '1');
+      expect(bookingRepo.lastCreatedParams?.destinationJettyId, '2');
       expect(paymentGateway.lastRequest?.idempotencyKey, isNotNull);
       expect(paymentGateway.lastRequest?.currency, 'MYR');
     });
@@ -466,7 +478,12 @@ class FakeFareRepository extends FareRepository {
   FareModel? fare;
 
   @override
-  Future<FareModel?> getFare(String origin, String destination) async {
+  Future<FareModel?> getFare(
+    String origin,
+    String destination, {
+    required String originJettyId,
+    required String destinationJettyId,
+  }) async {
     if (fare == null) {
       return null;
     }

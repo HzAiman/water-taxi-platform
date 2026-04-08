@@ -14,10 +14,13 @@ class BookingModel {
     required this.userPhone,
     required this.origin,
     required this.destination,
+    this.originJettyId,
+    this.destinationJettyId,
     required this.originLat,
     required this.originLng,
     required this.destinationLat,
     required this.destinationLng,
+    this.routePolylineId,
     this.routePolyline = const <BookingRoutePoint>[],
     required this.adultCount,
     required this.childCount,
@@ -45,10 +48,13 @@ class BookingModel {
   final String userPhone;
   final String origin;
   final String destination;
+  final String? originJettyId;
+  final String? destinationJettyId;
   final double originLat;
   final double originLng;
   final double destinationLat;
   final double destinationLng;
+  final String? routePolylineId;
   final List<BookingRoutePoint> routePolyline;
   final int adultCount;
   final int childCount;
@@ -90,10 +96,13 @@ class BookingModel {
       userPhone: _str(data['userPhone']),
       origin: _str(data['origin']),
       destination: _str(data['destination']),
+      originJettyId: _nullableString(data['originJettyId']),
+      destinationJettyId: _nullableString(data['destinationJettyId']),
       originLat: originLat,
       originLng: originLng,
       destinationLat: destinationLat,
       destinationLng: destinationLng,
+      routePolylineId: data['routePolylineId']?.toString(),
       routePolyline: _routePolyline(data),
       adultCount: _int(data['adultCount']),
       childCount: _int(data['childCount']),
@@ -122,10 +131,13 @@ class BookingModel {
     String? userPhone,
     String? origin,
     String? destination,
+    String? originJettyId,
+    String? destinationJettyId,
     double? originLat,
     double? originLng,
     double? destinationLat,
     double? destinationLng,
+    String? routePolylineId,
     List<BookingRoutePoint>? routePolyline,
     int? adultCount,
     int? childCount,
@@ -153,10 +165,13 @@ class BookingModel {
       userPhone: userPhone ?? this.userPhone,
       origin: origin ?? this.origin,
       destination: destination ?? this.destination,
+      originJettyId: originJettyId ?? this.originJettyId,
+      destinationJettyId: destinationJettyId ?? this.destinationJettyId,
       originLat: originLat ?? this.originLat,
       originLng: originLng ?? this.originLng,
       destinationLat: destinationLat ?? this.destinationLat,
       destinationLng: destinationLng ?? this.destinationLng,
+      routePolylineId: routePolylineId ?? this.routePolylineId,
       routePolyline: routePolyline ?? this.routePolyline,
       adultCount: adultCount ?? this.adultCount,
       childCount: childCount ?? this.childCount,
@@ -199,6 +214,12 @@ class BookingModel {
     if (v is int) return v;
     if (v is num) return v.truncate();
     return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  static String? _nullableString(dynamic v) {
+    final normalized = v?.toString().trim();
+    if (normalized == null || normalized.isEmpty) return null;
+    return normalized;
   }
 
   static List<String> _strList(dynamic v) {

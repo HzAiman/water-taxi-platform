@@ -46,20 +46,6 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       final bookingRepo = context.read<BookingRepository>();
       final operatorRepo = context.read<OperatorRepository>();
 
-      try {
-        await operatorRepo.ensureProfileClaim(
-          uid: operatorId,
-          fallbackEmail: currentUser?.email,
-        );
-      } catch (e) {
-        if (!mounted) return;
-        showTopError(
-          context,
-          title: 'Profile sync warning',
-          message: 'Unable to verify operator ID uniqueness. ${e.toString()}',
-        );
-      }
-
       // Check for a local-notification launch payload BEFORE initialize().
       final localNotifications = LocalNotificationService();
       final launchPayload = await localNotifications.getLaunchPayload();

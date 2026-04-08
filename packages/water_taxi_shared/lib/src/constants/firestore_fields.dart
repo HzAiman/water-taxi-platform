@@ -6,10 +6,13 @@ abstract final class BookingFields {
   static const String userPhone = 'userPhone';
   static const String origin = 'origin';
   static const String destination = 'destination';
+  static const String originJettyId = 'originJettyId';
+  static const String destinationJettyId = 'destinationJettyId';
   @Deprecated('No longer used for booking writes.')
   static const String routeKey = 'routeKey';
   static const String originCoords = 'originCoords';
   static const String destinationCoords = 'destinationCoords';
+  static const String routePolylineId = 'routePolylineId';
   static const String routePolyline = 'routePolyline';
   static const String adultCount = 'adultCount';
   static const String childCount = 'childCount';
@@ -46,6 +49,7 @@ abstract final class BookingStatusHistoryFields {
   static const String from = 'from';
   static const String to = 'to';
   static const String changedBy = 'changedBy';
+  static const String source = 'source';
   static const String timestamp = 'timestamp';
 }
 
@@ -96,6 +100,8 @@ abstract final class JettyFields {
 abstract final class FareFields {
   static const String origin = 'origin';
   static const String destination = 'destination';
+  static const String originJettyId = 'originJettyId';
+  static const String destinationJettyId = 'destinationJettyId';
   static const String adultFare = 'adultFare';
   static const String childFare = 'childFare';
 }

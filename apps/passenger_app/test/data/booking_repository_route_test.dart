@@ -34,15 +34,20 @@ void main() {
       final data = bookingDoc.data();
 
       expect(data, isNotNull);
-      final polyline = data![BookingFields.routePolyline] as List<dynamic>;
-      expect(polyline.length, greaterThanOrEqualTo(2));
+      expect(data![BookingFields.routePolylineId], 'melaka_river_main');
+      expect(data[BookingFields.routePolyline], isNull);
 
-      final first = polyline.first as Map<String, dynamic>;
-      final last = polyline.last as Map<String, dynamic>;
-      expect((first['lat'] as num).toDouble(), closeTo(0.2, 0.000001));
-      expect((first['lng'] as num).toDouble(), closeTo(100.0, 0.000001));
-      expect((last['lat'] as num).toDouble(), closeTo(2.7, 0.000001));
-      expect((last['lng'] as num).toDouble(), closeTo(100.0, 0.000001));
+      final hydrated = await repo.streamBooking(bookingId).firstWhere(
+        (booking) => booking != null,
+      );
+      expect(hydrated, isNotNull);
+      expect(hydrated!.routePolylineId, 'melaka_river_main');
+      expect(hydrated.routePolyline, hasLength(4));
+
+      expect(hydrated.routePolyline.first.lat, closeTo(0.0, 0.000001));
+      expect(hydrated.routePolyline.first.lng, closeTo(100.0, 0.000001));
+      expect(hydrated.routePolyline.last.lat, closeTo(3.0, 0.000001));
+      expect(hydrated.routePolyline.last.lng, closeTo(100.0, 0.000001));
     });
 
     test(
@@ -67,15 +72,18 @@ void main() {
         final data = bookingDoc.data();
 
         expect(data, isNotNull);
-        final polyline = data![BookingFields.routePolyline] as List<dynamic>;
-        expect(polyline, hasLength(2));
+        expect(data![BookingFields.routePolylineId], isNull);
 
-        final first = polyline.first as Map<String, dynamic>;
-        final last = polyline.last as Map<String, dynamic>;
-        expect((first['lat'] as num).toDouble(), closeTo(2.1984, 0.000001));
-        expect((first['lng'] as num).toDouble(), closeTo(102.2470, 0.000001));
-        expect((last['lat'] as num).toDouble(), closeTo(2.2130, 0.000001));
-        expect((last['lng'] as num).toDouble(), closeTo(102.2485, 0.000001));
+        final hydrated = await repo.streamBooking(bookingId).firstWhere(
+          (booking) => booking != null,
+        );
+        expect(hydrated, isNotNull);
+        expect(hydrated!.routePolyline, hasLength(2));
+
+        expect(hydrated.routePolyline.first.lat, closeTo(2.1984, 0.000001));
+        expect(hydrated.routePolyline.first.lng, closeTo(102.2470, 0.000001));
+        expect(hydrated.routePolyline.last.lat, closeTo(2.2130, 0.000001));
+        expect(hydrated.routePolyline.last.lng, closeTo(102.2485, 0.000001));
       },
     );
 
@@ -108,8 +116,13 @@ void main() {
       final data = bookingDoc.data();
 
       expect(data, isNotNull);
-      final polyline = data![BookingFields.routePolyline] as List<dynamic>;
-      expect(polyline.length, greaterThanOrEqualTo(3));
+      expect(data![BookingFields.routePolylineId], 'route_nested');
+
+      final hydrated = await repo.streamBooking(bookingId).firstWhere(
+        (booking) => booking != null,
+      );
+      expect(hydrated, isNotNull);
+      expect(hydrated!.routePolyline, hasLength(3));
     });
 
     test('records cancellation status history', () async {
@@ -146,6 +159,22 @@ void main() {
         historySnap.docs.first.data()[BookingStatusHistoryFields.changedBy],
         'user-1',
       );
+
+      final archiveSnap = await firestore
+          .collection(FirestoreCollections.bookingsArchive)
+          .doc(bookingId)
+          .get();
+
+      expect(archiveSnap.exists, isTrue);
+      expect(
+        archiveSnap.data()?[BookingFields.status],
+        BookingStatus.cancelled.firestoreValue,
+      );
+      expect(
+        archiveSnap.data()?[BookingFields.cancelledAt],
+        isNotNull,
+      );
+      expect(archiveSnap.data()?["archivedStatus"], BookingStatus.cancelled.firestoreValue);
     });
   });
 }
@@ -162,6 +191,8 @@ BookingCreationParams _params({
     userPhone: '0123456789',
     origin: 'Jetty A',
     destination: 'Jetty B',
+    originJettyId: 'jetty-a',
+    destinationJettyId: 'jetty-b',
     originLat: originLat,
     originLng: originLng,
     destinationLat: destinationLat,

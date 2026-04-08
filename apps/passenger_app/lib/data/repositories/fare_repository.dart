@@ -9,67 +9,44 @@ class FareRepository {
   final FirebaseFirestore _db;
 
   /// Returns the fare for the given route, or `null` if no fare is configured.
-  Future<FareModel?> getFare(String origin, String destination) async {
-    // Fast path: exact match with current schema.
-    final snap = await _db
+  Future<FareModel?> getFare(
+    String origin,
+    String destination, {
+    required String originJettyId,
+    required String destinationJettyId,
+  }) async {
+    final byJettyId = await _db
         .collection(FirestoreCollections.fares)
-        .where(FareFields.origin, isEqualTo: origin)
-        .where(FareFields.destination, isEqualTo: destination)
+        .where(FareFields.originJettyId, isEqualTo: originJettyId)
+        .where(FareFields.destinationJettyId, isEqualTo: destinationJettyId)
         .limit(1)
         .get();
 
-    if (snap.docs.isNotEmpty) {
-      return FareModel.fromMap(
-        snap.docs.first.data(),
-        snapshotId: snap.docs.first.id,
-      );
+    if (byJettyId.docs.isEmpty) {
+      return null;
     }
 
-    // Fallback path: tolerate legacy/messy fare docs (trim/case differences
-    // and alternative field names) so existing seeded routes keep working.
-    final normalizedOrigin = _normalizeRouteValue(origin);
-    final normalizedDestination = _normalizeRouteValue(destination);
-
-    final allFares = await _db
-        .collection(FirestoreCollections.fares)
-        .limit(500)
-        .get();
-
-    for (final doc in allFares.docs) {
-      final data = doc.data();
-      final docOrigin = _normalizeRouteValue(
-        data[FareFields.origin] ?? data['pickup'] ?? data['from'] ?? '',
-      );
-      final docDestination = _normalizeRouteValue(
-        data[FareFields.destination] ?? data['dropoff'] ?? data['to'] ?? '',
-      );
-
-      if (docOrigin == normalizedOrigin &&
-          docDestination == normalizedDestination) {
-        return FareModel.fromMap({
-          FareFields.origin: data[FareFields.origin] ?? data['pickup'] ?? '',
-          FareFields.destination:
-              data[FareFields.destination] ?? data['dropoff'] ?? '',
-          FareFields.adultFare: data[FareFields.adultFare],
-          FareFields.childFare: data[FareFields.childFare],
-        }, snapshotId: doc.id);
-      }
-    }
-
-    return null;
+    return FareModel.fromMap(
+      byJettyId.docs.first.data(),
+      snapshotId: byJettyId.docs.first.id,
+    );
   }
 
   /// Returns `true` if a fare document exists for the given route.
-  Future<bool> fareExists(String origin, String destination) async {
-    final fare = await getFare(origin, destination);
+  Future<bool> fareExists(
+    String origin,
+    String destination, {
+    required String originJettyId,
+    required String destinationJettyId,
+  }) async {
+    final fare = await getFare(
+      origin,
+      destination,
+      originJettyId: originJettyId,
+      destinationJettyId: destinationJettyId,
+    );
     return fare != null;
   }
 
-  String _normalizeRouteValue(Object? value) {
-    return value
-        .toString()
-        .trim()
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .toLowerCase();
-  }
+  
 }

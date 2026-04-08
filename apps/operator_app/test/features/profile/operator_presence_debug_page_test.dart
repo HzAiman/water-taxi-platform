@@ -50,10 +50,12 @@ void main() {
     expect(find.text('Presence Summary'), findsOneWidget);
     expect(find.text('Current Operator'), findsOneWidget);
     expect(
-      find.text('Presence sync looks consistent for this operator.'),
+      find.text(
+        'operator_presence is authoritative. The profile document no longer stores online state.',
+      ),
       findsOneWidget,
     );
-    expect(find.text('Sync My Presence Now'), findsOneWidget);
+    expect(find.text('Presence stored in operator_presence'), findsOneWidget);
 
     await tester.scrollUntilVisible(
       find.text('Presence Documents'),
@@ -77,7 +79,7 @@ void main() {
     expect(find.text('STALE (>10 min)'), findsOneWidget);
   });
 
-  testWidgets('sync action updates operator_presence from profile isOnline', (
+  testWidgets('presence debug page keeps presence authoritative', (
     tester,
   ) async {
     final firestore = FakeFirebaseFirestore();
@@ -111,18 +113,20 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('mismatch detected'), findsOneWidget);
-
-    await tester.tap(find.text('Sync My Presence Now'));
-    await tester.pumpAndSettle();
+    expect(
+      find.text(
+        'operator_presence is authoritative. The profile document no longer stores online state.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Presence stored in operator_presence'), findsOneWidget);
 
     final presenceSnap = await firestore
         .collection(FirestoreCollections.operatorPresence)
         .doc('operator-1')
         .get();
 
-    expect(presenceSnap.data()?[OperatorPresenceFields.isOnline], isTrue);
-    expect(find.textContaining('Presence synced to online'), findsOneWidget);
+    expect(presenceSnap.data()?[OperatorPresenceFields.isOnline], isFalse);
   });
 
   testWidgets('dry-run preview lists stale online operators for server cleanup', (

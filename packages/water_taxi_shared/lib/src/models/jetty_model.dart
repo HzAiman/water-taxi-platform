@@ -12,9 +12,13 @@ class JettyModel {
   final double lat;
   final double lng;
 
-  factory JettyModel.fromMap(Map<String, dynamic> data) {
+  factory JettyModel.fromMap(
+    Map<String, dynamic> data, {
+    String? snapshotId,
+  }) {
+    final docId = (snapshotId ?? '').toString().trim();
     return JettyModel(
-      jettyId: (data['jettyId'] ?? '').toString(),
+      jettyId: docId,
       name: (data['name'] ?? '').toString(),
       lat: _toDouble(data['lat']),
       lng: _toDouble(data['lng']),

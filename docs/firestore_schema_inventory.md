@@ -1,6 +1,6 @@
 # Firestore Schema Inventory (Live Collections)
 
-Last updated: 2026-04-07
+Last updated: 2026-04-08
 Project: melaka-water-taxi
 Database: (default)
 
@@ -8,11 +8,11 @@ Database: (default)
 
 Top-level collections:
 - bookings
+- bookings_archive
 - fares
 - jetties
 - order_number_index
 - operator_devices
-- operator_id_claims
 - operator_presence
 - operators
 - polylines
@@ -24,93 +24,92 @@ Top-level collections:
 Priority migration items identified during review:
 
 1. Booking fare denormalization
-- Current bookings store `adultFare`, `childFare`, `adultSubtotal`, `childSubtotal`, `fare`, and `totalFare`.
-- Recommended direction: keep only the final booking total plus a `fareSnapshotId` that points to the fare document used at booking time.
-- If subtotals are needed for display, derive them from the snapshot instead of storing multiple copies on the booking.
+- New bookings now store `totalFare` and `fareSnapshotId` only.
+- `adultFare`, `childFare`, `adultSubtotal`, `childSubtotal`, and `fare` are legacy fields that may still exist on historical documents, but they are no longer written by the apps.
+- If subtotals are needed for display, derive them from the referenced fare snapshot instead of storing multiple copies on the booking.
 
 2. Operator online state duplication
-- `operator_presence.isOnline` and `operators.isOnline` currently duplicate the same state.
-- Recommended direction: keep online state only in `operator_presence` and remove `isOnline` from `operators`.
+- `operator_presence.isOnline` is the authoritative online state.
+- `operators.isOnline` is legacy data only and should not be written or read by runtime code.
+- Remaining cleanup: purge any stored legacy `operators.isOnline` values from existing operator documents.
 - `operator_presence` is the better fit for high-frequency presence writes.
 
 3. Legacy booking polyline fields
 - `routeCoordinates`, `polylineCoordinates`, and `routePoints` are legacy compatibility fields alongside `routePolyline`.
-- Recommended direction: consolidate booking route storage to one canonical reference, ideally a `polylines` document id instead of embedding geometry in every booking.
+- New bookings now also persist `routePolylineId` as the canonical `polylines` document reference.
+- Recommended direction: keep `routePolyline` only as compatibility data until all readers can rely on `routePolylineId`.
 - Keep legacy reads during migration, but stop writing the older variants for new bookings.
 
 4. Booking status history
-- Current bookings do not retain an audit trail for status transitions.
-- Recommended direction: add a `bookings/{id}/statusHistory` subcollection with records shaped like `{ from, to, changedBy, timestamp }`.
-- This would provide a durable dispute timeline without changing the main booking document.
+- `bookings/{id}/statusHistory` is now present for status transitions handled by the app repositories.
+- Keep this as the canonical audit trail for lifecycle changes.
 
 5. Rejection tracking
-- `rejectedBy` is currently a booking field, but its query semantics are not documented.
-- Recommended direction: clarify whether it stores operator UIDs, or move rejection events into a per-booking subcollection if you need efficient operator-based queries.
+- `rejectedBy` stores operator UIDs that have already rejected the booking.
+- It is used to keep the booking in `pending` until a non-rejecting operator claims it; if you need a richer audit trail, add a per-booking subcollection rather than overloading the field.
 
 6. Passenger snapshot fields
-- `userName` and `userPhone` on bookings may intentionally act as a receipt snapshot, but that intent is not documented.
-- Recommended direction: document snapshot semantics explicitly, or add a backfill path if booking records must always mirror the latest profile data.
+- `userName` and `userPhone` on bookings are immutable receipt snapshots captured at booking creation.
+- They are not backfilled from later profile edits; if the passenger changes their profile, historical bookings keep the original values.
 
 7. Booking archival
 - Completed and cancelled bookings will grow without bound.
-- Recommended direction: define an archival policy, such as moving old bookings to `bookings_archive` or exporting them to BigQuery after N days.
+- Completed and cancelled bookings are mirrored into `bookings_archive` at the point they become terminal.
+- Remaining direction: define time-based retention for `bookings_archive` (for example, export to BigQuery after N days).
+- Add `order_number_index` cleanup when bookings become terminal so orphaned index docs do not accumulate.
 
 8. Order number uniqueness
 - `orderNumber` is not protected by a Firestore unique constraint.
 - Recommended direction: enforce uniqueness in application code with a transaction-backed order index or counter collection.
 
+9. Jetty reference integrity
+- `fares.origin` and `fares.destination` are string-based and currently depend on mutable jetty names.
+- `bookings.origin` and `bookings.destination` are also string labels and can drift from canonical jetty identity.
+- Recommended direction: add canonical `originJettyId` and `destinationJettyId` references, then treat name fields as display snapshots.
+
+10. Jetty key canonicalization
+- `jetties` should use the Firestore document ID as the canonical key.
+- Remove legacy embedded `id` and `jettyId` fields from stored jetty docs; the document ID is the only canonical key.
+
+11. Security Rules documentation and enforcement
+- Schema-level access boundaries are not documented in this inventory.
+- Recommended direction: add Firestore Security Rules coverage for passengers, operators, presence, bookings, and archive collections, then link rule tests to this document.
+
 Quick wins that can be applied with low risk:
 - Drop `isOnline` from `operators` and keep presence state in `operator_presence` only.
-- Stop writing the legacy booking polyline fields on new writes, while continuing to read them until migration completes.
-- Add the `statusHistory` subcollection as an additive audit trail.
+- Add canonical jetty ID references (`originJettyId`, `destinationJettyId`) to fares and bookings.
+- Add Security Rules documentation and baseline rule tests.
 
-## Migration Plan
+## Implementation Checklist (Post-Review)
 
-Phase 1: Stop the drift sources
-- Remove `operators.isOnline` from new writes and treat `operator_presence.isOnline` as the single source of truth.
-- Stop writing `routeCoordinates`, `polylineCoordinates`, and `routePoints` on new bookings.
-- Add `bookings/{id}/statusHistory` for all future status changes.
+Completed:
+- Booking writes use `totalFare` and `fareSnapshotId` (legacy fare fields are read-only compatibility).
+- Booking status transitions append `bookings/{id}/statusHistory` entries.
+- New bookings persist canonical `routePolylineId` and read paths hydrate route geometry from canonical sources with legacy fallback.
+- Terminal bookings are mirrored into `bookings_archive`.
+- `rejectedBy` semantics are documented as operator UID tracking for pending dispatch.
+- `userName` and `userPhone` are documented as immutable booking snapshots.
+- Application-level uniqueness guard exists via `order_number_index` reservation.
+- Remove `operators.isOnline` read-time fallback assumptions and use `operator_presence` as authoritative online state.
+- Booking writes now include canonical `originJettyId` and `destinationJettyId` when jetty metadata is available.
+- Backend migration endpoint exists (`backfillJettyIds`) with dry-run, paging, and admin allowlist controls for jetty ID backfill.
+- Terminal booking transitions now clean up `order_number_index/{orderNumber}` reservations.
+- `bookings_archive` retention cleanup is scheduled with configurable retention days (`BOOKING_ARCHIVE_RETENTION_DAYS`).
+- Backend migration endpoint exists (`cleanupLegacyOperatorOnlineField`) to remove stored `operators.isOnline` data with dry-run and paging.
+- Firestore Security Rules were updated for canonical booking fields and archive/status-history access boundaries, with automated emulator-backed rules tests.
+- Canonical jetty identity strategy is now standardized on `jetties` Firestore document ID for booking/fare references (`originJettyId`, `destinationJettyId`).
+- Fare reads are now strict ID-based (`originJettyId` + `destinationJettyId`) with no name-based fallback.
+- New booking writes now require `originJettyId` and `destinationJettyId` in every write path.
+- Firestore index includes canonical fare lookup on `fares(originJettyId, destinationJettyId)`.
+- `statusHistory` entries now include `source` metadata (`passenger_app` / `operator_app`) for transition provenance.
+- Booking-history reads are separated by collection; no application query spans both `bookings` and `bookings_archive`.
 
-Phase 2: Tighten booking snapshots
-- Replace the repeated fare fields on bookings with a single `totalFare` plus `fareSnapshotId`.
-- Document whether `userName` and `userPhone` are immutable booking snapshots or should be backfilled.
-- Clarify `rejectedBy` semantics and decide whether it should remain a field or move into a subcollection.
-
-Phase 3: Normalize route storage
-- Move booking route references from embedded geometry to a canonical `polylines` document reference.
-- Keep legacy read paths in place until older booking records are migrated or expired.
-
-Phase 4: Lifecycle and retention
-- Define a booking archival policy for completed and cancelled records.
-- Add an application-level uniqueness strategy for `orderNumber` using a transactional index or counter collection.
-
-Suggested acceptance criteria:
-- No new booking writes include the deprecated polyline fields.
-- No new operator profile writes set `isOnline`.
-- Status changes append a `statusHistory` event.
-- Booking reads still tolerate legacy polyline documents until migration is complete.
-
-Implementation checklist:
-- Update booking write paths to store `totalFare` and `fareSnapshotId` only.
-- Remove `isOnline` from operator profile writes and keep presence writes in `operator_presence`.
-- Stop emitting `routeCoordinates`, `polylineCoordinates`, and `routePoints` on new booking writes.
-- Add `statusHistory` append logic to every booking status transition.
-- Document `rejectedBy` as either a scalar field or a subcollection-backed event stream.
-- Add retention/archival handling for completed and cancelled bookings.
-- Add an application-level uniqueness guard for `orderNumber`.
-- Keep read compatibility for legacy polyline bookings until migration data is cleaned up.
-
-Current implementation notes:
-- New bookings now persist `fareSnapshotId` alongside existing fare fields during the transition period.
-- Order numbers are reserved through `order_number_index` before payment authorization so collisions are rejected at the application layer.
-
-Repository-level targets:
-- [apps/passenger_app/lib/data/repositories/booking_repository.dart](../apps/passenger_app/lib/data/repositories/booking_repository.dart): centralize booking writes, polyline normalization, and any future `fareSnapshotId` persistence.
-- [apps/passenger_app/lib/features/home/presentation/pages/booking_tracking_screen.dart](../apps/passenger_app/lib/features/home/presentation/pages/booking_tracking_screen.dart): keep the read path tolerant of legacy route shapes until migration is finished.
-- [apps/operator_app/lib/data/repositories/operator_repository.dart](../apps/operator_app/lib/data/repositories/operator_repository.dart): remove `operators.isOnline` writes and rely on `operator_presence.isOnline` only.
-- [apps/operator_app/lib/services/notifications/operator_notification_coordinator.dart](../apps/operator_app/lib/services/notifications/operator_notification_coordinator.dart): read operator presence from the single source of truth during notification state updates.
-- [apps/passenger_app/lib/features/profile/presentation/pages/profile_screen.dart](../apps/passenger_app/lib/features/profile/presentation/pages/profile_screen.dart): treat `userName` and `userPhone` as receipt-style snapshots, or update copy if the intent changes.
-- [packages/water_taxi_shared/lib/src/models/booking_model.dart](../packages/water_taxi_shared/lib/src/models/booking_model.dart): keep model parsing backward compatible while legacy booking fields are phased out.
+Incomplete:
+- Execute stored `operators.isOnline` cleanup migration on existing operator documents (migration endpoint is ready).
+- Execute canonical `originJettyId` and `destinationJettyId` backfill for existing `fares` documents (migration endpoint is ready).
+- Execute canonical `originJettyId` and `destinationJettyId` backfill for existing `bookings` documents (migration endpoint is ready).
+- Execute one-time physical `jetties/{jettyId}` document-ID migration and remove redundant embedded `jettyId`/`id` fields from stored jetty docs (CLI tooling is ready).
+- Remove legacy `operator_id_claims` documents after operator profiles have been re-saved under `operators/{uid}`.
 
 ## 1) bookings
 
@@ -120,13 +119,16 @@ Purpose:
 Core fields:
 - bookingId
 - userId, userName, userPhone
-- origin, destination
+- origin, destination (display snapshots)
+- originJettyId, destinationJettyId (canonical refs for new writes)
 - originCoords, destinationCoords
-- routePolyline
+- routePolylineId
+- routePolyline (legacy compatibility)
 - routeCoordinates, polylineCoordinates, routePoints (legacy compatibility)
 - adultCount, childCount, passengerCount
-- adultFare, childFare, adultSubtotal, childSubtotal, fare, totalFare
+- totalFare
 - fareSnapshotId
+- adultFare, childFare, adultSubtotal, childSubtotal, fare (legacy historical only)
 - paymentMethod, paymentStatus, orderNumber, transactionId
 - status
 - operatorUid, operatorId
@@ -148,8 +150,8 @@ Purpose:
 - Read-only fare matrix used for booking fare calculation.
 
 Fields:
-- origin
-- destination
+- origin, destination (legacy name-based lookup)
+- originJettyId, destinationJettyId (canonical lookup when populated)
 - adultFare
 - childFare
 
@@ -167,118 +169,16 @@ Fields:
 
 Purpose:
 - Canonical jetty reference collection used for route endpoints and fare routing.
+- App-level canonical identity for references is the Firestore document ID.
 
 Fields:
-- id (document id)
-- jettyId
 - name
 - lat
 - lng
 
-Provided live sample data:
-
-```js
-[
-  {
-    id: '1cQd9jEgT6bZ5xjEjST6',
-    lat: 2.204444,
-    lng: 102.251111,
-    jettyId: 17,
-    name: 'Kampung Morten'
-  },
-  {
-    id: '8dLpTjjE8y27oHtP1n2A',
-    lat: 2.194722,
-    lng: 102.249167,
-    jettyId: 24,
-    name: 'Stadthuys'
-  },
-  {
-    id: 'JULNcZwJD335p9G6eCgx',
-    lat: 2.201111,
-    lng: 102.248333,
-    jettyId: 19,
-    name: 'Hang Tuah'
-  },
-  {
-    id: 'P5lCnwtLXK3UCdELx1JV',
-    lat: 2.197222,
-    lng: 102.249722,
-    jettyId: 22,
-    name: 'Kampung Jawa'
-  },
-  {
-    id: 'XKtzPUWWHnPReaWxE40G',
-    lat: 2.1925,
-    lng: 102.246111,
-    jettyId: 27,
-    name: 'Samudera'
-  },
-  {
-    id: 'XXJxO2q7VQiQ114T6Y0K',
-    lat: 2.193056,
-    lng: 102.246111,
-    jettyId: 28,
-    name: 'Casa Del Rio'
-  },
-  {
-    id: 'c5APELyNgUYNLJIhaiH1',
-    lat: 2.197222,
-    lng: 102.249722,
-    jettyId: 23,
-    name: 'RC Hotel'
-  },
-  {
-    id: 'dhF203XK3FH4eGPoAcAq',
-    lat: 2.207222,
-    lng: 102.251389,
-    jettyId: 15,
-    name: 'Taman Rempah'
-  },
-  {
-    id: 'gK74ihhwwrjEpxc7nGBh',
-    lat: 2.205278,
-    lng: 102.251111,
-    jettyId: 16,
-    name: 'The Pines'
-  },
-  {
-    id: 'ijuQjIA2BSWeaCbpc3YH',
-    lat: 2.199167,
-    lng: 102.248056,
-    jettyId: 21,
-    name: 'Kampung Hulu'
-  },
-  {
-    id: 'im4IQfbaOHIVbpGHDge1',
-    lat: 2.193056,
-    lng: 102.246944,
-    jettyId: 26,
-    name: 'Quayside'
-  },
-  {
-    id: 'qufstm9BaDtyaZ2Qrl5v',
-    lat: 2.201667,
-    lng: 102.249444,
-    jettyId: 18,
-    name: 'The Shore'
-  },
-  {
-    id: 'sHsgrz2A7ObJ4hYmhfID',
-    lat: 2.199444,
-    lng: 102.248333,
-    jettyId: 20,
-    name: 'Tun Fatimah'
-  },
-  {
-    id: 'va6Fovlb3abJ19jFwROG',
-    lat: 2.194722,
-    lng: 102.248889,
-    jettyId: 25,
-    name: 'Hard Rock'
-  }
-]
-```
+Migration note:
+- Existing stored docs may still contain embedded legacy `id` or `jettyId` fields until the re-key migration is executed.
+- After migration, the Firestore document ID is the only canonical jetty identifier.
 
 ## 5) operator_devices
 
@@ -291,19 +191,7 @@ Fields:
 - appRole
 - updatedAt
 
-## 6) operator_id_claims
-
-Purpose:
-- Ownership mapping for operator IDs.
-
-Fields:
-- uid
-- operatorId
-- operatorIdKey
-- createdAt
-- updatedAt
-
-## 7) operator_presence
+## 6) operator_presence
 
 Purpose:
 - Online/offline signal for operators.
@@ -312,63 +200,30 @@ Fields:
 - isOnline
 - updatedAt
 
-## 8) operators
+## 7) operators
 
 Purpose:
 - Operator profile document keyed by auth uid.
 
 Fields:
 - operatorId
-- operatorIdKey
 - name
 - email
-- isOnline
 - createdAt
 - updatedAt
 
-## 9) polylines
+## 8) polylines
 
 Purpose:
 - River route geometry collection used for map path representation.
 
 Fields:
-- id (document id)
 - path
 - type
 - properties
 - uploadedAt
 
-Provided live sample data:
-
-```js
-[
-  {
-    id: 'route_1',
-    path: [
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint], [GeoPoint], [GeoPoint],
-      [GeoPoint]
-    ],
-    type: 'LineString',
-    properties: { route_name: 'Melaka River Path', city: 'Melaka' },
-    uploadedAt: Timestamp { _seconds: 1775497683, _nanoseconds: 380000000 }
-  }
-]
-```
-
-## 10) user_devices
+## 9) user_devices
 
 Purpose:
 - Passenger FCM registration/token docs.
@@ -379,7 +234,7 @@ Fields:
 - appRole
 - updatedAt
 
-## 11) users
+## 10) users
 
 Purpose:
 - Passenger profile document keyed by auth uid.
@@ -402,6 +257,7 @@ Collection group bookings:
 
 Collection group fares:
 - origin ASC, destination ASC
+- originJettyId ASC, destinationJettyId ASC
 
 fieldOverrides:
 - none

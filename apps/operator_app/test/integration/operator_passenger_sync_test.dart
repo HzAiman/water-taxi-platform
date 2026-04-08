@@ -222,6 +222,17 @@ void main() {
           seenLng.any((lng) => lng >= 102.2515 && lng <= 102.2525),
           isTrue,
         );
+
+        final archiveSnap = await firestore
+            .collection(FirestoreCollections.bookingsArchive)
+            .doc(bookingId)
+            .get();
+        expect(archiveSnap.exists, isTrue);
+        expect(
+          archiveSnap.data()?[BookingFields.status],
+          BookingStatus.completed.firestoreValue,
+        );
+        expect(archiveSnap.data()?['archivedStatus'], BookingStatus.completed.firestoreValue);
       },
     );
   });

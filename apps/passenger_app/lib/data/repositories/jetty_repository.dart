@@ -8,15 +8,15 @@ class JettyRepository {
 
   final FirebaseFirestore _db;
 
-  /// Returns all jetties sorted by [JettyFields.jettyId].
+  /// Returns all jetties sorted by canonical jetty doc ID.
   Future<List<JettyModel>> getAllJetties() async {
     final snap = await _db
         .collection(FirestoreCollections.jetties)
-        .orderBy(JettyFields.jettyId)
+        .orderBy(FieldPath.documentId)
         .get();
 
     final jetties = snap.docs
-        .map((d) => JettyModel.fromMap(d.data()))
+      .map((d) => JettyModel.fromMap(d.data(), snapshotId: d.id))
         .toList()
       ..sort((a, b) {
         final ai = double.tryParse(a.jettyId) ?? double.infinity;
@@ -37,6 +37,6 @@ class JettyRepository {
         .get();
 
     if (snap.docs.isEmpty) return null;
-    return JettyModel.fromMap(snap.docs.first.data());
+    return JettyModel.fromMap(snap.docs.first.data(), snapshotId: snap.docs.first.id);
   }
 }

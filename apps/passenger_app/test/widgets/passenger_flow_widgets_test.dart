@@ -363,7 +363,12 @@ class _FakeFareRepository extends FareRepository {
   _FakeFareRepository() : super(firestore: FakeFirebaseFirestore());
 
   @override
-  Future<FareModel?> getFare(String origin, String destination) async {
+  Future<FareModel?> getFare(
+    String origin,
+    String destination, {
+    required String originJettyId,
+    required String destinationJettyId,
+  }) async {
     return const FareModel(
       origin: 'Jetty A',
       destination: 'Jetty B',

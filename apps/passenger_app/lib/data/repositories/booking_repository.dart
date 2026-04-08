@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -9,6 +11,8 @@ class BookingCreationParams {
     required this.userPhone,
     required this.origin,
     required this.destination,
+    required this.originJettyId,
+    required this.destinationJettyId,
     required this.originLat,
     required this.originLng,
     required this.destinationLat,
@@ -27,6 +31,8 @@ class BookingCreationParams {
   final String userPhone;
   final String origin;
   final String destination;
+  final String originJettyId;
+  final String destinationJettyId;
   final double originLat;
   final double originLng;
   final double destinationLat;
@@ -54,7 +60,9 @@ class BookingRepository {
     final ref = _db.collection(FirestoreCollections.bookings).doc();
     final id = ref.id;
     final passengerCount = p.adultCount + p.childCount;
-    final routePolyline = await _buildRoutePolylineForBooking(
+    final routeSelection = await _buildRouteSelectionForBooking(
+      originJettyId: p.originJettyId,
+      destinationJettyId: p.destinationJettyId,
       originLat: p.originLat,
       originLng: p.originLng,
       destinationLat: p.destinationLat,
@@ -68,6 +76,8 @@ class BookingRepository {
       BookingFields.userPhone: p.userPhone,
       BookingFields.origin: p.origin,
       BookingFields.destination: p.destination,
+      BookingFields.originJettyId: p.originJettyId,
+      BookingFields.destinationJettyId: p.destinationJettyId,
       BookingFields.originCoords: GeoPoint(p.originLat, p.originLng),
       BookingFields.destinationCoords: GeoPoint(
         p.destinationLat,
@@ -86,7 +96,8 @@ class BookingRepository {
       BookingFields.status: BookingStatus.pending.firestoreValue,
       BookingFields.operatorUid: null,
       BookingFields.operatorId: null,
-      if (routePolyline != null) BookingFields.routePolyline: routePolyline,
+      if (routeSelection.routePolylineId != null)
+        BookingFields.routePolylineId: routeSelection.routePolylineId,
       BookingFields.createdAt: FieldValue.serverTimestamp(),
       BookingFields.updatedAt: FieldValue.serverTimestamp(),
     });
@@ -119,7 +130,17 @@ class BookingRepository {
         BookingStatusHistoryFields.to: BookingStatus.cancelled.firestoreValue,
         BookingStatusHistoryFields.changedBy:
             data[BookingFields.userId] ?? 'passenger',
+        BookingStatusHistoryFields.source: 'passenger_app',
         BookingStatusHistoryFields.timestamp: FieldValue.serverTimestamp(),
+      });
+
+      tx.set(_archiveRef(bookingId), {
+        ...data,
+        BookingFields.status: BookingStatus.cancelled.firestoreValue,
+        BookingFields.cancelledAt: FieldValue.serverTimestamp(),
+        BookingFields.updatedAt: FieldValue.serverTimestamp(),
+        'archivedAt': FieldValue.serverTimestamp(),
+        'archivedStatus': BookingStatus.cancelled.firestoreValue,
       });
     });
   }
@@ -145,6 +166,10 @@ class BookingRepository {
     });
   }
 
+  DocumentReference<Map<String, dynamic>> _archiveRef(String bookingId) {
+    return _db.collection(FirestoreCollections.bookingsArchive).doc(bookingId);
+  }
+
   // ── Read / Stream ────────────────────────────────────────────────────────
 
   /// Streams a single booking document in real-time. Emits `null` if the
@@ -154,7 +179,7 @@ class BookingRepository {
         .collection(FirestoreCollections.bookings)
         .doc(bookingId)
         .snapshots()
-        .map((snap) {
+        .asyncMap((snap) async {
           if (!snap.exists || snap.data() == null) return null;
           return _fromDoc(snap.id, snap.data()!);
         });
@@ -167,7 +192,7 @@ class BookingRepository {
         .collection(FirestoreCollections.bookings)
         .where(BookingFields.userId, isEqualTo: userId)
         .snapshots()
-        .map((snap) {
+        .asyncMap((snap) async {
           final activeDocs = snap.docs.where((d) {
             final status = BookingStatus.fromString(
               (d.data()[BookingFields.status] ?? '').toString(),
@@ -186,9 +211,9 @@ class BookingRepository {
         .collection(FirestoreCollections.bookings)
         .where(BookingFields.userId, isEqualTo: userId)
         .snapshots()
-        .map((snap) {
+        .asyncMap((snap) async {
           final bookings =
-              snap.docs.map((d) => _fromDoc(d.id, d.data())).toList()
+              await Future.wait(snap.docs.map((d) => _fromDoc(d.id, d.data())))
                 ..sort((a, b) {
                   final at = a.createdAt;
                   final bt = b.createdAt;
@@ -229,7 +254,9 @@ class BookingRepository {
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  Future<List<Map<String, double>>?> _buildRoutePolylineForBooking({
+  Future<_PolylineSelection> _buildRouteSelectionForBooking({
+    required String originJettyId,
+    required String destinationJettyId,
     required double originLat,
     required double originLng,
     required double destinationLat,
@@ -241,7 +268,15 @@ class BookingRepository {
     _PolylineMatch? bestMatch;
 
     for (final raw in polylineSources) {
-      final parsed = _normaliseRoutePolyline(raw);
+      final supportsPairValidation =
+          raw.originJettyId != null && raw.destinationJettyId != null;
+      if (supportsPairValidation &&
+          (raw.originJettyId != originJettyId ||
+              raw.destinationJettyId != destinationJettyId)) {
+        continue;
+      }
+
+      final parsed = _normaliseRoutePolyline(raw.path);
       if (parsed == null || parsed.length < 2) {
         continue;
       }
@@ -255,6 +290,7 @@ class BookingRepository {
 
       if (bestMatch == null || score < bestMatch.score) {
         bestMatch = _PolylineMatch(
+          polylineId: raw.id,
           polyline: points,
           start: startSnap,
           end: endSnap,
@@ -266,39 +302,63 @@ class BookingRepository {
     if (bestMatch != null) {
       final segment = _extractSegment(bestMatch);
       if (segment.length >= 3) {
-        return segment
-            .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
-            .toList();
+        return _PolylineSelection(
+          routePolylineId: bestMatch.polylineId,
+          routePolyline: segment
+              .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
+              .toList(),
+        );
       }
 
       // If snapped segment is too short but source geometry is richer,
       // keep the richer route to avoid rendering a misleading straight line.
       if (bestMatch.polyline.length >= 3) {
-        return bestMatch.polyline
-            .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
-            .toList();
+        return _PolylineSelection(
+          routePolylineId: bestMatch.polylineId,
+          routePolyline: bestMatch.polyline
+              .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
+              .toList(),
+        );
       }
     }
 
-    return [
-      <String, double>{'lat': origin.lat, 'lng': origin.lng},
-      <String, double>{'lat': destination.lat, 'lng': destination.lng},
-    ];
+    return _PolylineSelection(
+      routePolyline: [
+        <String, double>{'lat': origin.lat, 'lng': origin.lng},
+        <String, double>{'lat': destination.lat, 'lng': destination.lng},
+      ],
+    );
   }
 
-  Future<List<dynamic>> _loadPolylineSources() async {
-    final sources = <dynamic>[];
+  Future<List<_PolylineSource>> _loadPolylineSources() async {
+    final sources = <_PolylineSource>[];
 
     try {
       final snap = await _db.collection(FirestoreCollections.polylines).get();
       for (final doc in snap.docs) {
         final data = doc.data();
         sources.add(
-          data['path'] ??
-              data['coordinates'] ??
-              data['polyline'] ??
-              data['geometry'] ??
-              data[BookingFields.routePolyline],
+          _PolylineSource(
+            id: doc.id,
+            path:
+                data['path'] ??
+                data['coordinates'] ??
+                data['polyline'] ??
+                data['geometry'] ??
+                data[BookingFields.routePolyline],
+            originJettyId: _normalizeOptionalString(
+              data[BookingFields.originJettyId] ??
+                  (data['properties'] is Map
+                      ? (data['properties'] as Map)[BookingFields.originJettyId]
+                      : null),
+            ),
+            destinationJettyId: _normalizeOptionalString(
+              data[BookingFields.destinationJettyId] ??
+                  (data['properties'] is Map
+                      ? (data['properties'] as Map)[BookingFields.destinationJettyId]
+                      : null),
+            ),
+          ),
         );
       }
     } catch (_) {
@@ -396,12 +456,10 @@ class BookingRepository {
     points.add(next);
   }
 
-  static BookingModel _fromDoc(String id, Map<String, dynamic> data) {
+  Future<BookingModel> _fromDoc(String id, Map<String, dynamic> data) async {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
-    final routePolyline = _normaliseRoutePolyline(
-      _extractRoutePolylineRaw(data),
-    );
+    final routePolyline = await _resolveRoutePolyline(data);
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
     final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
@@ -424,6 +482,53 @@ class BookingRepository {
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
     );
+  }
+
+  Future<List<Map<String, double>>?> _resolveRoutePolyline(
+    Map<String, dynamic> data,
+  ) async {
+    final embedded = _normaliseRoutePolyline(_extractRoutePolylineRaw(data));
+    if (embedded != null && embedded.isNotEmpty) {
+      return embedded;
+    }
+
+    final routePolylineId = data[BookingFields.routePolylineId]?.toString();
+    if (routePolylineId == null || routePolylineId.isEmpty) {
+      return _directRoutePolyline(data);
+    }
+
+    final snap = await _db
+        .collection(FirestoreCollections.polylines)
+        .doc(routePolylineId)
+        .get();
+    if (!snap.exists || snap.data() == null) {
+      return _directRoutePolyline(data);
+    }
+
+    final polyline = _normaliseRoutePolyline(
+      snap.data()!['path'] ??
+          snap.data()!['coordinates'] ??
+          snap.data()!['polyline'] ??
+          snap.data()!['geometry'] ??
+          snap.data()![BookingFields.routePolyline],
+    );
+    if (polyline != null && polyline.isNotEmpty) {
+      return polyline;
+    }
+
+    return _directRoutePolyline(data);
+  }
+
+  List<Map<String, double>> _directRoutePolyline(Map<String, dynamic> data) {
+    final origin = data[BookingFields.originCoords] as GeoPoint?;
+    final dest = data[BookingFields.destinationCoords] as GeoPoint?;
+    if (origin == null || dest == null) {
+      return const <Map<String, double>>[];
+    }
+    return [
+      <String, double>{'lat': origin.latitude, 'lng': origin.longitude},
+      <String, double>{'lat': dest.latitude, 'lng': dest.longitude},
+    ];
   }
 
   static dynamic _extractRoutePolylineRaw(Map<String, dynamic> data) {
@@ -518,6 +623,35 @@ class BookingRepository {
     if (value is num) return value.toDouble();
     return double.tryParse(value?.toString() ?? '');
   }
+
+  static String? _normalizeOptionalString(dynamic value) {
+    final normalized = value?.toString().trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    return normalized;
+  }
+}
+
+class _PolylineSource {
+  const _PolylineSource({
+    required this.id,
+    required this.path,
+    this.originJettyId,
+    this.destinationJettyId,
+  });
+
+  final String id;
+  final dynamic path;
+  final String? originJettyId;
+  final String? destinationJettyId;
+}
+
+class _PolylineSelection {
+  const _PolylineSelection({this.routePolylineId, this.routePolyline});
+
+  final String? routePolylineId;
+  final List<Map<String, double>>? routePolyline;
 }
 
 class _LatLngPoint {
@@ -541,12 +675,14 @@ class _SnapResult {
 
 class _PolylineMatch {
   const _PolylineMatch({
+    required this.polylineId,
     required this.polyline,
     required this.start,
     required this.end,
     required this.score,
   });
 
+  final String polylineId;
   final List<_LatLngPoint> polyline;
   final _SnapResult start;
   final _SnapResult end;

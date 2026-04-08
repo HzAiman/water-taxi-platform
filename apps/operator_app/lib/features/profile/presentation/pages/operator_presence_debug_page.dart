@@ -22,46 +22,7 @@ class OperatorPresenceDebugPage extends StatefulWidget {
 }
 
 class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
-  bool _isSyncing = false;
-
   FirebaseFirestore get _db => widget.firestore ?? FirebaseFirestore.instance;
-
-  Future<void> _syncPresence({
-    required String operatorId,
-    required bool profileOnline,
-  }) async {
-    if (_isSyncing) return;
-    setState(() => _isSyncing = true);
-
-    try {
-      await OperatorPresenceDebugUtils.syncPresence(
-        db: _db,
-        operatorId: operatorId,
-        profileOnline: profileOnline,
-      );
-
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Presence synced to ${profileOnline ? 'online' : 'offline'} from operator profile.',
-          ),
-        ),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Presence sync failed: $e'),
-          backgroundColor: const Color(0xFF8A1C1C),
-        ),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isSyncing = false);
-      }
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -137,8 +98,6 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                 .snapshots(),
             builder: (context, operatorSnapshot) {
               final operatorData = operatorSnapshot.data?.data();
-              final operatorOnline =
-                  operatorData?[OperatorFields.isOnline] == true;
               final currentPresence = docs
                   .cast<QueryDocumentSnapshot<Map<String, dynamic>>?>()
                   .firstWhere(
@@ -148,14 +107,6 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
               final presenceData = currentPresence?.data();
               final presenceOnline =
                   presenceData?[OperatorPresenceFields.isOnline] == true;
-              final mismatch =
-                  operatorData?.containsKey(OperatorFields.isOnline) == true &&
-                  presenceData != null &&
-                  operatorOnline != presenceOnline;
-              final profileOnline =
-                  operatorData?.containsKey(OperatorFields.isOnline) == true
-                  ? operatorOnline
-                  : presenceOnline;
 
               return ListView(
                 padding: const EdgeInsets.all(16),
@@ -170,10 +121,10 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                           value: operatorId,
                         ),
                         OperatorPresenceKeyValueRow(
-                          label: 'Profile isOnline',
+                          label: 'Profile online state',
                           value: operatorData == null
                               ? 'Missing operator profile'
-                              : operatorOnline.toString(),
+                              : 'Removed from schema',
                         ),
                         OperatorPresenceKeyValueRow(
                           label: 'Presence isOnline',
@@ -196,19 +147,13 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                             vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: mismatch
-                                ? const Color(0xFFFFF4E5)
-                                : const Color(0xFFEAF7EE),
+                            color: const Color(0xFFEAF7EE),
                             borderRadius: BorderRadius.circular(12),
                           ),
                           child: Text(
-                            mismatch
-                                ? 'Presence mismatch detected: profile and operator_presence disagree.'
-                                : 'Presence sync looks consistent for this operator.',
+                            'operator_presence is authoritative. The profile document no longer stores online state.',
                             style: TextStyle(
-                              color: mismatch
-                                  ? const Color(0xFF8A5200)
-                                  : const Color(0xFF1D6E3A),
+                              color: const Color(0xFF1D6E3A),
                               fontWeight: FontWeight.w600,
                             ),
                           ),
@@ -217,29 +162,9 @@ class _OperatorPresenceDebugPageState extends State<OperatorPresenceDebugPage> {
                         SizedBox(
                           width: double.infinity,
                           child: ElevatedButton.icon(
-                            onPressed: (operatorData == null || _isSyncing)
-                                ? null
-                                : () => _syncPresence(
-                                    operatorId: operatorId,
-                                    profileOnline: profileOnline,
-                                  ),
-                            icon: _isSyncing
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
-                                      ),
-                                    ),
-                                  )
-                                : const Icon(Icons.sync),
-                            label: Text(
-                              _isSyncing
-                                  ? 'Syncing Presence...'
-                                  : 'Sync My Presence Now',
-                            ),
+                            onPressed: null,
+                            icon: const Icon(Icons.sync),
+                            label: const Text('Presence stored in operator_presence'),
                           ),
                         ),
                       ],

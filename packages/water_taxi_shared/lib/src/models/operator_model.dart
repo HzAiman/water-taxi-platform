@@ -59,6 +59,5 @@ class OperatorModel {
         'operatorId': operatorId,
         'name': name,
         'email': email,
-        'isOnline': isOnline,
       };
 }

@@ -24,10 +24,9 @@ class BookingRepository {
         .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(50)
         .snapshots(includeMetadataChanges: true)
-        .map((snap) {
+        .asyncMap((snap) async {
           final active =
-              snap.docs
-                  .map((d) => _fromDoc(d.id, d.data()))
+              (await Future.wait(snap.docs.map((d) => _fromDoc(d.id, d.data()))))
                   .where(
                     (b) =>
                         b.status == BookingStatus.accepted ||
@@ -57,10 +56,9 @@ class BookingRepository {
         )
         .limit(100)
         .snapshots(includeMetadataChanges: true)
-        .map((snap) {
+        .asyncMap((snap) async {
           final pending =
-              snap.docs
-                  .map((d) => _fromDoc(d.id, d.data()))
+              (await Future.wait(snap.docs.map((d) => _fromDoc(d.id, d.data()))))
                   .where((b) => b.operatorUid == null || b.operatorUid!.isEmpty)
                   .toList()
                 ..sort((a, b) {
@@ -83,9 +81,9 @@ class BookingRepository {
         .where(BookingFields.operatorId, isEqualTo: operatorId)
         .limit(500)
         .snapshots(includeMetadataChanges: true)
-        .map((snap) {
+        .asyncMap((snap) async {
           final history =
-              snap.docs.map((d) => _fromDoc(d.id, d.data())).toList()
+              (await Future.wait(snap.docs.map((d) => _fromDoc(d.id, d.data()))))
                 ..sort((a, b) {
                   final at = a.updatedAt ?? a.createdAt;
                   final bt = b.updatedAt ?? b.createdAt;
@@ -456,6 +454,17 @@ class BookingRepository {
             to: status,
             changedBy: operatorId,
           );
+
+          if (_shouldArchive(status)) {
+            tx.set(_archiveRef(bookingId), {
+              ...data,
+              ...payload,
+              BookingFields.status: status.firestoreValue,
+              BookingFields.updatedAt: FieldValue.serverTimestamp(),
+              'archivedAt': FieldValue.serverTimestamp(),
+              'archivedStatus': status.firestoreValue,
+            });
+          }
         }),
       );
 
@@ -498,12 +507,10 @@ class BookingRepository {
     throw lastError ?? StateError('Firestore write failed.');
   }
 
-  static BookingModel _fromDoc(String id, Map<String, dynamic> data) {
+  Future<BookingModel> _fromDoc(String id, Map<String, dynamic> data) async {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
-    final routePolyline = _normaliseRoutePolyline(
-      _extractRoutePolylineRaw(data),
-    );
+    final routePolyline = await _resolveRoutePolyline(data);
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
     final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
@@ -525,6 +532,63 @@ class BookingRepository {
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
     );
+  }
+
+  Future<List<Map<String, double>>?> _resolveRoutePolyline(
+    Map<String, dynamic> data,
+  ) async {
+    final embedded = _normaliseRoutePolyline(_extractRoutePolylineRaw(data));
+    if (embedded != null && embedded.isNotEmpty) {
+      return embedded;
+    }
+
+    final routePolylineId = data[BookingFields.routePolylineId]?.toString();
+    if (routePolylineId == null || routePolylineId.isEmpty) {
+      return _directRoutePolyline(data);
+    }
+
+    final snap = await _db
+        .collection(FirestoreCollections.polylines)
+        .doc(routePolylineId)
+        .get();
+    if (!snap.exists || snap.data() == null) {
+      return _directRoutePolyline(data);
+    }
+
+    final polyline = _normaliseRoutePolyline(
+      snap.data()!['path'] ??
+          snap.data()!['coordinates'] ??
+          snap.data()!['polyline'] ??
+          snap.data()!['geometry'] ??
+          snap.data()![BookingFields.routePolyline],
+    );
+    if (polyline != null && polyline.isNotEmpty) {
+      return polyline;
+    }
+
+    return _directRoutePolyline(data);
+  }
+
+  List<Map<String, double>> _directRoutePolyline(Map<String, dynamic> data) {
+    final origin = data[BookingFields.originCoords] as GeoPoint?;
+    final dest = data[BookingFields.destinationCoords] as GeoPoint?;
+    if (origin == null || dest == null) {
+      return const <Map<String, double>>[];
+    }
+
+    return [
+      <String, double>{'lat': origin.latitude, 'lng': origin.longitude},
+      <String, double>{'lat': dest.latitude, 'lng': dest.longitude},
+    ];
+  }
+
+  static bool _shouldArchive(BookingStatus status) {
+    return status == BookingStatus.completed ||
+        status == BookingStatus.cancelled;
+  }
+
+  DocumentReference<Map<String, dynamic>> _archiveRef(String bookingId) {
+    return _db.collection(FirestoreCollections.bookingsArchive).doc(bookingId);
   }
 
   static List<String> _strList(dynamic v) {
@@ -616,6 +680,7 @@ class BookingRepository {
       BookingStatusHistoryFields.from: from.firestoreValue,
       BookingStatusHistoryFields.to: to.firestoreValue,
       BookingStatusHistoryFields.changedBy: changedBy,
+      BookingStatusHistoryFields.source: 'operator_app',
       BookingStatusHistoryFields.timestamp: FieldValue.serverTimestamp(),
     });
   }

@@ -4,6 +4,8 @@ class FareModel {
     this.snapshotId,
     required this.origin,
     required this.destination,
+    this.originJettyId,
+    this.destinationJettyId,
     required this.adultFare,
     required this.childFare,
   });
@@ -11,6 +13,8 @@ class FareModel {
   final String? snapshotId;
   final String origin;
   final String destination;
+  final String? originJettyId;
+  final String? destinationJettyId;
   final double adultFare;
   final double childFare;
 
@@ -19,9 +23,19 @@ class FareModel {
       snapshotId: snapshotId,
       origin: (data['origin'] ?? '').toString(),
       destination: (data['destination'] ?? '').toString(),
+      originJettyId: _toNullableString(data['originJettyId']),
+      destinationJettyId: _toNullableString(data['destinationJettyId']),
       adultFare: _toDouble(data['adultFare']),
       childFare: _toDouble(data['childFare']),
     );
+  }
+
+  static String? _toNullableString(dynamic v) {
+    final normalized = v?.toString().trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    return normalized;
   }
 
   static double _toDouble(dynamic v) {
