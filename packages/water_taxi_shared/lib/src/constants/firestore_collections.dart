@@ -2,6 +2,7 @@
 abstract final class FirestoreCollections {
   static const String bookings = 'bookings';
   static const String bookingsArchive = 'bookings_archive';
+  static const String tracking = 'tracking';
   static const String orderNumberIndex = 'order_number_index';
   static const String users = 'users';
   static const String operators = 'operators';

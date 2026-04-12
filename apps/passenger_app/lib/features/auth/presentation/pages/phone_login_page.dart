@@ -32,6 +32,38 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
   String _selectedCountry = 'Malaysia';
   bool _isLoading = false;
 
+  void _logAuthTiming(
+    String stage,
+    Stopwatch stopwatch, {
+    String status = 'ok',
+    String? detail,
+  }) {
+    final extra = detail == null ? '' : ' detail=$detail';
+    debugPrint(
+      '[AuthTiming][Passenger] stage=$stage status=$status durationMs=${stopwatch.elapsedMilliseconds}$extra',
+    );
+  }
+
+  void _logAttemptSummary(
+    String flow,
+    Stopwatch totalStopwatch,
+    Map<String, int> stageDurations, {
+    String status = 'ok',
+  }) {
+    if (stageDurations.isEmpty) {
+      debugPrint(
+        '[AuthTiming][Passenger] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} stageCount=0',
+      );
+      return;
+    }
+
+    final slowest = stageDurations.entries
+        .reduce((a, b) => a.value >= b.value ? a : b);
+    debugPrint(
+      '[AuthTiming][Passenger] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} slowestStage=${slowest.key} slowestMs=${slowest.value} stageCount=${stageDurations.length}',
+    );
+  }
+
   String get _countryCode => countryCodes[_selectedCountry] ?? '+60';
 
   Future<void> _sendOTP() async {
@@ -43,6 +75,8 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
     }
 
     setState(() => _isLoading = true);
+    final stopwatch = Stopwatch()..start();
+    final stageDurations = <String, int>{};
     
     // Combine country code with phone number
     String fullPhoneNumber = "$_countryCode$phoneNumber";
@@ -51,14 +85,36 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
       phoneNumber: fullPhoneNumber,
       verificationCompleted: (PhoneAuthCredential credential) async {
         // Android Auto-retrieval: Logs in automatically if SMS is detected
+        _logAuthTiming('sendOtp.verificationCompleted', stopwatch);
+        stageDurations['sendOtp.verificationCompleted'] = stopwatch.elapsedMilliseconds;
+        final signInStopwatch = Stopwatch()..start();
         await FirebaseAuth.instance.signInWithCredential(credential);
+        _logAuthTiming('sendOtp.autoSignIn', signInStopwatch);
+        stageDurations['sendOtp.autoSignIn'] = signInStopwatch.elapsedMilliseconds;
+        _logAttemptSummary('sendOtp', stopwatch, stageDurations);
       },
       verificationFailed: (FirebaseAuthException e) {
+        _logAuthTiming(
+          'sendOtp.verificationFailed',
+          stopwatch,
+          status: 'error',
+          detail: e.code,
+        );
+        stageDurations['sendOtp.verificationFailed'] = stopwatch.elapsedMilliseconds;
+        _logAttemptSummary(
+          'sendOtp',
+          stopwatch,
+          stageDurations,
+          status: 'error',
+        );
         if (!mounted) return;
         setState(() => _isLoading = false);
         showTopError(context, message: 'Error: ${e.message}');
       },
       codeSent: (String verificationId, int? resendToken) {
+        _logAuthTiming('sendOtp.codeSent', stopwatch);
+        stageDurations['sendOtp.codeSent'] = stopwatch.elapsedMilliseconds;
+        _logAttemptSummary('sendOtp', stopwatch, stageDurations);
         if (!mounted) return;
         setState(() => _isLoading = false);
         // Navigate to the OTP verification screen
@@ -73,7 +129,16 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
           ),
         );
       },
-      codeAutoRetrievalTimeout: (String verificationId) {},
+      codeAutoRetrievalTimeout: (String verificationId) {
+        _logAuthTiming('sendOtp.autoRetrievalTimeout', stopwatch, status: 'timeout');
+        stageDurations['sendOtp.autoRetrievalTimeout'] = stopwatch.elapsedMilliseconds;
+        _logAttemptSummary(
+          'sendOtp',
+          stopwatch,
+          stageDurations,
+          status: 'timeout',
+        );
+      },
       timeout: const Duration(seconds: 60),
     );
   }
@@ -269,6 +334,38 @@ class _OTPScreenState extends State<OTPScreen> {
   int _secondsRemaining = 60;
   bool _canResend = false;
 
+  void _logAuthTiming(
+    String stage,
+    Stopwatch stopwatch, {
+    String status = 'ok',
+    String? detail,
+  }) {
+    final extra = detail == null ? '' : ' detail=$detail';
+    debugPrint(
+      '[AuthTiming][Passenger] stage=$stage status=$status durationMs=${stopwatch.elapsedMilliseconds}$extra',
+    );
+  }
+
+  void _logAttemptSummary(
+    String flow,
+    Stopwatch totalStopwatch,
+    Map<String, int> stageDurations, {
+    String status = 'ok',
+  }) {
+    if (stageDurations.isEmpty) {
+      debugPrint(
+        '[AuthTiming][Passenger] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} stageCount=0',
+      );
+      return;
+    }
+
+    final slowest = stageDurations.entries
+        .reduce((a, b) => a.value >= b.value ? a : b);
+    debugPrint(
+      '[AuthTiming][Passenger] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} slowestStage=${slowest.key} slowestMs=${slowest.value} stageCount=${stageDurations.length}',
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -299,13 +396,18 @@ class _OTPScreenState extends State<OTPScreen> {
     }
 
     setState(() => _isVerifying = true);
+    final verifyStopwatch = Stopwatch()..start();
+    final stageDurations = <String, int>{};
     try {
       AuthCredential credential = PhoneAuthProvider.credential(
         verificationId: _currentVerificationId,
         smsCode: otpCode,
       );
       
+      final signInStopwatch = Stopwatch()..start();
       await FirebaseAuth.instance.signInWithCredential(credential);
+      _logAuthTiming('verifyOtp.signInWithCredential', signInStopwatch);
+      stageDurations['verifyOtp.signInWithCredential'] = signInStopwatch.elapsedMilliseconds;
 
       if (!mounted) return;
 
@@ -317,20 +419,33 @@ class _OTPScreenState extends State<OTPScreen> {
         return;
       }
 
+      final userDocStopwatch = Stopwatch()..start();
       final userDoc = await FirebaseFirestore.instance
           .collection('users')
           .doc(currentUser.uid)
           .get();
+      _logAuthTiming(
+        'verifyOtp.fetchUserDoc',
+        userDocStopwatch,
+        detail: userDoc.exists ? 'existingUser' : 'newUser',
+      );
+      stageDurations['verifyOtp.fetchUserDoc'] = userDocStopwatch.elapsedMilliseconds;
 
       if (!mounted) return;
 
       if (userDoc.exists) {
+        _logAuthTiming('verifyOtp.navigateMain', verifyStopwatch);
+        stageDurations['verifyOtp.navigateMain'] = verifyStopwatch.elapsedMilliseconds;
+        _logAttemptSummary('verifyOtp', verifyStopwatch, stageDurations);
         // User exists, go to main screen
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (context) => const MainScreen()),
           (route) => false,
         );
       } else {
+        _logAuthTiming('verifyOtp.navigateRegistration', verifyStopwatch);
+        stageDurations['verifyOtp.navigateRegistration'] = verifyStopwatch.elapsedMilliseconds;
+        _logAttemptSummary('verifyOtp', verifyStopwatch, stageDurations);
         // New user, go to registration page
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(
@@ -342,6 +457,19 @@ class _OTPScreenState extends State<OTPScreen> {
         );
       }
     } catch (e) {
+      _logAuthTiming(
+        'verifyOtp.failed',
+        verifyStopwatch,
+        status: 'error',
+        detail: e.runtimeType.toString(),
+      );
+      stageDurations['verifyOtp.failed'] = verifyStopwatch.elapsedMilliseconds;
+      _logAttemptSummary(
+        'verifyOtp',
+        verifyStopwatch,
+        stageDurations,
+        status: 'error',
+      );
       if (!mounted) return;
       
       setState(() => _isVerifying = false);
@@ -351,19 +479,43 @@ class _OTPScreenState extends State<OTPScreen> {
 
   Future<void> _resendOTP() async {
     setState(() => _isVerifying = true);
+    final resendStopwatch = Stopwatch()..start();
+    final stageDurations = <String, int>{};
     
     await FirebaseAuth.instance.verifyPhoneNumber(
       phoneNumber: widget.phoneNumber,
       forceResendingToken: _currentResendToken,
       verificationCompleted: (PhoneAuthCredential credential) async {
+        _logAuthTiming('resendOtp.verificationCompleted', resendStopwatch);
+        stageDurations['resendOtp.verificationCompleted'] = resendStopwatch.elapsedMilliseconds;
+        final signInStopwatch = Stopwatch()..start();
         await FirebaseAuth.instance.signInWithCredential(credential);
+        _logAuthTiming('resendOtp.autoSignIn', signInStopwatch);
+        stageDurations['resendOtp.autoSignIn'] = signInStopwatch.elapsedMilliseconds;
+        _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
       },
       verificationFailed: (FirebaseAuthException e) {
+        _logAuthTiming(
+          'resendOtp.verificationFailed',
+          resendStopwatch,
+          status: 'error',
+          detail: e.code,
+        );
+        stageDurations['resendOtp.verificationFailed'] = resendStopwatch.elapsedMilliseconds;
+        _logAttemptSummary(
+          'resendOtp',
+          resendStopwatch,
+          stageDurations,
+          status: 'error',
+        );
         if (!mounted) return;
         setState(() => _isVerifying = false);
         showTopError(context, message: 'Error: ${e.message}');
       },
       codeSent: (String newVerificationId, int? newResendToken) {
+        _logAuthTiming('resendOtp.codeSent', resendStopwatch);
+        stageDurations['resendOtp.codeSent'] = resendStopwatch.elapsedMilliseconds;
+        _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
         if (!mounted) return;
         setState(() {
           _isVerifying = false;
@@ -374,7 +526,16 @@ class _OTPScreenState extends State<OTPScreen> {
         _startTimer();
         showTopSuccess(context, message: 'OTP code sent again');
       },
-      codeAutoRetrievalTimeout: (String verificationId) {},
+      codeAutoRetrievalTimeout: (String verificationId) {
+        _logAuthTiming('resendOtp.autoRetrievalTimeout', resendStopwatch, status: 'timeout');
+        stageDurations['resendOtp.autoRetrievalTimeout'] = resendStopwatch.elapsedMilliseconds;
+        _logAttemptSummary(
+          'resendOtp',
+          resendStopwatch,
+          stageDurations,
+          status: 'timeout',
+        );
+      },
       timeout: const Duration(seconds: 60),
     );
   }

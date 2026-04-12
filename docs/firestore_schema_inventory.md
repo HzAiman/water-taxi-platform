@@ -1,253 +1,222 @@
 # Firestore Schema Inventory (Live Collections)
 
-Last updated: 2026-04-08
+Last updated: 2026-04-12
 Project: melaka-water-taxi
 Database: (default)
+Source: live Firestore introspection via scripts/introspect_firestore_schema.js
 
-## Collection Inventory
+## Collection Inventory (Live)
 
-Top-level collections:
+Top-level collections currently present in Firebase:
 - bookings
 - bookings_archive
 - fares
 - jetties
-- order_number_index
 - operator_devices
 - operator_presence
 - operators
+- order_number_index
 - polylines
 - user_devices
 - users
 
-## Schema Review Notes
+## Entity Relationships
 
-Priority migration items identified during review:
+Primary document identities:
+- users/{uid}
+- operators/{uid}
+- operator_presence/{uid}
+- user_devices/{uid}
+- operator_devices/{uid}
+- bookings/{bookingId}
+- bookings_archive/{bookingId}
+- jetties/{jettyId}
+- fares/{fareDocId}
+- order_number_index/{orderNumber}
+- polylines/{routeId}
 
-1. Booking fare denormalization
-- New bookings now store `totalFare` and `fareSnapshotId` only.
-- `adultFare`, `childFare`, `adultSubtotal`, `childSubtotal`, and `fare` are legacy fields that may still exist on historical documents, but they are no longer written by the apps.
-- If subtotals are needed for display, derive them from the referenced fare snapshot instead of storing multiple copies on the booking.
+Logical relationships:
+- bookings.userId -> users document id
+- bookings.operatorUid -> operators document id
+- bookings.operatorId -> mirrors operator uid for compatibility in current runtime
+- bookings.originJettyId -> jetties document id
+- bookings.destinationJettyId -> jetties document id
+- bookings.fareSnapshotId -> fares document id used at booking time
+- bookings.routePolylineId -> polylines document id
+- bookings.orderNumber -> order_number_index document id
+- bookings_archive is a terminal-state mirror of bookings for completed/cancelled lifecycle records
+- operator_presence/{uid} is the online-state companion document for operators/{uid}
 
-2. Operator online state duplication
-- `operator_presence.isOnline` is the authoritative online state.
-- `operators.isOnline` is legacy data only and should not be written or read by runtime code.
-- Remaining cleanup: purge any stored legacy `operators.isOnline` values from existing operator documents.
-- `operator_presence` is the better fit for high-frequency presence writes.
-
-3. Legacy booking polyline fields
-- `routeCoordinates`, `polylineCoordinates`, and `routePoints` are legacy compatibility fields alongside `routePolyline`.
-- New bookings now also persist `routePolylineId` as the canonical `polylines` document reference.
-- Recommended direction: keep `routePolyline` only as compatibility data until all readers can rely on `routePolylineId`.
-- Keep legacy reads during migration, but stop writing the older variants for new bookings.
-
-4. Booking status history
-- `bookings/{id}/statusHistory` is now present for status transitions handled by the app repositories.
-- Keep this as the canonical audit trail for lifecycle changes.
-
-5. Rejection tracking
-- `rejectedBy` stores operator UIDs that have already rejected the booking.
-- It is used to keep the booking in `pending` until a non-rejecting operator claims it; if you need a richer audit trail, add a per-booking subcollection rather than overloading the field.
-
-6. Passenger snapshot fields
-- `userName` and `userPhone` on bookings are immutable receipt snapshots captured at booking creation.
-- They are not backfilled from later profile edits; if the passenger changes their profile, historical bookings keep the original values.
-
-7. Booking archival
-- Completed and cancelled bookings will grow without bound.
-- Completed and cancelled bookings are mirrored into `bookings_archive` at the point they become terminal.
-- Remaining direction: define time-based retention for `bookings_archive` (for example, export to BigQuery after N days).
-- Add `order_number_index` cleanup when bookings become terminal so orphaned index docs do not accumulate.
-
-8. Order number uniqueness
-- `orderNumber` is not protected by a Firestore unique constraint.
-- Recommended direction: enforce uniqueness in application code with a transaction-backed order index or counter collection.
-
-9. Jetty reference integrity
-- `fares.origin` and `fares.destination` are string-based and currently depend on mutable jetty names.
-- `bookings.origin` and `bookings.destination` are also string labels and can drift from canonical jetty identity.
-- Recommended direction: add canonical `originJettyId` and `destinationJettyId` references, then treat name fields as display snapshots.
-
-10. Jetty key canonicalization
-- `jetties` should use the Firestore document ID as the canonical key.
-- Remove legacy embedded `id` and `jettyId` fields from stored jetty docs; the document ID is the only canonical key.
-
-11. Security Rules documentation and enforcement
-- Schema-level access boundaries are not documented in this inventory.
-- Recommended direction: add Firestore Security Rules coverage for passengers, operators, presence, bookings, and archive collections, then link rule tests to this document.
-
-Quick wins that can be applied with low risk:
-- Drop `isOnline` from `operators` and keep presence state in `operator_presence` only.
-- Add canonical jetty ID references (`originJettyId`, `destinationJettyId`) to fares and bookings.
-- Add Security Rules documentation and baseline rule tests.
-
-## Implementation Checklist (Post-Review)
-
-Completed:
-- Booking writes use `totalFare` and `fareSnapshotId` (legacy fare fields are read-only compatibility).
-- Booking status transitions append `bookings/{id}/statusHistory` entries.
-- New bookings persist canonical `routePolylineId` and read paths hydrate route geometry from canonical sources with legacy fallback.
-- Terminal bookings are mirrored into `bookings_archive`.
-- `rejectedBy` semantics are documented as operator UID tracking for pending dispatch.
-- `userName` and `userPhone` are documented as immutable booking snapshots.
-- Application-level uniqueness guard exists via `order_number_index` reservation.
-- Remove `operators.isOnline` read-time fallback assumptions and use `operator_presence` as authoritative online state.
-- Booking writes now include canonical `originJettyId` and `destinationJettyId` when jetty metadata is available.
-- Backend migration endpoint exists (`backfillJettyIds`) with dry-run, paging, and admin allowlist controls for jetty ID backfill.
-- Terminal booking transitions now clean up `order_number_index/{orderNumber}` reservations.
-- `bookings_archive` retention cleanup is scheduled with configurable retention days (`BOOKING_ARCHIVE_RETENTION_DAYS`).
-- Backend migration endpoint exists (`cleanupLegacyOperatorOnlineField`) to remove stored `operators.isOnline` data with dry-run and paging.
-- Firestore Security Rules were updated for canonical booking fields and archive/status-history access boundaries, with automated emulator-backed rules tests.
-- Canonical jetty identity strategy is now standardized on `jetties` Firestore document ID for booking/fare references (`originJettyId`, `destinationJettyId`).
-- Fare reads are now strict ID-based (`originJettyId` + `destinationJettyId`) with no name-based fallback.
-- New booking writes now require `originJettyId` and `destinationJettyId` in every write path.
-- Firestore index includes canonical fare lookup on `fares(originJettyId, destinationJettyId)`.
-- `statusHistory` entries now include `source` metadata (`passenger_app` / `operator_app`) for transition provenance.
-- Booking-history reads are separated by collection; no application query spans both `bookings` and `bookings_archive`.
-
-Incomplete:
-- Execute stored `operators.isOnline` cleanup migration on existing operator documents (migration endpoint is ready).
-- Execute canonical `originJettyId` and `destinationJettyId` backfill for existing `fares` documents (migration endpoint is ready).
-- Execute canonical `originJettyId` and `destinationJettyId` backfill for existing `bookings` documents (migration endpoint is ready).
-- Execute one-time physical `jetties/{jettyId}` document-ID migration and remove redundant embedded `jettyId`/`id` fields from stored jetty docs (CLI tooling is ready).
-- Remove legacy `operator_id_claims` documents after operator profiles have been re-saved under `operators/{uid}`.
+## Collection Structures And Field Functions
 
 ## 1) bookings
 
 Purpose:
-- Main booking and trip lifecycle record shared by passenger and operator apps.
+- Active booking lifecycle records used by passenger and operator apps.
 
-Core fields:
-- bookingId
-- userId, userName, userPhone
-- origin, destination (display snapshots)
-- originJettyId, destinationJettyId (canonical refs for new writes)
-- originCoords, destinationCoords
-- routePolylineId
-- routePolyline (legacy compatibility)
-- routeCoordinates, polylineCoordinates, routePoints (legacy compatibility)
-- adultCount, childCount, passengerCount
-- totalFare
-- fareSnapshotId
-- adultFare, childFare, adultSubtotal, childSubtotal, fare (legacy historical only)
-- paymentMethod, paymentStatus, orderNumber, transactionId
-- status
-- operatorUid, operatorId
-- operatorLat, operatorLng
-- rejectedBy
-- createdAt, updatedAt, cancelledAt
+Live fields:
+- bookingId: immutable booking identifier; expected to match document id.
+- userId: owner uid of the passenger who created the booking.
+- userName: immutable passenger snapshot used for receipts and operator display.
+- userPhone: immutable passenger contact snapshot for trip execution.
+- origin: human-readable origin jetty name snapshot.
+- destination: human-readable destination jetty name snapshot.
+- originJettyId: canonical origin reference to jetties/{jettyId}.
+- destinationJettyId: canonical destination reference to jetties/{jettyId}.
+- originCoords: GeoPoint for origin map marker and route calculations.
+- destinationCoords: GeoPoint for destination map marker and route calculations.
+- routePolylineId: canonical route reference to polylines/{routeId}.
+- adultCount: number of adult passengers.
+- childCount: number of child passengers.
+- passengerCount: computed total passengers for display and validation.
+- totalFare: final booking fare total used for charging and reconciliation.
+- fareSnapshotId: fare document reference used when booking was created.
+- paymentMethod: gateway/type metadata (for example, stripe_payment_sheet).
+- paymentStatus: payment lifecycle state (authorized, cancelled, etc.).
+- orderNumber: payment/order reference that maps to order_number_index.
+- transactionId: gateway transaction or payment intent id.
+- status: booking lifecycle status (pending, accepted, on_the_way, completed, cancelled, rejected).
+- operatorUid: assigned operator uid (null while unassigned).
+- operatorId: compatibility mirror of operator uid in current write paths.
+- operatorLat: last known operator latitude during active tracking.
+- operatorLng: last known operator longitude during active tracking.
+- rejectedBy: list of operator uids that rejected the pending booking.
+- createdAt: server timestamp at booking creation.
+- updatedAt: server timestamp for latest mutation.
+- cancelledAt: timestamp when booking moved to cancelled status.
 
-Allowed statuses:
-- pending
-- accepted
-- on_the_way
-- completed
-- cancelled
-- rejected
-
-## 2) fares
-
-Purpose:
-- Read-only fare matrix used for booking fare calculation.
-
-Fields:
-- origin, destination (legacy name-based lookup)
-- originJettyId, destinationJettyId (canonical lookup when populated)
-- adultFare
-- childFare
-
-## 3) order_number_index
+## 2) bookings_archive
 
 Purpose:
-- Application-level uniqueness ledger for payment order numbers.
+- Terminal-state booking mirror for retention and historical reads.
 
-Fields:
-- orderNumber (document id)
-- userId
-- reservedAt
+Live fields:
+- Includes booking fields from source booking at archive time.
+- archivedAt: timestamp when record was archived.
+- archivedStatus: terminal status captured during archive write.
+
+Behavior:
+- Created when booking becomes terminal (completed/cancelled in current runtime paths).
+- Read-only in client rules; used for historical views and retention jobs.
+
+## 3) fares
+
+Purpose:
+- Fare matrix keyed by route pair for booking pricing.
+
+Live fields:
+- originJettyId: canonical origin jetty reference.
+- destinationJettyId: canonical destination jetty reference.
+- adultFare: per-adult fare amount.
+- childFare: per-child fare amount.
+
+Behavior:
+- Passenger app performs strict id-based fare lookups using originJettyId + destinationJettyId.
 
 ## 4) jetties
 
 Purpose:
-- Canonical jetty reference collection used for route endpoints and fare routing.
-- App-level canonical identity for references is the Firestore document ID.
+- Canonical jetty catalog for routing, pricing references, and map display.
 
-Fields:
-- name
-- lat
-- lng
+Live fields:
+- name: display name of jetty.
+- lat: latitude coordinate.
+- lng: longitude coordinate.
+- jettyId: legacy embedded id still present in live docs.
 
-Migration note:
-- Existing stored docs may still contain embedded legacy `id` or `jettyId` fields until the re-key migration is executed.
-- After migration, the Firestore document ID is the only canonical jetty identifier.
+Identity note:
+- Document id is already the canonical jetty key used by runtime code.
+- Embedded jettyId remains in live data as migration residue and can be removed later.
 
-## 5) operator_devices
+## 5) operators
 
 Purpose:
-- Operator FCM registration/token docs.
+- Operator profile keyed by Firebase Auth uid.
 
-Fields:
-- token
-- platform
-- appRole
-- updatedAt
+Live fields:
+- operatorId: business/display identifier (for example, MWT-1).
+- name: operator display name.
+- email: operator account email.
+- createdAt: profile creation timestamp.
+- updatedAt: profile update timestamp.
 
 ## 6) operator_presence
 
 Purpose:
-- Online/offline signal for operators.
+- Real-time online/offline state for operators.
 
-Fields:
-- isOnline
-- updatedAt
+Live fields:
+- isOnline: authoritative availability state.
+- updatedAt: latest presence heartbeat/update timestamp.
 
-## 7) operators
+Relationship:
+- operator_presence/{uid} pairs one-to-one with operators/{uid}.
 
-Purpose:
-- Operator profile document keyed by auth uid.
-
-Fields:
-- operatorId
-- name
-- email
-- createdAt
-- updatedAt
-
-## 8) polylines
+## 7) operator_devices
 
 Purpose:
-- River route geometry collection used for map path representation.
+- Operator FCM device token registry for push notifications.
 
-Fields:
-- path
-- type
-- properties
-- uploadedAt
+Live fields:
+- token: FCM registration token.
+- platform: device platform (android/ios/web).
+- appRole: role discriminator, expected operator.
+- updatedAt: last token refresh timestamp.
+
+## 8) users
+
+Purpose:
+- Passenger profile keyed by Firebase Auth uid.
+
+Live fields:
+- name: passenger display name.
+- email: passenger email.
+- phoneNumber: passenger contact number.
+- createdAt: profile creation timestamp.
+- updatedAt: profile update timestamp.
+
+Live note:
+- No redundant uid field is currently present in sampled users docs.
 
 ## 9) user_devices
 
 Purpose:
-- Passenger FCM registration/token docs.
+- Passenger FCM device token registry for push notifications.
 
-Fields:
-- token
-- platform
-- appRole
-- updatedAt
+Live fields:
+- token: FCM registration token.
+- platform: device platform.
+- appRole: role discriminator, expected passenger.
+- updatedAt: last token refresh timestamp.
 
-## 10) users
+## 10) order_number_index
 
 Purpose:
-- Passenger profile document keyed by auth uid.
+- Reservation ledger to enforce unique order numbers before payment/booking writes.
 
-Fields:
-- uid
-- name
-- email
-- phoneNumber
-- createdAt
-- updatedAt
+Live fields:
+- orderNumber: reserved order number (mirrors document id).
+- userId: uid that reserved the order number.
+- reservedAt: reservation timestamp.
 
-## Live Composite Indexes Retrieved
+Relationship:
+- bookings.orderNumber should match an existing order_number_index document id.
+
+## 11) polylines
+
+Purpose:
+- River route geometry used for map rendering and route reference.
+
+Live fields:
+- path: ordered GeoPoint array for route line geometry.
+- type: geometry type (LineString).
+- properties: metadata bag (route_name, city, etc.).
+- uploadedAt: route upload timestamp.
+
+Relationship:
+- bookings.routePolylineId points to polylines/{routeId}.
+
+## Live Composite Indexes
 
 Collection group bookings:
 - status ASC, operatorId ASC, createdAt ASC

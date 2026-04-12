@@ -95,7 +95,6 @@ class BookingRepository {
       if (p.transactionId != null) BookingFields.transactionId: p.transactionId,
       BookingFields.status: BookingStatus.pending.firestoreValue,
       BookingFields.operatorUid: null,
-      BookingFields.operatorId: null,
       if (routeSelection.routePolylineId != null)
         BookingFields.routePolylineId: routeSelection.routePolylineId,
       BookingFields.createdAt: FieldValue.serverTimestamp(),
@@ -162,6 +161,9 @@ class BookingRepository {
         'orderNumber': orderNumber,
         'userId': userId,
         'reservedAt': FieldValue.serverTimestamp(),
+        'expiresAt': Timestamp.fromDate(
+          DateTime.now().toUtc().add(const Duration(hours: 24)),
+        ),
       });
     });
   }
@@ -170,19 +172,65 @@ class BookingRepository {
     return _db.collection(FirestoreCollections.bookingsArchive).doc(bookingId);
   }
 
+  DocumentReference<Map<String, dynamic>> _trackingRef(String bookingId) {
+    return _db.collection(FirestoreCollections.tracking).doc(bookingId);
+  }
+
   // ── Read / Stream ────────────────────────────────────────────────────────
 
   /// Streams a single booking document in real-time. Emits `null` if the
   /// document does not exist.
   Stream<BookingModel?> streamBooking(String bookingId) {
-    return _db
-        .collection(FirestoreCollections.bookings)
-        .doc(bookingId)
-        .snapshots()
-        .asyncMap((snap) async {
-          if (!snap.exists || snap.data() == null) return null;
-          return _fromDoc(snap.id, snap.data()!);
-        });
+    final bookingRef = _db.collection(FirestoreCollections.bookings).doc(bookingId);
+    final trackingRef = _trackingRef(bookingId);
+
+    late final StreamController<BookingModel?> controller;
+    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? bookingSub;
+    StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? trackingSub;
+
+    Map<String, dynamic>? bookingData;
+    Map<String, dynamic>? trackingData;
+    var hasBookingSnapshot = false;
+
+    Future<void> emitCurrent() async {
+      if (!hasBookingSnapshot) return;
+      if (bookingData == null) {
+        controller.add(null);
+        return;
+      }
+
+      var booking = await _fromDoc(bookingId, bookingData!);
+      final lat = _asDouble(trackingData?[TrackingFields.operatorLat]);
+      final lng = _asDouble(trackingData?[TrackingFields.operatorLng]);
+      if (lat != null && lng != null) {
+        booking = booking.copyWith(operatorLat: lat, operatorLng: lng);
+      }
+
+      controller.add(booking);
+    }
+
+    controller = StreamController<BookingModel?>.broadcast(
+      onListen: () {
+        bookingSub = bookingRef.snapshots().listen((snap) async {
+          hasBookingSnapshot = true;
+          bookingData = snap.data();
+          await emitCurrent();
+        }, onError: controller.addError);
+
+        trackingSub = trackingRef.snapshots().listen((snap) async {
+          trackingData = snap.data();
+          if (hasBookingSnapshot && bookingData != null) {
+            await emitCurrent();
+          }
+        }, onError: controller.addError);
+      },
+      onCancel: () async {
+        await bookingSub?.cancel();
+        await trackingSub?.cancel();
+      },
+    );
+
+    return controller.stream;
   }
 
   /// Streams the user's currently active booking (pending / accepted /

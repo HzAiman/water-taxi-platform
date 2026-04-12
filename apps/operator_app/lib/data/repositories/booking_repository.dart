@@ -20,8 +20,7 @@ class BookingRepository {
   Stream<List<BookingModel>> streamActiveBookings(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
-        // Transitional read path: keep legacy field until old data is migrated.
-        .where(BookingFields.operatorId, isEqualTo: operatorId)
+      .where(BookingFields.operatorUid, isEqualTo: operatorId)
         .limit(50)
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
@@ -77,8 +76,7 @@ class BookingRepository {
   Stream<List<BookingModel>> streamOperatorBookingHistory(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
-        // Transitional read path: keep legacy field until old data is migrated.
-        .where(BookingFields.operatorId, isEqualTo: operatorId)
+      .where(BookingFields.operatorUid, isEqualTo: operatorId)
         .limit(500)
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
@@ -134,7 +132,6 @@ class BookingRepository {
         tx.update(ref, {
           BookingFields.status: BookingStatus.accepted.firestoreValue,
           BookingFields.operatorUid: operatorId,
-          BookingFields.operatorId: operatorId,
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
         });
         _appendStatusHistory(
@@ -268,7 +265,6 @@ class BookingRepository {
           tx.update(ref, {
             BookingFields.status: BookingStatus.pending.firestoreValue,
             BookingFields.operatorUid: null,
-            BookingFields.operatorId: null,
             BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
             BookingFields.updatedAt: FieldValue.serverTimestamp(),
           });
@@ -332,16 +328,13 @@ class BookingRepository {
   }) async {
     try {
       await _runWithRetry(
-        () => _db
-            .collection(FirestoreCollections.bookings)
-            .doc(bookingId)
-            .update({
-              BookingFields.operatorUid: operatorId,
-              BookingFields.operatorId: operatorId,
-              BookingFields.operatorLat: operatorLat,
-              BookingFields.operatorLng: operatorLng,
-              BookingFields.updatedAt: FieldValue.serverTimestamp(),
-            }),
+        () => _db.collection(FirestoreCollections.tracking).doc(bookingId).set({
+          TrackingFields.bookingId: bookingId,
+          TrackingFields.operatorUid: operatorId,
+          TrackingFields.operatorLat: operatorLat,
+          TrackingFields.operatorLng: operatorLng,
+          TrackingFields.updatedAt: FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true)),
       );
 
       return const OperationSuccess('Location updated.');
@@ -360,8 +353,7 @@ class BookingRepository {
   Future<int> releaseAllAcceptedBookings(String operatorId) async {
     final snap = await _db
         .collection(FirestoreCollections.bookings)
-        // Transitional read path: keep legacy field until old data is migrated.
-        .where(BookingFields.operatorId, isEqualTo: operatorId)
+      .where(BookingFields.operatorUid, isEqualTo: operatorId)
         .limit(50)
         .get();
 
@@ -390,7 +382,6 @@ class BookingRepository {
           tx.update(ref, {
             BookingFields.status: BookingStatus.pending.firestoreValue,
             BookingFields.operatorUid: null,
-            BookingFields.operatorId: null,
             BookingFields.rejectedBy: {...rejectedBy, operatorId}.toList(),
             BookingFields.updatedAt: FieldValue.serverTimestamp(),
           });
@@ -437,7 +428,6 @@ class BookingRepository {
           final payload = <String, dynamic>{
             BookingFields.status: status.firestoreValue,
             BookingFields.operatorUid: operatorId,
-            BookingFields.operatorId: operatorId,
             BookingFields.updatedAt: FieldValue.serverTimestamp(),
           };
 

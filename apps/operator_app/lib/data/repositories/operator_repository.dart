@@ -120,8 +120,6 @@ class OperatorRepository {
         OperatorFields.name: trimmedName,
         OperatorFields.email: trimmedEmail,
         OperatorFields.operatorId: trimmedOperatorId,
-        OperatorFields.operatorIdKey: FieldValue.delete(),
-        OperatorFields.isOnline: FieldValue.delete(),
         OperatorFields.updatedAt: FieldValue.serverTimestamp(),
         if (!operatorSnap.exists)
           OperatorFields.createdAt: FieldValue.serverTimestamp(),
@@ -138,8 +136,6 @@ class OperatorRepository {
   Future<void> updateOperator(String uid, {String? name, String? email}) async {
     final updates = <String, dynamic>{
       OperatorFields.updatedAt: FieldValue.serverTimestamp(),
-      OperatorFields.operatorIdKey: FieldValue.delete(),
-      OperatorFields.isOnline: FieldValue.delete(),
     };
     if (name != null) updates[OperatorFields.name] = name;
     if (email != null) updates[OperatorFields.email] = email;

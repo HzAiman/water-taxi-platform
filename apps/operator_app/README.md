@@ -10,14 +10,14 @@ The app is now refactored to a repository + view model architecture with Provide
 - Firebase email/password sign-in.
 - Operator profile bootstrap in Firestore under `operators/{uid}`.
 - Profile edit flow for operator name and operator ID.
-- Operator ID uniqueness enforced transactionally via `operator_id_claims/{operatorIdKey}`.
-- Automatic profile claim repair on app startup for legacy operator records.
+- Operator profiles are keyed directly by auth `uid`; `operatorId` remains the display/reporting reference.
+- Legacy profile-claim repair is no longer part of the startup flow.
 
 ### Operations dashboard
 - Online/offline toggle synced to Firestore.
 - Google Map with current-location bootstrap and recenter behavior.
 - Booking action flow for:
-  - `pending -> pending` (reject via `rejectedBy[]`)
+  - `pending -> pending` (reject via `rejectedBy[]` operator UID list)
   - `pending -> accepted`
   - `accepted -> on_the_way`
   - `on_the_way -> completed`
@@ -85,20 +85,7 @@ Key logic layers:
 operators/{uid}
 name
 operatorId
-operatorIdKey
 email
-isOnline
-createdAt
-updatedAt
-```
-
-### Operator ID claim collection
-
-```text
-operator_id_claims/{operatorIdKey}
-uid
-operatorId
-operatorIdKey
 createdAt
 updatedAt
 ```
@@ -117,10 +104,13 @@ routePolyline (or legacy variants normalized by repository)
 origin
 destination
 passengerCount
-fare or totalFare
+totalFare
+fareSnapshotId
 createdAt
 updatedAt
 ```
+
+Legacy booking documents may still include the older fare breakdown fields, but the current app flow reads the strict `totalFare` plus `fareSnapshotId` shape for new bookings.
 
 ## Requirements
 
@@ -173,7 +163,7 @@ The current rules already allow operators to:
 - start a trip on their assigned booking
 - complete a trip on their assigned booking
 - publish live coordinates on assigned `on_the_way` bookings
-- create/update their own operator profile only when the matching `operator_id_claims/{operatorIdKey}` is owned by their UID
+- create/update their own operator profile directly under `operators/{uid}`
 
 To deploy the shared Firestore config used by this app:
 

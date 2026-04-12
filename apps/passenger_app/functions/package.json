@@ -10,7 +10,22 @@
     "lint": "echo \"No lint configured\"",
     "serve": "firebase emulators:start --only functions",
     "deploy": "firebase deploy --only functions",
-    "logs": "firebase functions:log"
+    "logs": "firebase functions:log",
+    "test:rules": "node --test --test-concurrency=1 ./rules-tests/firestore.rules.test.js",
+    "migrate:schema:dry-run": "node ./scripts/execute_schema_backfills.js --dry-run true",
+    "migrate:schema:apply": "node ./scripts/execute_schema_backfills.js --dry-run false",
+    "migrate:schema:dry-run:prod": "node ./scripts/execute_schema_backfills.js --dry-run true --project-id melaka-water-taxi",
+    "migrate:schema:apply:prod": "node ./scripts/execute_schema_backfills.js --dry-run false --project-id melaka-water-taxi",
+    "migrate:booking-operator-uid:dry-run": "node ./scripts/migrate_booking_operator_uid.js --dry-run true",
+    "migrate:booking-operator-uid:apply": "node ./scripts/migrate_booking_operator_uid.js --dry-run false",
+    "migrate:booking-operator-uid:drop-mirror:dry-run": "node ./scripts/migrate_booking_operator_uid.js --dry-run true --drop-mirror true",
+    "migrate:booking-operator-uid:drop-mirror:apply": "node ./scripts/migrate_booking_operator_uid.js --dry-run false --drop-mirror true",
+    "migrate:uid-identity:dry-run": "node ./scripts/migrate_uid_keyed_identity.js --dry-run true",
+    "migrate:uid-identity:apply": "node ./scripts/migrate_uid_keyed_identity.js --dry-run false"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^3.0.4",
+    "firebase": "^10.14.1"
   },
   "dependencies": {
     "firebase-admin": "^13.7.0",

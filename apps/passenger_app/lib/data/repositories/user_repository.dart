@@ -21,11 +21,13 @@ class UserRepository {
 
   /// Creates a user document (merges if already exists).
   Future<void> createUser(UserModel user) async {
+    final payload = Map<String, dynamic>.from(user.toMap())
+      ..remove(UserFields.uid);
     await _db
         .collection(FirestoreCollections.users)
         .doc(user.uid)
         .set({
-      ...user.toMap(),
+      ...payload,
       UserFields.createdAt: FieldValue.serverTimestamp(),
       UserFields.updatedAt: FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
@@ -38,7 +40,6 @@ class UserRepository {
     String? email,
   }) async {
     final updates = <String, dynamic>{
-      UserFields.uid: uid,
       UserFields.updatedAt: FieldValue.serverTimestamp(),
     };
     if (name != null) updates[UserFields.name] = name;

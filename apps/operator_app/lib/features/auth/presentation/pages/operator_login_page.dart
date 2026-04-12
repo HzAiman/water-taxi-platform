@@ -18,6 +18,38 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
   bool _isLoading = false;
   bool _obscurePassword = true;
 
+  void _logAuthTiming(
+    String stage,
+    Stopwatch stopwatch, {
+    String status = 'ok',
+    String? detail,
+  }) {
+    final extra = detail == null ? '' : ' detail=$detail';
+    debugPrint(
+      '[AuthTiming][Operator] stage=$stage status=$status durationMs=${stopwatch.elapsedMilliseconds}$extra',
+    );
+  }
+
+  void _logAttemptSummary(
+    String flow,
+    Stopwatch totalStopwatch,
+    Map<String, int> stageDurations, {
+    String status = 'ok',
+  }) {
+    if (stageDurations.isEmpty) {
+      debugPrint(
+        '[AuthTiming][Operator] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} stageCount=0',
+      );
+      return;
+    }
+
+    final slowest = stageDurations.entries
+        .reduce((a, b) => a.value >= b.value ? a : b);
+    debugPrint(
+      '[AuthTiming][Operator] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} slowestStage=${slowest.key} slowestMs=${slowest.value} stageCount=${stageDurations.length}',
+    );
+  }
+
   @override
   void dispose() {
     _emailController.dispose();
@@ -33,19 +65,34 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
     setState(() {
       _isLoading = true;
     });
+    final loginStopwatch = Stopwatch()..start();
+    final stageDurations = <String, int>{};
 
     try {
+      final signInStopwatch = Stopwatch()..start();
       final userCredential = await FirebaseAuth.instance.signInWithEmailAndPassword(
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+      _logAuthTiming('login.signInWithEmailPassword', signInStopwatch);
+      stageDurations['login.signInWithEmailPassword'] = signInStopwatch.elapsedMilliseconds;
 
       final operatorDocRef = FirebaseFirestore.instance
           .collection('operators')
           .doc(userCredential.user!.uid);
+      final fetchDocStopwatch = Stopwatch()..start();
       final operatorDoc = await operatorDocRef.get();
+      _logAuthTiming(
+        'login.fetchOperatorDoc',
+        fetchDocStopwatch,
+        detail: operatorDoc.exists ? 'existingOperator' : 'newOperator',
+      );
+      stageDurations['login.fetchOperatorDoc'] = fetchDocStopwatch.elapsedMilliseconds;
 
       if (!operatorDoc.exists) {
+        _logAuthTiming('login.navigateProfileSetup', loginStopwatch);
+        stageDurations['login.navigateProfileSetup'] = loginStopwatch.elapsedMilliseconds;
+        _logAttemptSummary('login', loginStopwatch, stageDurations);
         if (mounted) {
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(
@@ -58,7 +105,23 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
         }
         return;
       }
+      _logAuthTiming('login.completed', loginStopwatch);
+      stageDurations['login.completed'] = loginStopwatch.elapsedMilliseconds;
+      _logAttemptSummary('login', loginStopwatch, stageDurations);
     } on FirebaseAuthException catch (e) {
+      _logAuthTiming(
+        'login.failed',
+        loginStopwatch,
+        status: 'error',
+        detail: e.code,
+      );
+      stageDurations['login.failed'] = loginStopwatch.elapsedMilliseconds;
+      _logAttemptSummary(
+        'login',
+        loginStopwatch,
+        stageDurations,
+        status: 'error',
+      );
       String message;
       switch (e.code) {
         case 'user-not-found':
@@ -84,6 +147,19 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
         showTopError(context, message: message, title: 'Login failed');
       }
     } catch (e) {
+      _logAuthTiming(
+        'login.failed',
+        loginStopwatch,
+        status: 'error',
+        detail: e.runtimeType.toString(),
+      );
+      stageDurations['login.failed'] = loginStopwatch.elapsedMilliseconds;
+      _logAttemptSummary(
+        'login',
+        loginStopwatch,
+        stageDurations,
+        status: 'error',
+      );
       if (mounted) {
         showTopError(context, message: 'An error occurred: ${e.toString()}', title: 'Login failed');
       }

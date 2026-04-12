@@ -5,7 +5,7 @@ const { defineSecret, defineString } = require("firebase-functions/params");
 const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
 const { getAuth } = require("firebase-admin/auth");
-const { getFirestore } = require("firebase-admin/firestore");
+const { getFirestore, FieldPath, FieldValue } = require("firebase-admin/firestore");
 const { getMessaging } = require("firebase-admin/messaging");
 const Stripe = require("stripe");
 
@@ -16,9 +16,16 @@ const messaging = getMessaging();
 const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
 const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 const STRIPE_CURRENCY = defineString("STRIPE_CURRENCY");
+const MIGRATION_ADMIN_UIDS = defineString("MIGRATION_ADMIN_UIDS");
+const BOOKING_ARCHIVE_RETENTION_DAYS = defineString("BOOKING_ARCHIVE_RETENTION_DAYS");
 
 const COLLECTIONS = {
   bookings: "bookings",
+  bookingsArchive: "bookings_archive",
+  orderNumberIndex: "order_number_index",
+  fares: "fares",
+  jetties: "jetties",
+  operators: "operators",
   operatorPresence: "operator_presence",
   operatorDevices: "operator_devices",
   userDevices: "user_devices",
@@ -772,6 +779,27 @@ function statusLabel(status) {
   }
 }
 
+function isTerminalBookingStatus(status) {
+  return status === "completed" || status === "cancelled" || status === "rejected";
+}
+
+async function cleanupOrderNumberReservation(orderNumber) {
+  const normalizedOrderNumber = String(orderNumber || "").trim();
+  if (!normalizedOrderNumber) {
+    return false;
+  }
+
+  const indexRef = db.collection(COLLECTIONS.orderNumberIndex).doc(normalizedOrderNumber);
+  const indexSnap = await indexRef.get();
+
+  if (!indexSnap.exists) {
+    return false;
+  }
+
+  await indexRef.delete();
+  return true;
+}
+
 async function updateBookingPaymentState({ orderNumber, paymentStatus, transactionId, extra = {} }) {
   if (!orderNumber) {
     return;
@@ -829,6 +857,507 @@ function toDateOrNull(value) {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
+
+function normalizeJettyName(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ");
+}
+
+function parseBoolean(value, fallback = false) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "1") {
+      return true;
+    }
+    if (normalized === "false" || normalized === "0") {
+      return false;
+    }
+  }
+
+  return fallback;
+}
+
+function parseInteger(value, fallback) {
+  const parsed = Number.parseInt(String(value ?? ""), 10);
+  if (Number.isNaN(parsed)) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function parsePositiveRetentionDays(value, fallback = 180) {
+  const parsed = parseInteger(value, fallback);
+  if (parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+}
+
+function parseMigrationCollections(value) {
+  if (!value) {
+    return [COLLECTIONS.fares, COLLECTIONS.bookings];
+  }
+
+  const source = Array.isArray(value)
+    ? value
+    : String(value)
+        .split(",")
+        .map((item) => item.trim());
+
+  const normalized = source
+    .map((item) => String(item || "").trim().toLowerCase())
+    .filter(Boolean);
+
+  const allowed = new Set([COLLECTIONS.fares, COLLECTIONS.bookings]);
+  const deduped = [...new Set(normalized)].filter((item) => allowed.has(item));
+  return deduped.length > 0 ? deduped : [COLLECTIONS.fares, COLLECTIONS.bookings];
+}
+
+function parseAdminUidAllowlist() {
+  return new Set(
+    String(MIGRATION_ADMIN_UIDS.value() || "")
+      .split(",")
+      .map((uid) => uid.trim())
+      .filter(Boolean)
+  );
+}
+
+async function buildJettyNameMap() {
+  const snapshot = await db.collection(COLLECTIONS.jetties).get();
+  const map = new Map();
+
+  for (const doc of snapshot.docs) {
+    const name = normalizeJettyName(doc.data()?.name);
+    if (!name) {
+      continue;
+    }
+
+    if (!map.has(name)) {
+      map.set(name, doc.id);
+    }
+  }
+
+  return map;
+}
+
+function buildJettyIdPatch(docData, jettyNameMap) {
+  const patch = {};
+  const warnings = [];
+
+  const originJettyId = String(docData.originJettyId || "").trim();
+  const destinationJettyId = String(docData.destinationJettyId || "").trim();
+
+  if (!originJettyId) {
+    const originName = normalizeJettyName(docData.origin);
+    const resolvedOriginId = originName ? jettyNameMap.get(originName) : null;
+    if (resolvedOriginId) {
+      patch.originJettyId = resolvedOriginId;
+    } else {
+      warnings.push("origin_unresolved");
+    }
+  }
+
+  if (!destinationJettyId) {
+    const destinationName = normalizeJettyName(docData.destination);
+    const resolvedDestinationId = destinationName ? jettyNameMap.get(destinationName) : null;
+    if (resolvedDestinationId) {
+      patch.destinationJettyId = resolvedDestinationId;
+    } else {
+      warnings.push("destination_unresolved");
+    }
+  }
+
+  return {
+    patch,
+    warnings,
+  };
+}
+
+async function runJettyBackfillPage({
+  collection,
+  limit,
+  startAfterDocId,
+  dryRun,
+  actorUid,
+  jettyNameMap,
+}) {
+  let query = db
+    .collection(collection)
+    .orderBy(FieldPath.documentId())
+    .limit(limit);
+
+  if (startAfterDocId) {
+    query = query.startAfter(startAfterDocId);
+  }
+
+  const snapshot = await query.get();
+  const now = new Date();
+  let updated = 0;
+  let scanned = 0;
+  let unresolved = 0;
+  const unresolvedDocIds = [];
+  const updateBatch = db.batch();
+
+  for (const doc of snapshot.docs) {
+    scanned += 1;
+    const data = doc.data() || {};
+    const { patch, warnings } = buildJettyIdPatch(data, jettyNameMap);
+
+    if (warnings.length > 0) {
+      unresolved += 1;
+      unresolvedDocIds.push(doc.id);
+    }
+
+    if (Object.keys(patch).length === 0) {
+      continue;
+    }
+
+    patch.updatedAt = now;
+    patch.jettyBackfillAt = now;
+    patch.jettyBackfillBy = actorUid;
+
+    updated += 1;
+    if (!dryRun) {
+      updateBatch.update(doc.ref, patch);
+    }
+  }
+
+  if (!dryRun && updated > 0) {
+    await updateBatch.commit();
+  }
+
+  return {
+    collection,
+    scanned,
+    updated,
+    unresolved,
+    unresolvedDocIds,
+    nextCursor: snapshot.empty ? null : snapshot.docs[snapshot.docs.length - 1].id,
+    done: snapshot.empty || snapshot.size < limit,
+  };
+}
+
+async function runOperatorIsOnlineCleanupPage({
+  limit,
+  startAfterDocId,
+  dryRun,
+  actorUid,
+}) {
+  let query = db
+    .collection(COLLECTIONS.operators)
+    .orderBy(FieldPath.documentId())
+    .limit(limit);
+
+  if (startAfterDocId) {
+    query = query.startAfter(startAfterDocId);
+  }
+
+  const snapshot = await query.get();
+  const now = new Date();
+  let scanned = 0;
+  let updated = 0;
+  const updateBatch = db.batch();
+
+  for (const doc of snapshot.docs) {
+    scanned += 1;
+    const data = doc.data() || {};
+    if (typeof data.isOnline === "undefined") {
+      continue;
+    }
+
+    updated += 1;
+    if (!dryRun) {
+      updateBatch.update(doc.ref, {
+        isOnline: FieldValue.delete(),
+        updatedAt: now,
+        onlineFieldCleanupAt: now,
+        onlineFieldCleanupBy: actorUid,
+      });
+    }
+  }
+
+  if (!dryRun && updated > 0) {
+    await updateBatch.commit();
+  }
+
+  return {
+    collection: COLLECTIONS.operators,
+    scanned,
+    updated,
+    nextCursor: snapshot.empty ? null : snapshot.docs[snapshot.docs.length - 1].id,
+    done: snapshot.empty || snapshot.size < limit,
+  };
+}
+
+/**
+ * Backfills originJettyId/destinationJettyId on fares and bookings.
+ *
+ * Protection model:
+ * - Firebase Auth bearer token required
+ * - UID must be in MIGRATION_ADMIN_UIDS parameter
+ *
+ * Query/body options:
+ * - dryRun: true|false (default true)
+ * - limit: integer 1..500 (default 200)
+ * - startAfter: doc id cursor for pagination
+ * - collections: fares,bookings (CSV or array)
+ */
+exports.backfillJettyIds = onRequest(
+  {
+    region: "asia-southeast1",
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({
+        status: "failed",
+        message: "Method not allowed",
+      });
+      return;
+    }
+
+    const authHeader = String(req.headers.authorization || "");
+    if (!authHeader.startsWith("Bearer ")) {
+      res.status(401).json({
+        status: "failed",
+        message: "Missing Firebase ID token",
+      });
+      return;
+    }
+
+    let decodedToken;
+    try {
+      decodedToken = await getAuth().verifyIdToken(authHeader.substring("Bearer ".length).trim());
+    } catch (error) {
+      logger.warn("backfillJettyIds unauthorized token", {
+        message: error?.message || "Unknown token verification error",
+      });
+      res.status(401).json({
+        status: "failed",
+        message: "Invalid Firebase ID token",
+      });
+      return;
+    }
+
+    const allowlist = parseAdminUidAllowlist();
+    if (!allowlist.has(decodedToken.uid)) {
+      logger.warn("backfillJettyIds forbidden for uid", {
+        uid: decodedToken.uid,
+      });
+      res.status(403).json({
+        status: "failed",
+        message: "Forbidden",
+      });
+      return;
+    }
+
+    const payload = req.body || {};
+    const dryRun = parseBoolean(payload.dryRun, true);
+    const limitRaw = parseInteger(payload.limit, 200);
+    const limit = Math.max(1, Math.min(500, limitRaw));
+    const startAfter = String(payload.startAfter || "").trim();
+    const collections = parseMigrationCollections(payload.collections);
+
+    try {
+      const jettyNameMap = await buildJettyNameMap();
+      const results = [];
+
+      for (const collection of collections) {
+        const result = await runJettyBackfillPage({
+          collection,
+          limit,
+          startAfterDocId: startAfter,
+          dryRun,
+          actorUid: decodedToken.uid,
+          jettyNameMap,
+        });
+        results.push(result);
+      }
+
+      logger.info("backfillJettyIds completed", {
+        actorUid: decodedToken.uid,
+        dryRun,
+        limit,
+        startAfter,
+        collections,
+      });
+
+      res.status(200).json({
+        status: "ok",
+        dryRun,
+        limit,
+        startAfter,
+        collections,
+        jettyNameMapSize: jettyNameMap.size,
+        results,
+      });
+    } catch (error) {
+      logger.error("backfillJettyIds failed", {
+        actorUid: decodedToken.uid,
+        message: error?.message || "Unknown migration failure",
+      });
+      res.status(500).json({
+        status: "failed",
+        message: "Backfill failed",
+      });
+    }
+  }
+);
+
+/**
+ * Removes legacy operators.isOnline field from stored operator profiles.
+ *
+ * Protection model:
+ * - Firebase Auth bearer token required
+ * - UID must be in MIGRATION_ADMIN_UIDS parameter
+ *
+ * Query/body options:
+ * - dryRun: true|false (default true)
+ * - limit: integer 1..500 (default 200)
+ * - startAfter: doc id cursor for pagination
+ */
+exports.cleanupLegacyOperatorOnlineField = onRequest(
+  {
+    region: "asia-southeast1",
+  },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({
+        status: "failed",
+        message: "Method not allowed",
+      });
+      return;
+    }
+
+    const authHeader = String(req.headers.authorization || "");
+    if (!authHeader.startsWith("Bearer ")) {
+      res.status(401).json({
+        status: "failed",
+        message: "Missing Firebase ID token",
+      });
+      return;
+    }
+
+    let decodedToken;
+    try {
+      decodedToken = await getAuth().verifyIdToken(authHeader.substring("Bearer ".length).trim());
+    } catch (error) {
+      logger.warn("cleanupLegacyOperatorOnlineField unauthorized token", {
+        message: error?.message || "Unknown token verification error",
+      });
+      res.status(401).json({
+        status: "failed",
+        message: "Invalid Firebase ID token",
+      });
+      return;
+    }
+
+    const allowlist = parseAdminUidAllowlist();
+    if (!allowlist.has(decodedToken.uid)) {
+      logger.warn("cleanupLegacyOperatorOnlineField forbidden for uid", {
+        uid: decodedToken.uid,
+      });
+      res.status(403).json({
+        status: "failed",
+        message: "Forbidden",
+      });
+      return;
+    }
+
+    const payload = req.body || {};
+    const dryRun = parseBoolean(payload.dryRun, true);
+    const limitRaw = parseInteger(payload.limit, 200);
+    const limit = Math.max(1, Math.min(500, limitRaw));
+    const startAfter = String(payload.startAfter || "").trim();
+
+    try {
+      const result = await runOperatorIsOnlineCleanupPage({
+        limit,
+        startAfterDocId: startAfter,
+        dryRun,
+        actorUid: decodedToken.uid,
+      });
+
+      logger.info("cleanupLegacyOperatorOnlineField completed", {
+        actorUid: decodedToken.uid,
+        dryRun,
+        limit,
+        startAfter,
+      });
+
+      res.status(200).json({
+        status: "ok",
+        dryRun,
+        limit,
+        startAfter,
+        result,
+      });
+    } catch (error) {
+      logger.error("cleanupLegacyOperatorOnlineField failed", {
+        actorUid: decodedToken.uid,
+        message: error?.message || "Unknown migration failure",
+      });
+      res.status(500).json({
+        status: "failed",
+        message: "Cleanup failed",
+      });
+    }
+  }
+);
+
+/**
+ * Releases order_number_index reservation when booking reaches terminal status.
+ * Prevents stale index documents from accumulating after trip lifecycle ends.
+ */
+exports.cleanupOrderNumberIndexOnTerminalBooking = onDocumentUpdated(
+  {
+    document: "bookings/{bookingId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const before = event.data?.before.data();
+    const after = event.data?.after.data();
+
+    if (!before || !after) {
+      return;
+    }
+
+    const previousStatus = String(before[BOOKING_FIELDS.status] || "").trim().toLowerCase();
+    const newStatus = String(after[BOOKING_FIELDS.status] || "").trim().toLowerCase();
+
+    if (previousStatus === newStatus || !isTerminalBookingStatus(newStatus)) {
+      return;
+    }
+
+    const orderNumber = String(after[BOOKING_FIELDS.orderNumber] || "").trim();
+    if (!orderNumber) {
+      return;
+    }
+
+    try {
+      const removed = await cleanupOrderNumberReservation(orderNumber);
+      logger.info("Order number reservation cleanup processed", {
+        bookingId: event.params.bookingId,
+        orderNumber,
+        removed,
+        terminalStatus: newStatus,
+      });
+    } catch (error) {
+      logger.error("Failed to cleanup order number reservation", {
+        alertType: "ORDER_INDEX_CLEANUP_FAILED",
+        bookingId: event.params.bookingId,
+        orderNumber,
+        terminalStatus: newStatus,
+        message: error?.message || "Unknown cleanup error",
+      });
+    }
+  }
+);
 
 async function captureOrMarkPaidPaymentIntent({ stripe, paymentIntentId, orderNumber }) {
   const intent = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -1386,6 +1915,99 @@ exports.reconcileStaleAuthorizedPayments = onSchedule(
       captured,
       skipped,
       failed,
+    });
+  }
+);
+
+/**
+ * Scheduled cleanup for bookings_archive retention.
+ *
+ * Retention is configured by BOOKING_ARCHIVE_RETENTION_DAYS (default 180).
+ * Deletes archive docs where archivedAt is older than retention cutoff.
+ */
+exports.cleanupExpiredBookingArchive = onSchedule(
+  {
+    schedule: "every day 02:00",
+    timeZone: "Asia/Kuala_Lumpur",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const retentionDays = parsePositiveRetentionDays(
+      BOOKING_ARCHIVE_RETENTION_DAYS.value(),
+      180
+    );
+    const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
+
+    const snapshot = await db
+      .collection(COLLECTIONS.bookingsArchive)
+      .where("archivedAt", "<", cutoff)
+      .limit(300)
+      .get();
+
+    if (snapshot.empty) {
+      logger.info("Archive retention cleanup completed", {
+        retentionDays,
+        cutoff: cutoff.toISOString(),
+        scanned: 0,
+        deleted: 0,
+      });
+      return;
+    }
+
+    const batch = db.batch();
+    for (const doc of snapshot.docs) {
+      batch.delete(doc.ref);
+    }
+    await batch.commit();
+
+    logger.info("Archive retention cleanup completed", {
+      retentionDays,
+      cutoff: cutoff.toISOString(),
+      scanned: snapshot.size,
+      deleted: snapshot.size,
+      hasMoreEligibleDocs: snapshot.size >= 300,
+    });
+  }
+);
+
+/**
+ * Scheduled cleanup for stale order_number_index reservations.
+ *
+ * Removes reservation docs where expiresAt is in the past. This protects
+ * against abandoned payment flows leaving orphaned order reservations.
+ */
+exports.cleanupExpiredOrderNumberReservations = onSchedule(
+  {
+    schedule: "every 30 minutes",
+    timeZone: "Asia/Kuala_Lumpur",
+    region: "asia-southeast1",
+  },
+  async () => {
+    const now = new Date();
+    const snapshot = await db
+      .collection(COLLECTIONS.orderNumberIndex)
+      .where("expiresAt", "<", now)
+      .limit(300)
+      .get();
+
+    if (snapshot.empty) {
+      logger.info("Order reservation cleanup completed", {
+        scanned: 0,
+        deleted: 0,
+      });
+      return;
+    }
+
+    const batch = db.batch();
+    for (const doc of snapshot.docs) {
+      batch.delete(doc.ref);
+    }
+    await batch.commit();
+
+    logger.info("Order reservation cleanup completed", {
+      scanned: snapshot.size,
+      deleted: snapshot.size,
+      hasMoreEligibleDocs: snapshot.size >= 300,
     });
   }
 );

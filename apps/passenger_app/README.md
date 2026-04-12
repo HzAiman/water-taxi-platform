@@ -106,12 +106,8 @@ destinationCoords
 adultCount
 childCount
 passengerCount
-adultFare
-childFare
-adultSubtotal
-childSubtotal
-fare
 totalFare
+fareSnapshotId
 paymentMethod
 paymentStatus
 status
@@ -123,6 +119,10 @@ routePolyline
 createdAt
 updatedAt
 ```
+
+Historical booking documents may still contain `adultFare`, `childFare`, `adultSubtotal`, `childSubtotal`, and `fare`, but new writes use only `totalFare` and `fareSnapshotId` for fare data.
+
+`userName` and `userPhone` are stored as immutable booking snapshots so the receipt and trip history preserve the values captured at booking time.
 
 Notes:
 
@@ -196,7 +196,7 @@ firebase deploy --only firestore:rules,firestore:indexes
 The existing rules currently cover:
 
 - owner-only access for `users/{uid}`
-- owner-only create and update for `operators/{uid}` with `operator_id_claims/{operatorIdKey}` ownership checks
+- owner-only create and update for `operators/{uid}` keyed directly by auth `uid`
 - signed-in read access for `jetties` and `fares`
 - passenger booking creation restricted to the signed-in user with `status == pending`
 - passenger cancellation for active bookings

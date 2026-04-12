@@ -105,3 +105,12 @@ abstract final class FareFields {
   static const String adultFare = 'adultFare';
   static const String childFare = 'childFare';
 }
+
+/// Field name constants for the `tracking` Firestore collection.
+abstract final class TrackingFields {
+  static const String bookingId = 'bookingId';
+  static const String operatorUid = 'operatorUid';
+  static const String operatorLat = 'operatorLat';
+  static const String operatorLng = 'operatorLng';
+  static const String updatedAt = 'updatedAt';
+}

@@ -44,6 +44,17 @@ This module contains the Cloud Functions backend for payment lifecycle, payment 
 - **Purpose:** reconcile stale `authorized` bookings for terminal statuses to avoid stuck uncaptured holds.
 - **Summary log fields:** `scanned`, `released`, `captured`, `skipped`, `failed`.
 
+#### `cleanupOrderNumberIndexOnTerminalBooking`
+- **Trigger:** `bookings/{bookingId}` on update
+- **Condition:** status transition into terminal state (`completed`, `cancelled`, `rejected`)
+- **Action:** delete `order_number_index/{orderNumber}` when present to prevent stale reservation buildup.
+
+#### `cleanupExpiredBookingArchive` (scheduled)
+- **Schedule:** daily at 02:00 (`Asia/Kuala_Lumpur`)
+- **Purpose:** enforce `bookings_archive` retention by deleting docs with `archivedAt` older than configured cutoff.
+- **Config:** `BOOKING_ARCHIVE_RETENTION_DAYS` (default `180` if unset/invalid).
+- **Batch size:** up to 300 docs per run.
+
 ### Notifications
 
 ### `notifyOperatorsOnIncomingBooking`
@@ -66,6 +77,41 @@ Schema compatibility note:
 
 - Booking documents may now include live tracking fields (`operatorLat`, `operatorLng`) and route polyline fields (`routePolyline` or legacy aliases). These are consumed by clients for map rendering and do not change existing payment trigger conditions.
 
+### Data Migration
+
+#### `backfillJettyIds` (HTTP)
+- **Purpose:** Backfill canonical `originJettyId` and `destinationJettyId` in existing `fares` and `bookings` documents.
+- **Security:** verifies Firebase ID token from `Authorization: Bearer ...` and allows only UIDs in `MIGRATION_ADMIN_UIDS`.
+- **Safety:** supports `dryRun` mode, pagination (`startAfter`), and bounded page size (`limit`, max 500).
+
+Request body:
+
+```json
+{
+  "dryRun": true,
+  "limit": 200,
+  "startAfter": "",
+  "collections": ["fares", "bookings"]
+}
+```
+
+Response payload includes per-collection stats (`scanned`, `updated`, `unresolved`, `nextCursor`, `done`) so you can run the migration iteratively.
+
+#### `cleanupLegacyOperatorOnlineField` (HTTP)
+- **Purpose:** Remove legacy `operators.isOnline` from stored operator profile documents.
+- **Security:** verifies Firebase ID token from `Authorization: Bearer ...` and allows only UIDs in `MIGRATION_ADMIN_UIDS`.
+- **Safety:** supports `dryRun` mode, pagination (`startAfter`), and bounded page size (`limit`, max 500).
+
+Request body:
+
+```json
+{
+  "dryRun": true,
+  "limit": 200,
+  "startAfter": ""
+}
+```
+
 ## Observability Signals
 
 Error logs include alert tags to support logs-based metrics and alerting:
@@ -73,6 +119,7 @@ Error logs include alert tags to support logs-based metrics and alerting:
 - `PAYMENT_RELEASE_FAILED`
 - `PAYMENT_CAPTURE_FAILED`
 - `PAYMENT_RECONCILE_FAILED`
+- `ORDER_INDEX_CLEANUP_FAILED`
 
 ## Required Firestore collections
 
@@ -96,6 +143,13 @@ cd apps/passenger_app
 firebase emulators:start --only functions,firestore
 ```
 
+Run Firestore Security Rules tests (emulator-backed):
+
+```bash
+cd apps/passenger_app
+firebase emulators:exec --only firestore "npm --prefix functions run test:rules"
+```
+
 ## Deploy
 
 Deploy functions only:
@@ -104,6 +158,64 @@ Deploy functions only:
 cd apps/passenger_app
 firebase deploy --only functions
 ```
+
+Set migration admin allowlist before running backfill:
+
+```bash
+cd apps/passenger_app
+firebase functions:params:set MIGRATION_ADMIN_UIDS="uid_1,uid_2"
+firebase functions:params:set BOOKING_ARCHIVE_RETENTION_DAYS="180"
+firebase deploy --only functions
+```
+
+Invoke migration (dry-run first):
+
+```bash
+curl -X POST "https://asia-southeast1-<project-id>.cloudfunctions.net/backfillJettyIds" \
+  -H "Authorization: Bearer <FIREBASE_ID_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"dryRun":true,"limit":200,"collections":["fares","bookings"]}'
+
+curl -X POST "https://asia-southeast1-<project-id>.cloudfunctions.net/cleanupLegacyOperatorOnlineField" \
+  -H "Authorization: Bearer <FIREBASE_ID_TOKEN>" \
+  -H "Content-Type: application/json" \
+  -d '{"dryRun":true,"limit":200}'
+```
+
+Alternative execution path (admin CLI runner):
+
+```bash
+cd apps/passenger_app/functions
+npm run migrate:schema:dry-run
+npm run migrate:schema:apply
+```
+
+For production project execution:
+
+```bash
+cd apps/passenger_app/functions
+npm run migrate:schema:dry-run:prod
+npm run migrate:schema:apply:prod
+```
+
+Credential requirement for CLI runner:
+- The runner uses Firebase Admin SDK Application Default Credentials.
+- Before running against production, authenticate ADC (for example with `gcloud auth application-default login`) or set `GOOGLE_APPLICATION_CREDENTIALS` to a service-account key.
+
+Optional scope control:
+
+```bash
+node ./scripts/execute_schema_backfills.js --dry-run true --collections operators
+node ./scripts/execute_schema_backfills.js --dry-run true --collections operator_id_claims
+node ./scripts/execute_schema_backfills.js --dry-run true --collections jetties,fares,bookings --page-size 200
+node ./scripts/execute_schema_backfills.js --dry-run true --collections fares,bookings --page-size 200
+```
+
+`jetties` collection mode behavior:
+- Re-keys documents to canonical `jetties/{jettyId}` when legacy doc IDs differ.
+- Removes redundant embedded `jettyId` / `id` fields from stored jetty docs.
+- Remaps `originJettyId` and `destinationJettyId` references in `fares` and `bookings` when IDs changed.
+- Stops with a collision report if multiple source docs resolve to the same target `jettyId`.
 
 Deploy functions together with Firestore rules and indexes:
 

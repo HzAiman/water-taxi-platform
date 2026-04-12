@@ -20,21 +20,23 @@ service cloud.firestore {
         : data.operatorId;
     }
 
-    function operatorClaimPath(operatorIdKey) {
-      return /databases/$(database)/documents/operator_id_claims/$(operatorIdKey);
-    }
-
     function validOperatorProfile(data) {
-      return data.keys().hasAll(['name', 'operatorId', 'operatorIdKey', 'email'])
+      return data.keys().hasAll(['name', 'operatorId', 'email'])
         && data.operatorId is string
-        && data.operatorIdKey is string
-        && data.operatorIdKey == data.operatorId
-        && data.operatorIdKey.size() > 0;
+        && data.operatorId.size() > 0;
     }
 
-    function operatorClaimOwnedAfter(operatorIdKey) {
-      return existsAfter(operatorClaimPath(operatorIdKey))
-        && getAfter(operatorClaimPath(operatorIdKey)).data.uid == request.auth.uid;
+    function operatorProfileAllowedKeys(data) {
+      return data.keys().hasOnly([
+        'name',
+        'operatorId',
+        'email',
+        'createdAt',
+        'updatedAt',
+        // Legacy compatibility keys that may still exist on older docs.
+        'operatorIdKey',
+        'isOnline'
+      ]);
     }
 
     function isAssignedOperator() {
@@ -49,7 +51,10 @@ service cloud.firestore {
         'userPhone',
         'origin',
         'destination',
+        'originJettyId',
+        'destinationJettyId',
         'routeKey',
+        'routePolylineId',
         'originCoords',
         'destinationCoords',
         'routePolyline',
@@ -65,6 +70,7 @@ service cloud.firestore {
         'childSubtotal',
         'fare',
         'totalFare',
+        'fareSnapshotId',
         'paymentMethod',
         'paymentStatus',
         'orderNumber',
@@ -74,7 +80,15 @@ service cloud.firestore {
         'operatorId',
         'createdAt',
         'updatedAt'
-      ]);
+      ])
+      && request.resource.data.keys().hasAll([
+        'originJettyId',
+        'destinationJettyId',
+        'fareSnapshotId'
+      ])
+      && request.resource.data.originJettyId is string
+      && request.resource.data.destinationJettyId is string
+      && request.resource.data.fareSnapshotId is string;
     }
 
     function bookingUpdateHasExpectedFields() {
@@ -85,7 +99,10 @@ service cloud.firestore {
         'userPhone',
         'origin',
         'destination',
+        'originJettyId',
+        'destinationJettyId',
         'routeKey',
+        'routePolylineId',
         'originCoords',
         'destinationCoords',
         'routePolyline',
@@ -101,6 +118,7 @@ service cloud.firestore {
         'childSubtotal',
         'fare',
         'totalFare',
+        'fareSnapshotId',
         'paymentMethod',
         'paymentStatus',
         'orderNumber',
@@ -120,9 +138,31 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId)
-        && request.resource.data.uid == request.auth.uid;
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'name',
+          'email',
+          'phoneNumber',
+          'createdAt',
+          'updatedAt'
+        ])
+        && (
+          !request.resource.data.keys().hasAny(['uid'])
+          || request.resource.data.uid == request.auth.uid
+        );
       allow update: if isOwner(userId)
-        && request.resource.data.uid == resource.data.uid;
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'name',
+          'email',
+          'phoneNumber',
+          'createdAt',
+          'updatedAt'
+        ])
+        && (
+          !request.resource.data.keys().hasAny(['uid'])
+          || request.resource.data.uid == request.auth.uid
+        );
       allow delete: if isOwner(userId);
     }
 
@@ -130,32 +170,17 @@ service cloud.firestore {
       allow read: if isOwner(operatorUid);
       allow create: if isOwner(operatorUid)
         && validOperatorProfile(request.resource.data)
-        && operatorClaimOwnedAfter(request.resource.data.operatorIdKey);
+        && operatorProfileAllowedKeys(request.resource.data);
       allow update: if isOwner(operatorUid)
         && validOperatorProfile(request.resource.data)
-        && operatorClaimOwnedAfter(request.resource.data.operatorIdKey);
+        && operatorProfileAllowedKeys(request.resource.data)
+        && request.resource.data.diff(resource.data).changedKeys().hasOnly([
+          'name',
+          'operatorId',
+          'email',
+          'updatedAt'
+        ]);
       allow delete: if false;
-    }
-
-    match /operator_id_claims/{operatorIdKey} {
-      allow read: if isSignedIn();
-      allow create: if isSignedIn()
-        && !exists(/databases/$(database)/documents/operator_id_claims/$(operatorIdKey))
-        && request.resource.data.keys().hasOnly(['uid', 'operatorId', 'operatorIdKey', 'createdAt', 'updatedAt'])
-        && request.resource.data.uid == request.auth.uid
-        && request.resource.data.operatorId is string
-        && request.resource.data.operatorIdKey is string
-        && request.resource.data.operatorIdKey == operatorIdKey
-        && request.resource.data.operatorIdKey == request.resource.data.operatorId;
-      allow update: if isSignedIn()
-        && resource.data.uid == request.auth.uid
-        && request.resource.data.keys().hasOnly(['uid', 'operatorId', 'operatorIdKey', 'createdAt', 'updatedAt'])
-        && request.resource.data.uid == resource.data.uid
-        && request.resource.data.operatorIdKey == resource.data.operatorIdKey
-        && request.resource.data.operatorIdKey == operatorIdKey
-        && request.resource.data.operatorId is string
-        && request.resource.data.operatorIdKey == request.resource.data.operatorId;
-      allow delete: if isSignedIn() && resource.data.uid == request.auth.uid;
     }
 
     match /operator_presence/{operatorUid} {
@@ -181,6 +206,43 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['token', 'platform', 'appRole', 'updatedAt'])
         && request.resource.data.appRole == 'operator';
       allow delete: if isOwner(operatorUid);
+    }
+
+    match /order_number_index/{orderNumber} {
+      // Booking flow reserves order numbers with a transaction that first
+      // performs tx.get(orderNumber). Allow signed-in reads for that
+      // existence check, then keep create strictly owner-bound.
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['orderNumber', 'userId', 'reservedAt', 'expiresAt'])
+        && request.resource.data.orderNumber == orderNumber
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /tracking/{bookingId} {
+      allow read: if isSignedIn()
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && (
+          isOwner(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId)
+          || (
+            isOperator()
+            && bookingOperatorUid(get(/databases/$(database)/documents/bookings/$(bookingId)).data) == request.auth.uid
+          )
+        );
+      allow create, update: if isOperator()
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && request.resource.data.keys().hasOnly([
+          'bookingId',
+          'operatorUid',
+          'operatorLat',
+          'operatorLng',
+          'updatedAt'
+        ])
+        && request.resource.data.bookingId == bookingId
+        && request.resource.data.operatorUid == request.auth.uid
+        && bookingOperatorUid(get(/databases/$(database)/documents/bookings/$(bookingId)).data) == request.auth.uid;
+      allow delete: if false;
     }
 
     match /jetties/{jettyId} {
@@ -340,6 +402,54 @@ service cloud.firestore {
         && bookingUpdateHasExpectedFields();
 
       allow delete: if false;
+
+      match /statusHistory/{statusHistoryId} {
+        allow read: if isOwner(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId)
+          || (
+            isOperator()
+            && bookingOperatorUid(get(/databases/$(database)/documents/bookings/$(bookingId)).data) == request.auth.uid
+          );
+        allow create: if isSignedIn()
+          && request.resource.data.keys().hasOnly([
+            'from',
+            'to',
+            'changedBy',
+            'source',
+            'timestamp'
+          ])
+          && request.resource.data.changedBy == request.auth.uid
+          && request.resource.data.source in ['passenger_app', 'operator_app']
+          && (
+            isOwner(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId)
+            || isOperator()
+          );
+        allow update, delete: if false;
+      }
+    }
+
+    match /bookings_archive/{bookingId} {
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasAll([
+          'bookingId',
+          'userId',
+          'status',
+          'archivedAt',
+          'archivedStatus'
+        ])
+        && request.resource.data.bookingId == bookingId
+        && (
+          isOwner(request.resource.data.userId)
+          || (
+            isOperator()
+            && bookingOperatorUid(request.resource.data) == request.auth.uid
+          )
+        );
+      allow read: if isOwner(resource.data.userId)
+        || (
+          isOperator()
+          && bookingOperatorUid(resource.data) == request.auth.uid
+        );
+      allow update, delete: if false;
     }
   }
 }

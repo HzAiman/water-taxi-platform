@@ -9,7 +9,7 @@
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "operatorId",
+          "fieldPath": "operatorUid",
           "order": "ASCENDING"
         },
         {
@@ -23,7 +23,7 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "operatorId",
+          "fieldPath": "operatorUid",
           "order": "ASCENDING"
         },
         {
@@ -73,11 +73,11 @@
       "queryScope": "COLLECTION",
       "fields": [
         {
-          "fieldPath": "origin",
+          "fieldPath": "originJettyId",
           "order": "ASCENDING"
         },
         {
-          "fieldPath": "destination",
+          "fieldPath": "destinationJettyId",
           "order": "ASCENDING"
         }
       ]

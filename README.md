@@ -44,7 +44,7 @@ Each app is a standalone Flutter project with its own Firebase config and featur
 ### Operator app
 - Email/password authentication.
 - Operator profile bootstrap under `operators/{uid}`.
-- Transactional operator ID uniqueness enforcement via `operator_id_claims/{operatorIdKey}`.
+- Operator profiles are keyed directly by auth `uid`; `operatorId` remains the display/reporting reference.
 - Online/offline availability toggle.
 - Booking workflow: reject, accept, start trip, complete trip.
 - Live operator coordinate publishing after `startTrip` with throttled writes and terminal-state stop conditions.
@@ -76,7 +76,7 @@ authorized (hold) -> paid (capture on completed)
 authorized -> cancelled/refunded (reject/cancel/reconciliation)
 ```
 
-Reject and dispatch behavior are implemented using `pending + rejectedBy[]`: the booking stays `pending` when an operator rejects it so that another operator can claim it. The full `BookingStatus` enum also covers `rejected` and `unknown` for edge-case handling.
+Reject and dispatch behavior are implemented using `pending + rejectedBy[]` where the array stores operator UIDs: the booking stays `pending` when an operator rejects it so that another operator can claim it. Passenger `userName` and `userPhone` values on a booking are immutable receipt snapshots captured at creation time. The full `BookingStatus` enum also covers `rejected` and `unknown` for edge-case handling.
 
 Remaining lifecycle hardening work is tracked in app TODO files:
 
@@ -128,7 +128,7 @@ Current rules already enforce these core behaviors:
 
 - users can only read and write their own `users/{uid}` document
 - operators can only read and update their own `operators/{uid}` document
-- operator profile writes must hold ownership of `operator_id_claims/{operatorIdKey}`
+- operator profile writes are keyed directly by auth `uid` and do not use a claim collection
 - signed-in users can read `jetties` and `fares`
 - passengers can create their own `pending` bookings with `paymentStatus == authorized`
 - passengers can cancel their own active bookings
