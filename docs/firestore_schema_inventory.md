@@ -3,22 +3,26 @@
 Last updated: 2026-04-12
 Project: melaka-water-taxi
 Database: (default)
-Source: live Firestore introspection via scripts/introspect_firestore_schema.js
+Source: live Firestore introspection via apps/passenger_app/functions/scripts/introspect_firestore_schema.js
 
 ## Collection Inventory (Live)
 
 Top-level collections currently present in Firebase:
 - bookings
 - bookings_archive
-- fares
+- fares     
 - jetties
 - operator_devices
 - operator_presence
 - operators
-- order_number_index
 - polylines
+- tracking
 - user_devices
 - users
+
+Note:
+- `order_number_index` is not currently present as a top-level collection in this live snapshot.
+- This inventory is sample-based (up to 5 docs per collection), so sparse/rare fields may not appear if absent in sampled docs.
 
 ## Entity Relationships
 
@@ -30,22 +34,27 @@ Primary document identities:
 - operator_devices/{uid}
 - bookings/{bookingId}
 - bookings_archive/{bookingId}
+- tracking/{bookingId}
 - jetties/{jettyId}
 - fares/{fareDocId}
-- order_number_index/{orderNumber}
 - polylines/{routeId}
 
 Logical relationships:
 - bookings.userId -> users document id
 - bookings.operatorUid -> operators document id
-- bookings.operatorId -> mirrors operator uid for compatibility in current runtime
 - bookings.originJettyId -> jetties document id
 - bookings.destinationJettyId -> jetties document id
 - bookings.fareSnapshotId -> fares document id used at booking time
 - bookings.routePolylineId -> polylines document id
-- bookings.orderNumber -> order_number_index document id
+- tracking.bookingId -> bookings document id
+- tracking.operatorUid -> operators document id
 - bookings_archive is a terminal-state mirror of bookings for completed/cancelled lifecycle records
 - operator_presence/{uid} is the online-state companion document for operators/{uid}
+
+Decision notes:
+- `bookings.operatorLat` / `bookings.operatorLng` are snapshot fields written at booking status transitions such as accept, start trip, release, and complete. Live GPS pings belong in `tracking/{bookingId}` and should not be copied back into the booking document on every update.
+- `order_number_index` is still the active order-number reservation ledger in code, backed by transaction-based reservation writes plus Stripe idempotency keys. It was empty in the latest live snapshot, so it no longer appears in the top-level collection list, but it has not been replaced by a different uniqueness mechanism.
+- `bookings.rejectedBy` remains part of the live dispatch contract because the current model is still broadcast-style: operators can reject a pending booking, and the field tracks who has already declined it.
 
 ## Collection Structures And Field Functions
 
@@ -54,7 +63,7 @@ Logical relationships:
 Purpose:
 - Active booking lifecycle records used by passenger and operator apps.
 
-Live fields:
+Live fields (sampled):
 - bookingId: immutable booking identifier; expected to match document id.
 - userId: owner uid of the passenger who created the booking.
 - userName: immutable passenger snapshot used for receipts and operator display.
@@ -73,14 +82,13 @@ Live fields:
 - fareSnapshotId: fare document reference used when booking was created.
 - paymentMethod: gateway/type metadata (for example, stripe_payment_sheet).
 - paymentStatus: payment lifecycle state (authorized, cancelled, etc.).
-- orderNumber: payment/order reference that maps to order_number_index.
+- orderNumber: payment/order reference.
 - transactionId: gateway transaction or payment intent id.
-- status: booking lifecycle status (pending, accepted, on_the_way, completed, cancelled, rejected).
-- operatorUid: assigned operator uid (null while unassigned).
-- operatorId: compatibility mirror of operator uid in current write paths.
-- operatorLat: last known operator latitude during active tracking.
-- operatorLng: last known operator longitude during active tracking.
-- rejectedBy: list of operator uids that rejected the pending booking.
+- status: booking lifecycle status.
+- operatorUid: assigned operator uid.
+- operatorLat: last known operator latitude snapshot on booking doc.
+- operatorLng: last known operator longitude snapshot on booking doc.
+- rejectedBy: operators that have already declined the pending booking.
 - createdAt: server timestamp at booking creation.
 - updatedAt: server timestamp for latest mutation.
 - cancelledAt: timestamp when booking moved to cancelled status.
@@ -90,13 +98,13 @@ Live fields:
 Purpose:
 - Terminal-state booking mirror for retention and historical reads.
 
-Live fields:
-- Includes booking fields from source booking at archive time.
+Live fields (sampled):
+- Includes sampled booking fields from source booking at archive time.
 - archivedAt: timestamp when record was archived.
 - archivedStatus: terminal status captured during archive write.
 
 Behavior:
-- Created when booking becomes terminal (completed/cancelled in current runtime paths).
+- Created when booking becomes terminal.
 - Read-only in client rules; used for historical views and retention jobs.
 
 ## 3) fares
@@ -110,9 +118,6 @@ Live fields:
 - adultFare: per-adult fare amount.
 - childFare: per-child fare amount.
 
-Behavior:
-- Passenger app performs strict id-based fare lookups using originJettyId + destinationJettyId.
-
 ## 4) jetties
 
 Purpose:
@@ -122,11 +127,10 @@ Live fields:
 - name: display name of jetty.
 - lat: latitude coordinate.
 - lng: longitude coordinate.
-- jettyId: legacy embedded id still present in live docs.
 
-Identity note:
-- Document id is already the canonical jetty key used by runtime code.
-- Embedded jettyId remains in live data as migration residue and can be removed later.
+Live note:
+- The embedded `jettyId` field has been removed from live jetties documents.
+- Document id is the canonical jetty key used by runtime code.
 
 ## 5) operators
 
@@ -149,9 +153,6 @@ Live fields:
 - isOnline: authoritative availability state.
 - updatedAt: latest presence heartbeat/update timestamp.
 
-Relationship:
-- operator_presence/{uid} pairs one-to-one with operators/{uid}.
-
 ## 7) operator_devices
 
 Purpose:
@@ -163,7 +164,19 @@ Live fields:
 - appRole: role discriminator, expected operator.
 - updatedAt: last token refresh timestamp.
 
-## 8) users
+## 8) tracking
+
+Purpose:
+- High-frequency operator location updates for active bookings.
+
+Live fields:
+- bookingId: booking reference; expected to match document id.
+- operatorUid: assigned operator uid.
+- operatorLat: current operator latitude.
+- operatorLng: current operator longitude.
+- updatedAt: latest tracking update timestamp.
+
+## 9) users
 
 Purpose:
 - Passenger profile keyed by Firebase Auth uid.
@@ -175,10 +188,7 @@ Live fields:
 - createdAt: profile creation timestamp.
 - updatedAt: profile update timestamp.
 
-Live note:
-- No redundant uid field is currently present in sampled users docs.
-
-## 9) user_devices
+## 10) user_devices
 
 Purpose:
 - Passenger FCM device token registry for push notifications.
@@ -188,19 +198,6 @@ Live fields:
 - platform: device platform.
 - appRole: role discriminator, expected passenger.
 - updatedAt: last token refresh timestamp.
-
-## 10) order_number_index
-
-Purpose:
-- Reservation ledger to enforce unique order numbers before payment/booking writes.
-
-Live fields:
-- orderNumber: reserved order number (mirrors document id).
-- userId: uid that reserved the order number.
-- reservedAt: reservation timestamp.
-
-Relationship:
-- bookings.orderNumber should match an existing order_number_index document id.
 
 ## 11) polylines
 
@@ -219,13 +216,12 @@ Relationship:
 ## Live Composite Indexes
 
 Collection group bookings:
-- status ASC, operatorId ASC, createdAt ASC
-- operatorId ASC, status ASC, updatedAt DESC
+- status ASC, operatorUid ASC, createdAt ASC
+- operatorUid ASC, status ASC, updatedAt DESC
 - userId ASC, createdAt DESC
 - userId ASC, status ASC, updatedAt DESC
 
 Collection group fares:
-- origin ASC, destination ASC
 - originJettyId ASC, destinationJettyId ASC
 
 fieldOverrides:
