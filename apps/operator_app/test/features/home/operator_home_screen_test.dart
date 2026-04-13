@@ -325,6 +325,9 @@ void main() {
     await tester.tap(find.text('Active Trip'));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('Navigation'));
+    await tester.pumpAndSettle();
+
     await tester.tap(find.text('Complete Trip'));
     await tester.pumpAndSettle();
 
@@ -375,10 +378,13 @@ void main() {
     await tester.tap(find.text('Active Trip'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Guidance:'), findsOneWidget);
+    await tester.tap(find.text('Navigation'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Navigation'), findsOneWidget);
     expect(find.textContaining('Next marker:'), findsOneWidget);
-    expect(find.textContaining('Remaining distance:'), findsOneWidget);
-    expect(find.textContaining('ETA:'), findsOneWidget);
+    expect(find.text('Remaining'), findsOneWidget);
+    expect(find.text('ETA'), findsOneWidget);
   });
 
   testWidgets('accepted active trip hides navigation guidance details', (
@@ -462,7 +468,10 @@ void main() {
       await tester.tap(find.text('Active Trip'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Guidance:'), findsOneWidget);
+      await tester.tap(find.text('Navigation'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Navigation'), findsOneWidget);
       expect(find.textContaining('Off-route warning:'), findsOneWidget);
     },
   );

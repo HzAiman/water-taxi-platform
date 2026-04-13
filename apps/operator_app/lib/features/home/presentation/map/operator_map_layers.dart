@@ -67,13 +67,18 @@ class OperatorMapLayers {
     return markers;
   }
 
-  static Set<Polyline> buildPolylines(BookingModel? activeBooking) {
+  static Set<Polyline> buildPolylines(
+    BookingModel? activeBooking, {
+    List<LatLng>? routePointsOverride,
+  }) {
     if (activeBooking == null) {
       return const <Polyline>{};
     }
 
-    final routePoints = activeBooking.routePolyline
-        .map((p) => LatLng(p.lat, p.lng))
+    final routePoints = (routePointsOverride ??
+            activeBooking.routePolyline
+                .map((p) => LatLng(p.lat, p.lng))
+                .toList(growable: false))
         .toList(growable: false);
 
     if (routePoints.length >= 2) {

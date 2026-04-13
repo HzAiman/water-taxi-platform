@@ -38,7 +38,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   final DateTime _openedAt = DateTime.now();
 
   GoogleMapController? _mapController;
-  String? _lastFittedCameraSignature;
+  String? _initialFitBookingId;
   LatLng? _lastFocusedOperatorPoint;
   DateTime? _lastOperatorFocusAt;
   String? _lastMarkerSetSignature;
@@ -49,8 +49,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
 
   static const Duration _followRecenterInterval = Duration(seconds: 4);
   static const double _followRecenterDistanceMeters = 20;
-  static const double _routeBoundsPadding = 220;
-  static const double _routePreviewZoom = 14.5;
+  static const double _initialBoundsPadding = 80;
+  static const double _operatorFollowZoom = 16.0;
   static const double _singlePointZoom = 15.0;
 
   @override
@@ -254,7 +254,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       originPoint: originPoint,
       destinationPoint: destinationPoint,
       operatorPoint: operatorPoint,
-      mapPadding: mapPadding,
     );
 
     return Scaffold(
@@ -294,7 +293,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       originPoint: originPoint,
                       destinationPoint: destinationPoint,
                       operatorPoint: operatorPoint,
-                      mapPadding: mapPadding,
                     );
                   },
                   markers: markers,
@@ -535,17 +533,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   );
 
   EdgeInsets _mapPaddingFor(BuildContext context) {
-    final size = MediaQuery.sizeOf(context);
-    final bottomPadding = (size.height * 0.46).clamp(
-      220.0,
-      420.0,
-    );
-    return EdgeInsets.only(
-      top: 64,
-      bottom: bottomPadding,
-      left: 48,
-      right: 48,
-    );
+    return const EdgeInsets.only(top: 64, bottom: 80, left: 40, right: 40);
   }
 
   Widget _buildLocationRow(IconData icon, String label, String address) {
@@ -632,16 +620,20 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     LatLng? operatorPoint,
   ) {
     if (routePoints.length >= 2) {
-      return CameraPosition(target: _centerOfPoints(routePoints), zoom: _routePreviewZoom);
+      return CameraPosition(
+        target: _centerOfPoints(routePoints),
+        zoom: _previewZoomForPoints(routePoints),
+      );
     }
 
     if (originPoint != null && destinationPoint != null) {
+      final points = <LatLng>[originPoint, destinationPoint];
       return CameraPosition(
         target: LatLng(
           (originPoint.latitude + destinationPoint.latitude) / 2,
           (originPoint.longitude + destinationPoint.longitude) / 2,
         ),
-        zoom: _routePreviewZoom,
+        zoom: _previewZoomForPoints(points),
       );
     }
 
@@ -857,7 +849,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     required LatLng? originPoint,
     required LatLng? destinationPoint,
     required LatLng? operatorPoint,
-    required EdgeInsets mapPadding,
   }) {
     if (widget.mapBuilder != null || !mounted) {
       return;
@@ -870,16 +861,10 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         routePoints: routePoints,
         originPoint: originPoint,
         destinationPoint: destinationPoint,
-        operatorPoint: operatorPoint,
-        mapPadding: mapPadding,
       );
       await _followOperatorIfNeeded(
         status,
         operatorPoint,
-        routePoints,
-        originPoint,
-        destinationPoint,
-        mapPadding,
       );
     });
   }
@@ -889,10 +874,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     required List<LatLng> routePoints,
     required LatLng? originPoint,
     required LatLng? destinationPoint,
-    required LatLng? operatorPoint,
-    required EdgeInsets mapPadding,
   }) async {
-    if (_mapController == null) {
+    if (_mapController == null || _initialFitBookingId == bookingId) {
       return;
     }
 
@@ -900,33 +883,19 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       ...routePoints,
       if (originPoint != null) originPoint,
       if (destinationPoint != null) destinationPoint,
-      if (operatorPoint != null) operatorPoint,
     ];
 
     if (fitPoints.length < 2) {
       return;
     }
 
-    final signature = _cameraSignature(
-      bookingId: bookingId,
-      points: fitPoints,
-      mapPadding: mapPadding,
-    );
-    if (_lastFittedCameraSignature == signature) {
-      return;
-    }
-
-    await _animateToBounds(_boundsFromPoints(fitPoints), mapPadding);
-    _lastFittedCameraSignature = signature;
+    await _animateToBounds(_boundsFromPoints(fitPoints), _initialBoundsPadding);
+    _initialFitBookingId = bookingId;
   }
 
   Future<void> _followOperatorIfNeeded(
     BookingStatus status,
     LatLng? operatorPoint,
-    List<LatLng> routePoints,
-    LatLng? originPoint,
-    LatLng? destinationPoint,
-    EdgeInsets mapPadding,
   ) async {
     if (_mapController == null) {
       return;
@@ -951,19 +920,10 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       return;
     }
 
-    final focusPoints = <LatLng>[
-      operatorPoint,
-      ...routePoints,
-      if (destinationPoint != null) destinationPoint,
-      if (originPoint != null) originPoint,
-    ];
-
     try {
-      if (focusPoints.length >= 2) {
-        await _animateToBounds(_boundsFromPoints(focusPoints), mapPadding);
-      } else {
-        await _mapController!.animateCamera(CameraUpdate.newLatLng(operatorPoint));
-      }
+      await _mapController!.animateCamera(
+        CameraUpdate.newLatLngZoom(operatorPoint, _operatorFollowZoom),
+      );
       _lastFocusedOperatorPoint = operatorPoint;
       _lastOperatorFocusAt = DateTime.now();
     } catch (_) {
@@ -971,65 +931,48 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     }
   }
 
-  String _cameraSignature({
-    required String bookingId,
-    required List<LatLng> points,
-    required EdgeInsets mapPadding,
-  }) {
-    final quantizedTop = (mapPadding.top / 12).round() * 12;
-    final quantizedBottom = (mapPadding.bottom / 12).round() * 12;
-    final quantizedLeft = (mapPadding.left / 12).round() * 12;
-    final quantizedRight = (mapPadding.right / 12).round() * 12;
-
-    final buffer = StringBuffer(bookingId);
-    buffer
-      ..write('|pad:')
-      ..write(quantizedTop.toStringAsFixed(1))
-      ..write(',')
-      ..write(quantizedBottom.toStringAsFixed(1))
-      ..write(',')
-      ..write(quantizedLeft.toStringAsFixed(1))
-      ..write(',')
-      ..write(quantizedRight.toStringAsFixed(1));
-    for (final p in points) {
-      buffer
-        ..write('|')
-        ..write(p.latitude.toStringAsFixed(5))
-        ..write(',')
-        ..write(p.longitude.toStringAsFixed(5));
-    }
-    return buffer.toString();
-  }
-
   Future<void> _animateToBounds(
     LatLngBounds bounds,
-    EdgeInsets mapPadding,
+    double padding,
   ) async {
     final controller = _mapController;
     if (controller == null) {
       return;
     }
 
-    final effectivePadding = math.max(
-      _routeBoundsPadding,
-      mapPadding.bottom * 0.55,
-    );
-
     try {
       await controller.animateCamera(
-        CameraUpdate.newLatLngBounds(bounds, effectivePadding),
+        CameraUpdate.newLatLngBounds(bounds, padding),
       );
     } catch (_) {
       // The map may not have laid out yet; retry once shortly after.
       await Future<void>.delayed(const Duration(milliseconds: 220));
       try {
         await controller.animateCamera(
-          CameraUpdate.newLatLngBounds(bounds, effectivePadding),
+          CameraUpdate.newLatLngBounds(bounds, padding),
         );
       } catch (_) {
         // Ignore bounds-fit failure and keep default camera.
       }
     }
+  }
+
+  double _previewZoomForPoints(List<LatLng> points) {
+    if (points.length < 2) {
+      return _singlePointZoom;
+    }
+    final bounds = _boundsFromPoints(points);
+    final diagonalMeters = _distanceMeters(bounds.southwest, bounds.northeast);
+    return _zoomForDistanceMeters(diagonalMeters);
+  }
+
+  double _zoomForDistanceMeters(double meters) {
+    if (meters <= 300) return 16.6;
+    if (meters <= 700) return 15.8;
+    if (meters <= 1500) return 15.0;
+    if (meters <= 3000) return 14.2;
+    if (meters <= 7000) return 13.4;
+    return 12.6;
   }
 
   LatLngBounds _boundsFromPoints(List<LatLng> points) {

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
@@ -49,14 +50,25 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   bool _hasShownWelcomeAlert = false;
   bool _hasCheckedMapsConfig = false;
   bool _mapReady = false;
-  bool _isActiveSectionExpanded = false;
-  bool _isQueueSectionExpanded = false;
   bool _isInitializingViewModel = false;
   bool _hasInitializedViewModel = false;
   StreamSubscription<User?>? _authSubscription;
   DateTime? _lastRecoveryAttempt;
+  String? _lastScheduledCameraSyncSignature;
+  String? _lastCameraBoundsSignature;
+  LatLng? _lastFollowOperatorPoint;
+  DateTime? _lastFollowAt;
+  bool _isProgrammaticCameraMove = false;
+  bool _autoFollowPausedByUser = false;
+  OperatorHomeViewModel? _observedViewModel;
+  bool _isActiveSectionExpanded = false;
+  bool _isQueueSectionExpanded = false;
   final OperatorLocationCoordinator _locationCoordinator =
       const OperatorLocationCoordinator();
+
+  static const Duration _followRecenterInterval = Duration(seconds: 4);
+  static const double _followRecenterDistanceMeters = 20;
+  static const double _cameraBoundsPadding = 180;
 
   late GoogleMapController _mapController;
   CameraPosition _initialCameraPosition = const CameraPosition(
@@ -133,10 +145,51 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final viewModel = context.read<OperatorHomeViewModel>();
+    if (_observedViewModel == viewModel) {
+      return;
+    }
+
+    _observedViewModel?.removeListener(_onViewModelChanged);
+    _observedViewModel = viewModel;
+    _observedViewModel?.addListener(_onViewModelChanged);
+  }
+
+  @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
+    _observedViewModel?.removeListener(_onViewModelChanged);
     super.dispose();
+  }
+
+  void _onViewModelChanged() {
+    final viewModel = _observedViewModel;
+    if (!mounted || viewModel == null) {
+      return;
+    }
+
+    final activeBooking = viewModel.activeBookings.isNotEmpty
+        ? viewModel.activeBookings.first
+        : null;
+    final operatorPoint = _operatorPointForBooking(activeBooking);
+    final destinationPoint = activeBooking == null
+        ? null
+        : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
+    final trimmedRoutePoints = _trimmedRoutePointsForCamera(
+      activeBooking,
+      operatorPoint: operatorPoint,
+      destinationPoint: destinationPoint,
+    );
+
+    _scheduleMapCameraSync(
+      activeBooking,
+      routePoints: trimmedRoutePoints,
+      operatorPoint: operatorPoint,
+      destinationPoint: destinationPoint,
+    );
   }
 
   Future<void> _initializeViewModel(
@@ -350,6 +403,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : null;
     final pendingCount = pendingBookings.length;
     final activeCount = activeBooking == null ? 0 : 1;
+    final guidance = viewModel.navigationGuidance;
+    final isOnTheWay =
+      activeBooking != null && activeBooking.status == BookingStatus.onTheWay;
+    final bookingGuidance =
+      isOnTheWay &&
+        guidance != null &&
+        guidance.bookingId == activeBooking.bookingId
+      ? guidance
+      : null;
 
     return KeyedSubtree(
       key: ValueKey('booking-actions-${viewModel.streamVersion}'),
@@ -422,6 +484,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     : CrossFadeState.showFirst,
                 duration: const Duration(milliseconds: 180),
               ),
+              if (isOnTheWay)
+                Padding(
+                  padding: const EdgeInsets.only(top: 12),
+                  child: _buildNavigationInfoCard(
+                    booking: activeBooking,
+                    guidance: bookingGuidance,
+                    viewModel: viewModel,
+                  ),
+                ),
             ],
           ),
         ),
@@ -496,19 +567,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final isStale = isAcceptedBookingStale(booking);
     final actionColor = isAccepted ? const Color(0xFF0066CC) : Colors.green;
     final detailText = _buildBookingDetailText(booking);
-    final guidance = viewModel.navigationGuidance;
-    final hasGuidance =
-        isOnTheWay &&
-        guidance != null &&
-        guidance.bookingId == booking.bookingId;
 
     var subtitle = detailText;
     if (isStale) {
       subtitle =
           '$subtitle\n\nThis accepted booking looks stale. Start the trip or release it back to the queue.';
-    }
-    if (hasGuidance) {
-      subtitle = '$subtitle\n\n${_buildNavigationGuidanceText(guidance)}';
     }
 
     return OperatorInfoCard(
@@ -516,18 +579,16 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       iconColor: actionColor,
       title: 'Current Booking: ${formatStatusLabel(status.firestoreValue)}',
       subtitle: subtitle,
-      actionLabel: isAccepted ? 'Start Trip' : 'Complete Trip',
+      actionLabel: isAccepted ? 'Start Trip' : null,
       actionColor: actionColor,
       secondaryActionLabel: isAccepted ? 'Release' : null,
       secondaryActionColor: const Color(0xFFFFF1F1),
       secondaryActionTextColor: const Color(0xFFB42318),
       showActionLoading: viewModel.isUpdatingBooking,
-      onAction: viewModel.isUpdatingBooking
+      onAction: viewModel.isUpdatingBooking || isOnTheWay
           ? null
           : () async {
-              final result = isAccepted
-                  ? await viewModel.startTrip(booking.bookingId)
-                  : await viewModel.completeTrip(booking.bookingId);
+              final result = await viewModel.startTrip(booking.bookingId);
               if (!mounted) {
                 return;
               }
@@ -542,6 +603,75 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
               }
               _showOperationResult(result);
             },
+    );
+  }
+
+  Widget _buildNavigationInfoCard({
+    required BookingModel booking,
+    required OperatorNavigationGuidance? guidance,
+    required OperatorHomeViewModel viewModel,
+  }) {
+    final progressPercent = guidance == null
+        ? null
+        : (guidance.progressFraction * 100).round();
+    final remaining = guidance == null
+        ? 'N/A'
+        : _formatDistanceMeters(guidance.remainingDistanceMeters);
+    final offRoute = guidance == null
+        ? 'N/A'
+        : _formatDistanceMeters(guidance.offRouteDistanceMeters);
+    final eta = _formatEta(guidance?.eta);
+
+    return _CollapsibleNavigationCard(
+      progressLabel: progressPercent == null ? '...' : '$progressPercent%',
+      remaining: remaining,
+      eta: eta,
+      nextMarkerText: guidance == null
+          ? 'Getting navigation guidance...'
+          : 'Next marker: ${guidance.nextRouteMarker} / ${guidance.totalRouteMarkers}',
+      offRouteText: guidance?.isOffRoute == true
+          ? 'Off-route warning: approx $offRoute away from planned route.'
+          : null,
+      isUpdating: viewModel.isUpdatingBooking,
+      onCompleteTrip: () async {
+        final result = await viewModel.completeTrip(booking.bookingId);
+        if (!mounted) {
+          return;
+        }
+        _showOperationResult(result);
+      },
+    );
+  }
+
+  Widget _buildNavigationMetric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -594,27 +724,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         'Created: ${formatBookingTimestamp(booking.createdAt)}';
   }
 
-  String _buildNavigationGuidanceText(OperatorNavigationGuidance guidance) {
-    final progressPercent = (guidance.progressFraction * 100).round();
-    final remaining = _formatDistanceMeters(guidance.remainingDistanceMeters);
-    final offRoute = _formatDistanceMeters(guidance.offRouteDistanceMeters);
-    final eta = _formatEta(guidance.eta);
-
-    final lines = <String>[
-      'Guidance: $progressPercent% complete',
-      'Route marker: ${guidance.nearestRouteMarker}/${guidance.totalRouteMarkers}',
-      'Next marker: ${guidance.nextRouteMarker}',
-      'Remaining distance: $remaining',
-      'ETA: $eta',
-    ];
-
-    if (guidance.isOffRoute) {
-      lines.add('Off-route warning: approx $offRoute away from planned route.');
-    }
-
-    return lines.join('\n');
-  }
-
   String _formatDistanceMeters(double meters) {
     if (meters >= 1000) {
       return '${(meters / 1000).toStringAsFixed(2)} km';
@@ -653,6 +762,324 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
   }
 
+  void _scheduleMapCameraSync(
+    BookingModel? activeBooking, {
+    required List<LatLng> routePoints,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+  }) {
+    if (!_mapReady || !mounted || widget.mapBuilder != null) {
+      return;
+    }
+
+    final syncSignature = _cameraSyncScheduleSignature(
+      bookingId: activeBooking?.bookingId,
+      status: activeBooking?.status,
+      routePoints: routePoints,
+      operatorPoint: operatorPoint,
+      destinationPoint: destinationPoint,
+    );
+    if (_lastScheduledCameraSyncSignature == syncSignature) {
+      return;
+    }
+    _lastScheduledCameraSyncSignature = syncSignature;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || !_mapReady) {
+        return;
+      }
+      await _syncMapCamera(
+        activeBooking,
+        routePoints: routePoints,
+        operatorPoint: operatorPoint,
+        destinationPoint: destinationPoint,
+      );
+    });
+  }
+
+  Future<void> _syncMapCamera(
+    BookingModel? activeBooking, {
+    required List<LatLng> routePoints,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+  }) async {
+    if (!_mapReady) {
+      return;
+    }
+
+    if (activeBooking == null) {
+      _lastScheduledCameraSyncSignature = null;
+      _lastCameraBoundsSignature = null;
+      _lastFollowOperatorPoint = null;
+      _lastFollowAt = null;
+      return;
+    }
+
+    if (activeBooking.status == BookingStatus.onTheWay && operatorPoint != null) {
+      await _followOperatorIfNeeded(operatorPoint);
+      return;
+    }
+
+    final fitPoints = <LatLng>[
+      ...routePoints,
+      if (destinationPoint != null) destinationPoint,
+    ];
+
+    if (fitPoints.length < 2) {
+      if (operatorPoint != null) {
+        await _mapController.animateCamera(
+          CameraUpdate.newLatLngZoom(operatorPoint, 16),
+        );
+      }
+      return;
+    }
+
+    final signature = _cameraBoundsSignature(
+      bookingId: activeBooking.bookingId,
+      routePoints: routePoints,
+      destinationPoint: destinationPoint,
+      padding: _cameraBoundsPadding,
+    );
+
+    if (_lastCameraBoundsSignature == signature) {
+      return;
+    }
+
+    await _animateToBounds(_boundsFromPoints(fitPoints), _cameraBoundsPadding);
+    _lastCameraBoundsSignature = signature;
+  }
+
+  Future<void> _followOperatorIfNeeded(LatLng operatorPoint) async {
+    if (_autoFollowPausedByUser) {
+      return;
+    }
+
+    final lastPoint = _lastFollowOperatorPoint;
+    final lastAt = _lastFollowAt;
+    final shouldFollow =
+        lastPoint == null ||
+        lastAt == null ||
+        DateTime.now().difference(lastAt) >= _followRecenterInterval ||
+        _distanceMeters(lastPoint, operatorPoint) >=
+            _followRecenterDistanceMeters;
+
+    if (!shouldFollow) {
+      return;
+    }
+
+    try {
+      _isProgrammaticCameraMove = true;
+      await _mapController.animateCamera(
+        CameraUpdate.newLatLngZoom(operatorPoint, 16),
+      );
+      _lastFollowOperatorPoint = operatorPoint;
+      _lastFollowAt = DateTime.now();
+    } catch (_) {
+      // Ignore camera failures; next sync can recover.
+    }
+  }
+
+  LatLng? _operatorPointForBooking(BookingModel? booking) {
+    if (booking == null || booking.status != BookingStatus.onTheWay) {
+      return null;
+    }
+    final lat = booking.operatorLat;
+    final lng = booking.operatorLng;
+    if (lat == null || lng == null) {
+      return null;
+    }
+    return _latLngOrNull(lat, lng);
+  }
+
+  List<LatLng> _trimmedRoutePointsForCamera(
+    BookingModel? booking, {
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+  }) {
+    if (booking == null) {
+      return const <LatLng>[];
+    }
+
+    final source = booking.routePolyline
+        .map((p) => _latLngOrNull(p.lat, p.lng))
+        .whereType<LatLng>()
+        .toList(growable: false);
+
+    if (source.length < 2) {
+      if (operatorPoint != null && destinationPoint != null) {
+        return <LatLng>[operatorPoint, destinationPoint];
+      }
+      return source;
+    }
+
+    var result = List<LatLng>.from(source);
+
+    if (operatorPoint != null && destinationPoint != null) {
+      final operatorIndex = _nearestPointIndex(result, operatorPoint);
+      final destinationIndex = _nearestPointIndex(result, destinationPoint);
+
+      if (operatorIndex <= destinationIndex) {
+        result = result.sublist(operatorIndex, destinationIndex + 1);
+      } else {
+        final segment = result.sublist(destinationIndex, operatorIndex + 1);
+        result = segment.reversed.toList(growable: false);
+      }
+
+      if (result.isNotEmpty) {
+        result[0] = operatorPoint;
+        result[result.length - 1] = destinationPoint;
+      }
+    }
+
+    if (result.length < 2 && operatorPoint != null && destinationPoint != null) {
+      return <LatLng>[operatorPoint, destinationPoint];
+    }
+
+    return result;
+  }
+
+  int _nearestPointIndex(List<LatLng> points, LatLng target) {
+    var nearest = 0;
+    var bestDistance = double.infinity;
+
+    for (var i = 0; i < points.length; i++) {
+      final distance = _distanceMeters(points[i], target);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        nearest = i;
+      }
+    }
+    return nearest;
+  }
+
+  LatLng? _latLngOrNull(double lat, double lng) {
+    if (!lat.isFinite || !lng.isFinite) {
+      return null;
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return null;
+    }
+    if (lat == 0 && lng == 0) {
+      return null;
+    }
+    return LatLng(lat, lng);
+  }
+
+  Future<void> _animateToBounds(LatLngBounds bounds, double padding) async {
+    try {
+      await _mapController.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, padding),
+      );
+    } catch (_) {
+      await Future<void>.delayed(const Duration(milliseconds: 220));
+      try {
+        await _mapController.animateCamera(
+          CameraUpdate.newLatLngBounds(bounds, padding),
+        );
+      } catch (_) {
+        // Ignore bounds-fit failure and keep current camera.
+      }
+    }
+  }
+
+  String _cameraBoundsSignature({
+    required String bookingId,
+    required List<LatLng> routePoints,
+    required LatLng? destinationPoint,
+    required double padding,
+  }) {
+    final buffer = StringBuffer(bookingId)
+      ..write('|pad=${padding.toStringAsFixed(0)}');
+
+    for (final p in routePoints) {
+      buffer
+        ..write('|')
+        ..write(p.latitude.toStringAsFixed(4))
+        ..write(',')
+        ..write(p.longitude.toStringAsFixed(4));
+    }
+    if (destinationPoint != null) {
+      buffer
+        ..write('|d=')
+        ..write(destinationPoint.latitude.toStringAsFixed(4))
+        ..write(',')
+        ..write(destinationPoint.longitude.toStringAsFixed(4));
+    }
+    return buffer.toString();
+  }
+
+  String _cameraSyncScheduleSignature({
+    required String? bookingId,
+    required BookingStatus? status,
+    required List<LatLng> routePoints,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+  }) {
+    final buffer = StringBuffer(bookingId ?? 'none')
+      ..write('|s=${status?.firestoreValue ?? 'none'}')
+      ..write('|r=${routePoints.length}');
+
+    if (routePoints.isNotEmpty) {
+      final first = routePoints.first;
+      final last = routePoints.last;
+      buffer
+        ..write('|rf=')
+        ..write(first.latitude.toStringAsFixed(4))
+        ..write(',')
+        ..write(first.longitude.toStringAsFixed(4))
+        ..write('|rl=')
+        ..write(last.latitude.toStringAsFixed(4))
+        ..write(',')
+        ..write(last.longitude.toStringAsFixed(4));
+    }
+
+    if (operatorPoint != null) {
+      buffer
+        ..write('|o=')
+        ..write(operatorPoint.latitude.toStringAsFixed(4))
+        ..write(',')
+        ..write(operatorPoint.longitude.toStringAsFixed(4));
+    }
+
+    if (destinationPoint != null) {
+      buffer
+        ..write('|d=')
+        ..write(destinationPoint.latitude.toStringAsFixed(4))
+        ..write(',')
+        ..write(destinationPoint.longitude.toStringAsFixed(4));
+    }
+
+    return buffer.toString();
+  }
+
+  LatLngBounds _boundsFromPoints(List<LatLng> points) {
+    var minLat = points.first.latitude;
+    var maxLat = points.first.latitude;
+    var minLng = points.first.longitude;
+    var maxLng = points.first.longitude;
+
+    for (final p in points.skip(1)) {
+      minLat = math.min(minLat, p.latitude);
+      maxLat = math.max(maxLat, p.latitude);
+      minLng = math.min(minLng, p.longitude);
+      maxLng = math.max(maxLng, p.longitude);
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(minLat, minLng),
+      northeast: LatLng(maxLat, maxLng),
+    );
+  }
+
+  double _distanceMeters(LatLng a, LatLng b) {
+    return Geolocator.distanceBetween(
+      a.latitude,
+      a.longitude,
+      b.latitude,
+      b.longitude,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final operatorId = _operatorId;
@@ -660,6 +1087,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final activeBooking = viewModel.activeBookings.isNotEmpty
         ? viewModel.activeBookings.first
         : null;
+    final operatorPoint = _operatorPointForBooking(activeBooking);
+    final destinationPoint = activeBooking == null
+        ? null
+        : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
+    final trimmedRoutePoints = _trimmedRoutePointsForCamera(
+      activeBooking,
+      operatorPoint: operatorPoint,
+      destinationPoint: destinationPoint,
+    );
     final isLoading = _isInitializingViewModel;
 
     return Scaffold(
@@ -669,8 +1105,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           : Stack(
               children: [
                 Positioned.fill(
-                  child:
-                      widget.mapBuilder?.call(
+                  child: widget.mapBuilder?.call(
                         initialCameraPosition: _initialCameraPosition,
                         hasLocationPermission: _hasLocationPermission,
                         onMapCreated: (GoogleMapController controller) {
@@ -689,18 +1124,42 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                         markers: OperatorMapLayers.buildMarkers(activeBooking),
                         polylines: OperatorMapLayers.buildPolylines(
                           activeBooking,
+                          routePointsOverride: trimmedRoutePoints,
                         ),
                         onMapCreated: (GoogleMapController controller) {
                           _mapController = controller;
                           _mapReady = true;
+                          _scheduleMapCameraSync(
+                            activeBooking,
+                            routePoints: trimmedRoutePoints,
+                            operatorPoint: operatorPoint,
+                            destinationPoint: destinationPoint,
+                          );
+                        },
+                        onCameraMoveStarted: () {
+                          if (_isProgrammaticCameraMove ||
+                              activeBooking == null ||
+                              activeBooking.status != BookingStatus.onTheWay) {
+                            return;
+                          }
+                          if (!_autoFollowPausedByUser) {
+                            setState(() {
+                              _autoFollowPausedByUser = true;
+                            });
+                          }
+                        },
+                        onCameraIdle: () {
+                          _isProgrammaticCameraMove = false;
                         },
                       ),
                 ),
+                if (isLoading)
+                  const Positioned.fill(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
                 Positioned.fill(
                   child: Stack(
                     children: [
-                      if (isLoading)
-                        const Center(child: CircularProgressIndicator()),
                       Positioned(
                         top: 16,
                         left: 16,
@@ -709,7 +1168,16 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             if (viewModel.isOnline) ...[
-                              _buildBookingActionCard(operatorId, viewModel),
+                              ConstrainedBox(
+                                constraints: BoxConstraints(
+                                  maxHeight:
+                                      MediaQuery.sizeOf(context).height * 0.80,
+                                ),
+                                child: _buildBookingActionCard(
+                                  operatorId,
+                                  viewModel,
+                                ),
+                              ),
                             ] else ...[
                               const OperatorInfoCard(
                                 icon: Icons.power_settings_new,
@@ -772,15 +1240,234 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                 Positioned(
                   bottom: 100,
                   right: 16,
-                  child: FloatingActionButton(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.black87,
-                    onPressed: _centerOnUser,
-                    child: const Icon(Icons.my_location),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      if (_autoFollowPausedByUser && operatorPoint != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: FloatingActionButton.small(
+                            heroTag: 'resume_follow',
+                            backgroundColor: const Color(0xFF0066CC),
+                            foregroundColor: Colors.white,
+                            onPressed: () async {
+                              setState(() {
+                                _autoFollowPausedByUser = false;
+                              });
+                              await _followOperatorIfNeeded(operatorPoint);
+                            },
+                            child: const Icon(Icons.my_location),
+                          ),
+                        ),
+                      FloatingActionButton(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black87,
+                        onPressed: _centerOnUser,
+                        child: const Icon(Icons.near_me),
+                      ),
+                    ],
                   ),
                 ),
               ],
             ),
+    );
+  }
+}
+
+class _CollapsibleNavigationCard extends StatefulWidget {
+  const _CollapsibleNavigationCard({
+    required this.progressLabel,
+    required this.remaining,
+    required this.eta,
+    required this.nextMarkerText,
+    required this.offRouteText,
+    required this.isUpdating,
+    required this.onCompleteTrip,
+  });
+
+  final String progressLabel;
+  final String remaining;
+  final String eta;
+  final String nextMarkerText;
+  final String? offRouteText;
+  final bool isUpdating;
+  final Future<void> Function() onCompleteTrip;
+
+  @override
+  State<_CollapsibleNavigationCard> createState() =>
+      _CollapsibleNavigationCardState();
+}
+
+class _CollapsibleNavigationCardState extends State<_CollapsibleNavigationCard> {
+  bool _isExpanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => setState(() => _isExpanded = !_isExpanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Row(
+                children: [
+                  const Icon(Icons.navigation, color: Color(0xFF0066CC), size: 20),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Navigation',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.grey[900],
+                    ),
+                  ),
+                  const Spacer(),
+                  Text(
+                    widget.progressLabel,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0066CC),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(
+                    _isExpanded ? Icons.expand_less : Icons.expand_more,
+                    color: Colors.grey[700],
+                    size: 18,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            '${widget.remaining}  •  ETA ${widget.eta}',
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (_isExpanded) ...[
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _buildNavigationMetric('Remaining', widget.remaining),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _buildNavigationMetric('ETA', widget.eta),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              widget.nextMarkerText,
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey[700],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+            if (widget.offRouteText != null) ...[
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFFF4E5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  widget.offRouteText!,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF9A3412),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: widget.isUpdating
+                    ? null
+                    : () => unawaited(widget.onCompleteTrip()),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                ),
+                child: widget.isUpdating
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : const Text(
+                        'Complete Trip',
+                        style: TextStyle(fontWeight: FontWeight.w700),
+                      ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavigationMetric(String label, String value) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[600],
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF0F172A),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
