@@ -92,23 +92,6 @@ class OperatorMapLayers {
       };
     }
 
-    final originLat = activeBooking.originLat;
-    final originLng = activeBooking.originLng;
-    final destLat = activeBooking.destinationLat;
-    final destLng = activeBooking.destinationLng;
-
-    if (_isValidLatLng(originLat, originLng) &&
-        _isValidLatLng(destLat, destLng)) {
-      return {
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: [LatLng(originLat, originLng), LatLng(destLat, destLng)],
-          color: const Color(0xFF0066CC),
-          width: 4,
-        ),
-      };
-    }
-
     return const <Polyline>{};
   }
 

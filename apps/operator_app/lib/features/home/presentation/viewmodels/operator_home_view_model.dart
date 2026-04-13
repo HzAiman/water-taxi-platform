@@ -926,30 +926,37 @@ _RouteProjection _projectProgressOnRoute({
     cumulative.add(totalDistance);
   }
 
-  var nearestIndex = 0;
+  var nearestSegmentIndex = 0;
+  var nearestProjectionT = 0.0;
   var minDistance = double.infinity;
-  for (var i = 0; i < pathPoints.length; i++) {
-    final d = Geolocator.distanceBetween(
-      currentLat,
-      currentLng,
-      pathPoints[i].lat,
-      pathPoints[i].lng,
+
+  for (var i = 0; i < pathPoints.length - 1; i++) {
+    final segment = _projectPointOntoSegmentMeters(
+      pointLat: currentLat,
+      pointLng: currentLng,
+      startLat: pathPoints[i].lat,
+      startLng: pathPoints[i].lng,
+      endLat: pathPoints[i + 1].lat,
+      endLng: pathPoints[i + 1].lng,
     );
-    if (d < minDistance) {
-      minDistance = d;
-      nearestIndex = i;
+    if (segment.distanceMeters < minDistance) {
+      minDistance = segment.distanceMeters;
+      nearestSegmentIndex = i;
+      nearestProjectionT = segment.t;
     }
   }
 
-  final distanceToNearest = Geolocator.distanceBetween(
-    currentLat,
-    currentLng,
-    pathPoints[nearestIndex].lat,
-    pathPoints[nearestIndex].lng,
+  final segmentLength = Geolocator.distanceBetween(
+    pathPoints[nearestSegmentIndex].lat,
+    pathPoints[nearestSegmentIndex].lng,
+    pathPoints[nearestSegmentIndex + 1].lat,
+    pathPoints[nearestSegmentIndex + 1].lng,
   );
 
-  final traveled = cumulative[nearestIndex].clamp(0.0, totalDistance);
-  final remaining = (totalDistance - traveled + distanceToNearest).clamp(
+  final traveled = (cumulative[nearestSegmentIndex] +
+          segmentLength * nearestProjectionT)
+      .clamp(0.0, totalDistance);
+  final remaining = (totalDistance - traveled + minDistance).clamp(
     0.0,
     double.infinity,
   );
@@ -1037,6 +1044,44 @@ double _distanceToLineSegmentMeters({
   return sqrt(ox * ox + oy * oy);
 }
 
+_SegmentProjection _projectPointOntoSegmentMeters({
+  required double pointLat,
+  required double pointLng,
+  required double startLat,
+  required double startLng,
+  required double endLat,
+  required double endLng,
+}) {
+  final meanLat = ((startLat + endLat) / 2) * (3.1415926535897932 / 180.0);
+  const metersPerDegLat = 111320.0;
+  final metersPerDegLng = 111320.0 * cos(meanLat);
+
+  final sx = startLng * metersPerDegLng;
+  final sy = startLat * metersPerDegLat;
+  final ex = endLng * metersPerDegLng;
+  final ey = endLat * metersPerDegLat;
+  final px = pointLng * metersPerDegLng;
+  final py = pointLat * metersPerDegLat;
+
+  final dx = ex - sx;
+  final dy = ey - sy;
+  final lenSq = dx * dx + dy * dy;
+  if (lenSq <= 0.0) {
+    final ddx = px - sx;
+    final ddy = py - sy;
+    return _SegmentProjection(t: 0.0, distanceMeters: sqrt(ddx * ddx + ddy * ddy));
+  }
+
+  var t = ((px - sx) * dx + (py - sy) * dy) / lenSq;
+  t = t.clamp(0.0, 1.0);
+
+  final cx = sx + t * dx;
+  final cy = sy + t * dy;
+  final ox = px - cx;
+  final oy = py - cy;
+  return _SegmentProjection(t: t, distanceMeters: sqrt(ox * ox + oy * oy));
+}
+
 class _RouteProjection {
   const _RouteProjection({
     required this.progressFraction,
@@ -1047,4 +1092,11 @@ class _RouteProjection {
   final double progressFraction;
   final double remainingDistanceMeters;
   final double offRouteDistanceMeters;
+}
+
+class _SegmentProjection {
+  const _SegmentProjection({required this.t, required this.distanceMeters});
+
+  final double t;
+  final double distanceMeters;
 }

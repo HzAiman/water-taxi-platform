@@ -17,6 +17,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
+enum _MapNavigationMode { overview, tracking, userControlled }
+
 class OperatorHomeScreen extends StatefulWidget {
   const OperatorHomeScreen({
     super.key,
@@ -59,7 +61,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   LatLng? _lastFollowOperatorPoint;
   DateTime? _lastFollowAt;
   bool _isProgrammaticCameraMove = false;
-  bool _autoFollowPausedByUser = false;
+  _MapNavigationMode _mapNavigationMode = _MapNavigationMode.overview;
   OperatorHomeViewModel? _observedViewModel;
   bool _isActiveSectionExpanded = false;
   bool _isQueueSectionExpanded = false;
@@ -176,8 +178,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : null;
     final operatorPoint = _operatorPointForBooking(activeBooking);
     final destinationPoint = activeBooking == null
-        ? null
-        : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
+      ? null
+      : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
     final trimmedRoutePoints = _trimmedRoutePointsForCamera(
       activeBooking,
       operatorPoint: operatorPoint,
@@ -643,38 +645,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     );
   }
 
-  Widget _buildNavigationMetric(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildPendingBookingCard(
     BookingModel booking,
     int pendingCount,
@@ -767,18 +737,40 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     required List<LatLng> routePoints,
     required LatLng? operatorPoint,
     required LatLng? destinationPoint,
+    bool forceFollow = false,
   }) {
     if (!_mapReady || !mounted || widget.mapBuilder != null) {
       return;
     }
 
-    final syncSignature = _cameraSyncScheduleSignature(
+    final nextMode = _resolveMapNavigationMode(
+      activeBooking,
+      operatorPoint: operatorPoint,
+    );
+
+    if (!forceFollow && _mapNavigationMode != nextMode) {
+      setState(() {
+        _mapNavigationMode = nextMode;
+      });
+    } else {
+      _mapNavigationMode = nextMode;
+    }
+
+    if (activeBooking == null) {
+      _lastScheduledCameraSyncSignature = null;
+      _lastCameraBoundsSignature = null;
+      _lastFollowOperatorPoint = null;
+      _lastFollowAt = null;
+    }
+
+    final syncSignature =
+        'm=${_mapNavigationMode.name}|f=${forceFollow ? 1 : 0}|${_cameraSyncScheduleSignature(
       bookingId: activeBooking?.bookingId,
       status: activeBooking?.status,
       routePoints: routePoints,
       operatorPoint: operatorPoint,
       destinationPoint: destinationPoint,
-    );
+    )}';
     if (_lastScheduledCameraSyncSignature == syncSignature) {
       return;
     }
@@ -788,35 +780,74 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       if (!mounted || !_mapReady) {
         return;
       }
-      await _syncMapCamera(
+      await _runCameraByMode(
         activeBooking,
         routePoints: routePoints,
         operatorPoint: operatorPoint,
         destinationPoint: destinationPoint,
+        forceFollow: forceFollow,
       );
     });
   }
 
-  Future<void> _syncMapCamera(
+  _MapNavigationMode _resolveMapNavigationMode(
+    BookingModel? activeBooking, {
+    required LatLng? operatorPoint,
+  }) {
+    if (activeBooking == null ||
+        activeBooking.status != BookingStatus.onTheWay ||
+        operatorPoint == null) {
+      return _MapNavigationMode.overview;
+    }
+
+    if (_mapNavigationMode == _MapNavigationMode.userControlled) {
+      return _MapNavigationMode.userControlled;
+    }
+
+    return _MapNavigationMode.tracking;
+  }
+
+  Future<void> _runCameraByMode(
     BookingModel? activeBooking, {
     required List<LatLng> routePoints,
     required LatLng? operatorPoint,
     required LatLng? destinationPoint,
+    required bool forceFollow,
   }) async {
     if (!_mapReady) {
       return;
     }
 
-    if (activeBooking == null) {
-      _lastScheduledCameraSyncSignature = null;
-      _lastCameraBoundsSignature = null;
-      _lastFollowOperatorPoint = null;
-      _lastFollowAt = null;
-      return;
+    switch (_mapNavigationMode) {
+      case _MapNavigationMode.userControlled:
+        return;
+      case _MapNavigationMode.tracking:
+        if (operatorPoint == null) {
+          return;
+        }
+        await _followOperatorWithPolicy(
+          operatorPoint,
+          forceFollow: forceFollow,
+        );
+        return;
+      case _MapNavigationMode.overview:
+        await _runOverviewCamera(
+          activeBooking,
+          routePoints: routePoints,
+          operatorPoint: operatorPoint,
+          destinationPoint: destinationPoint,
+        );
+        return;
     }
+  }
 
-    if (activeBooking.status == BookingStatus.onTheWay && operatorPoint != null) {
-      await _followOperatorIfNeeded(operatorPoint);
+  Future<void> _runOverviewCamera(
+    BookingModel? activeBooking, {
+    required List<LatLng> routePoints,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+  }) async {
+    if (activeBooking == null) {
       return;
     }
 
@@ -849,14 +880,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     _lastCameraBoundsSignature = signature;
   }
 
-  Future<void> _followOperatorIfNeeded(LatLng operatorPoint) async {
-    if (_autoFollowPausedByUser) {
-      return;
-    }
-
+  Future<void> _followOperatorWithPolicy(
+    LatLng operatorPoint, {
+    required bool forceFollow,
+  }) async {
     final lastPoint = _lastFollowOperatorPoint;
     final lastAt = _lastFollowAt;
-    final shouldFollow =
+    final shouldFollow = forceFollow ||
         lastPoint == null ||
         lastAt == null ||
         DateTime.now().difference(lastAt) >= _followRecenterInterval ||
@@ -904,52 +934,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         .map((p) => _latLngOrNull(p.lat, p.lng))
         .whereType<LatLng>()
         .toList(growable: false);
-
-    if (source.length < 2) {
-      if (operatorPoint != null && destinationPoint != null) {
-        return <LatLng>[operatorPoint, destinationPoint];
-      }
-      return source;
-    }
-
-    var result = List<LatLng>.from(source);
-
-    if (operatorPoint != null && destinationPoint != null) {
-      final operatorIndex = _nearestPointIndex(result, operatorPoint);
-      final destinationIndex = _nearestPointIndex(result, destinationPoint);
-
-      if (operatorIndex <= destinationIndex) {
-        result = result.sublist(operatorIndex, destinationIndex + 1);
-      } else {
-        final segment = result.sublist(destinationIndex, operatorIndex + 1);
-        result = segment.reversed.toList(growable: false);
-      }
-
-      if (result.isNotEmpty) {
-        result[0] = operatorPoint;
-        result[result.length - 1] = destinationPoint;
-      }
-    }
-
-    if (result.length < 2 && operatorPoint != null && destinationPoint != null) {
-      return <LatLng>[operatorPoint, destinationPoint];
-    }
-
-    return result;
-  }
-
-  int _nearestPointIndex(List<LatLng> points, LatLng target) {
-    var nearest = 0;
-    var bestDistance = double.infinity;
-
-    for (var i = 0; i < points.length; i++) {
-      final distance = _distanceMeters(points[i], target);
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        nearest = i;
-      }
-    }
-    return nearest;
+    // Keep route geometry authoritative from Firestore and avoid synthetic
+    // index-based slicing that can introduce straight-line artifacts.
+    return source;
   }
 
   LatLng? _latLngOrNull(double lat, double lng) {
@@ -1089,8 +1076,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : null;
     final operatorPoint = _operatorPointForBooking(activeBooking);
     final destinationPoint = activeBooking == null
-        ? null
-        : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
+      ? null
+      : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
     final trimmedRoutePoints = _trimmedRoutePointsForCamera(
       activeBooking,
       operatorPoint: operatorPoint,
@@ -1142,9 +1129,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                               activeBooking.status != BookingStatus.onTheWay) {
                             return;
                           }
-                          if (!_autoFollowPausedByUser) {
+                          if (_mapNavigationMode == _MapNavigationMode.tracking) {
                             setState(() {
-                              _autoFollowPausedByUser = true;
+                              _mapNavigationMode = _MapNavigationMode.userControlled;
                             });
                           }
                         },
@@ -1243,7 +1230,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (_autoFollowPausedByUser && operatorPoint != null)
+                      if (_mapNavigationMode == _MapNavigationMode.userControlled &&
+                          operatorPoint != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
                           child: FloatingActionButton.small(
@@ -1252,9 +1240,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                             foregroundColor: Colors.white,
                             onPressed: () async {
                               setState(() {
-                                _autoFollowPausedByUser = false;
+                                _mapNavigationMode = _MapNavigationMode.tracking;
                               });
-                              await _followOperatorIfNeeded(operatorPoint);
+                              _scheduleMapCameraSync(
+                                activeBooking,
+                                routePoints: trimmedRoutePoints,
+                                operatorPoint: operatorPoint,
+                                destinationPoint: destinationPoint,
+                                forceFollow: true,
+                              );
                             },
                             child: const Icon(Icons.my_location),
                           ),
