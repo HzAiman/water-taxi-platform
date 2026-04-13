@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
@@ -25,6 +26,7 @@ class BookingTrackingScreen extends StatefulWidget {
     required CameraPosition initialCameraPosition,
     required Set<Marker> markers,
     required Set<Polyline> polylines,
+    required EdgeInsets padding,
   })?
   mapBuilder;
 
@@ -36,12 +38,20 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   final DateTime _openedAt = DateTime.now();
 
   GoogleMapController? _mapController;
-  String? _lastFittedBookingId;
+  String? _lastFittedCameraSignature;
   LatLng? _lastFocusedOperatorPoint;
   DateTime? _lastOperatorFocusAt;
+  String? _lastMarkerSetSignature;
+  Set<Marker> _cachedMarkers = <Marker>{};
+  String? _lastPolylineSetSignature;
+  Set<Polyline> _cachedPolylines = <Polyline>{};
+  DateTime? _lastMapPayloadLogAt;
 
-  static const Duration _followRecenterInterval = Duration(seconds: 8);
-  static const double _followRecenterDistanceMeters = 35;
+  static const Duration _followRecenterInterval = Duration(seconds: 4);
+  static const double _followRecenterDistanceMeters = 20;
+  static const double _routeBoundsPadding = 220;
+  static const double _routePreviewZoom = 14.5;
+  static const double _singlePointZoom = 15.0;
 
   @override
   void initState() {
@@ -215,16 +225,27 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       booking.destinationLat,
       booking.destinationLng,
     );
-    final routePoints = _routePointsFor(booking);
+    final routePoints = _routePointsFor(
+      booking,
+      originPoint,
+      destinationPoint,
+    );
     final operatorPoint = _operatorPointForBooking(booking);
     final markers = _buildMarkers(
+      bookingId: booking.bookingId,
       originPoint: originPoint,
       destinationPoint: destinationPoint,
       operatorPoint: operatorPoint,
       originLabel: currentOrigin,
       destinationLabel: currentDestination,
     );
-    final polylines = _buildPolylines(booking, originPoint, destinationPoint);
+    final polylines = _buildPolylines(
+      bookingId: booking.bookingId,
+      routePoints: routePoints,
+      originPoint: originPoint,
+      destinationPoint: destinationPoint,
+    );
+    final mapPadding = _mapPaddingFor(context);
 
     _scheduleCameraSync(
       bookingId: booking.bookingId,
@@ -233,6 +254,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       originPoint: originPoint,
       destinationPoint: destinationPoint,
       operatorPoint: operatorPoint,
+      mapPadding: mapPadding,
     );
 
     return Scaffold(
@@ -254,6 +276,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                   ),
                   markers: markers,
                   polylines: polylines,
+                  padding: mapPadding,
                 ) ??
                 GoogleMap(
                   initialCameraPosition: _cameraPositionFor(
@@ -271,10 +294,12 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       originPoint: originPoint,
                       destinationPoint: destinationPoint,
                       operatorPoint: operatorPoint,
+                      mapPadding: mapPadding,
                     );
                   },
                   markers: markers,
                   polylines: polylines,
+                  padding: mapPadding,
                   myLocationEnabled: false,
                   myLocationButtonEnabled: false,
                   compassEnabled: true,
@@ -509,6 +534,20 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     zoom: 14,
   );
 
+  EdgeInsets _mapPaddingFor(BuildContext context) {
+    final size = MediaQuery.sizeOf(context);
+    final bottomPadding = (size.height * 0.46).clamp(
+      220.0,
+      420.0,
+    );
+    return EdgeInsets.only(
+      top: 64,
+      bottom: bottomPadding,
+      left: 48,
+      right: 48,
+    );
+  }
+
   Widget _buildLocationRow(IconData icon, String label, String address) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -593,7 +632,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     LatLng? operatorPoint,
   ) {
     if (routePoints.length >= 2) {
-      return CameraPosition(target: _centerOfPoints(routePoints), zoom: 14);
+      return CameraPosition(target: _centerOfPoints(routePoints), zoom: _routePreviewZoom);
     }
 
     if (originPoint != null && destinationPoint != null) {
@@ -602,32 +641,42 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           (originPoint.latitude + destinationPoint.latitude) / 2,
           (originPoint.longitude + destinationPoint.longitude) / 2,
         ),
-        zoom: 14,
+        zoom: _routePreviewZoom,
       );
     }
 
     if (originPoint != null) {
-      return CameraPosition(target: originPoint, zoom: 16);
+      return CameraPosition(target: originPoint, zoom: _singlePointZoom);
     }
 
     if (destinationPoint != null) {
-      return CameraPosition(target: destinationPoint, zoom: 16);
+      return CameraPosition(target: destinationPoint, zoom: _singlePointZoom);
     }
 
     if (operatorPoint != null) {
-      return CameraPosition(target: operatorPoint, zoom: 16);
+      return CameraPosition(target: operatorPoint, zoom: _singlePointZoom);
     }
 
     return _fallbackCameraPosition;
   }
 
   Set<Marker> _buildMarkers({
+    required String bookingId,
     required LatLng? originPoint,
     required LatLng? destinationPoint,
     required LatLng? operatorPoint,
     required String originLabel,
     required String destinationLabel,
   }) {
+    final markerSignature = [
+      _pointSignature(originPoint),
+      _pointSignature(destinationPoint),
+      _pointSignature(operatorPoint),
+    ].join('|');
+    if (_lastMarkerSetSignature == markerSignature) {
+      return _cachedMarkers;
+    }
+
     final markers = <Marker>{};
 
     if (originPoint != null) {
@@ -646,9 +695,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           markerId: const MarkerId('destination'),
           position: destinationPoint,
           infoWindow: InfoWindow(title: 'Drop-off', snippet: destinationLabel),
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueAzure,
-          ),
         ),
       );
     }
@@ -658,9 +704,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         Marker(
           markerId: const MarkerId('operator_live'),
           position: operatorPoint,
-          icon: BitmapDescriptor.defaultMarkerWithHue(
-            BitmapDescriptor.hueGreen,
-          ),
           infoWindow: const InfoWindow(
             title: 'Operator Location',
             snippet: 'Live location',
@@ -669,20 +712,36 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       );
     }
 
+    _lastMarkerSetSignature = markerSignature;
+    _cachedMarkers = markers;
+    _debugMapPayload(
+      '[MapDiag][Markers] booking=$bookingId count=${markers.length} '
+      'origin=${_pointSignature(originPoint)} '
+      'destination=${_pointSignature(destinationPoint)} '
+      'operator=${_pointSignature(operatorPoint)} '
+      'signature=$markerSignature',
+    );
     return markers;
   }
 
   Set<Polyline> _buildPolylines(
-    BookingModel booking,
-    LatLng? originPoint,
-    LatLng? destinationPoint,
-  ) {
-    final routePoints = booking.routePolyline
-        .map((p) => LatLng(p.lat, p.lng))
-        .toList(growable: false);
+      {
+        required String bookingId,
+        required List<LatLng> routePoints,
+        required LatLng? originPoint,
+        required LatLng? destinationPoint,
+      }) {
+    final polylineSignature = _polylineSignature(
+      routePoints: routePoints,
+      originPoint: originPoint,
+      destinationPoint: destinationPoint,
+    );
+    if (_lastPolylineSetSignature == polylineSignature) {
+      return _cachedPolylines;
+    }
 
     if (routePoints.length >= 2) {
-      return {
+      final result = {
         Polyline(
           polylineId: const PolylineId('route'),
           points: routePoints,
@@ -690,13 +749,31 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           width: 4,
         ),
       };
+      _lastPolylineSetSignature = polylineSignature;
+      _cachedPolylines = result;
+      _debugMapPayload(
+        '[MapDiag][Polyline] booking=$bookingId points=${routePoints.length} '
+        'start=${_pointSignature(routePoints.first)} '
+        'end=${_pointSignature(routePoints.last)} '
+        'signature=$polylineSignature',
+      );
+      return result;
     }
 
     if (originPoint == null || destinationPoint == null) {
-      return const <Polyline>{};
+      const result = <Polyline>{};
+      _lastPolylineSetSignature = polylineSignature;
+      _cachedPolylines = result;
+      _debugMapPayload(
+        '[MapDiag][Polyline] booking=$bookingId points=0 reason=missing-endpoint '
+        'origin=${_pointSignature(originPoint)} '
+        'destination=${_pointSignature(destinationPoint)} '
+        'signature=$polylineSignature',
+      );
+      return result;
     }
 
-    return {
+    final result = {
       Polyline(
         polylineId: const PolylineId('route'),
         points: [originPoint, destinationPoint],
@@ -704,12 +781,63 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         width: 4,
       ),
     };
+    _lastPolylineSetSignature = polylineSignature;
+    _cachedPolylines = result;
+    _debugMapPayload(
+      '[MapDiag][Polyline] booking=$bookingId points=2 reason=fallback-straight-line '
+      'origin=${_pointSignature(originPoint)} '
+      'destination=${_pointSignature(destinationPoint)} '
+      'signature=$polylineSignature',
+    );
+    return result;
   }
 
-  List<LatLng> _routePointsFor(BookingModel booking) {
-    return booking.routePolyline
+  List<LatLng> _routePointsFor(
+    BookingModel booking,
+    LatLng? originPoint,
+    LatLng? destinationPoint,
+  ) {
+    final sourcePoints = booking.routePolyline
+        .where((p) => _isValidCoordinate(p.lat, p.lng))
         .map((p) => LatLng(p.lat, p.lng))
-        .toList(growable: false);
+        .toList(growable: true);
+
+    final points = List<LatLng>.from(sourcePoints);
+
+    if (points.length >= 2) {
+      if (originPoint != null && destinationPoint != null) {
+        final directScore =
+            _distanceMeters(points.first, originPoint) +
+            _distanceMeters(points.last, destinationPoint);
+        final reversedScore =
+            _distanceMeters(points.first, destinationPoint) +
+            _distanceMeters(points.last, originPoint);
+        if (reversedScore + 1 < directScore) {
+          points
+            ..clear()
+            ..addAll(sourcePoints.reversed);
+          _debugMapPayload(
+            '[MapDiag][RouteDirection] booking=${booking.bookingId} reversed=true '
+            'direct=${directScore.toStringAsFixed(2)} '
+            'reversed=${reversedScore.toStringAsFixed(2)}',
+          );
+        }
+      }
+
+      if (originPoint != null) {
+        points[0] = originPoint;
+      }
+      if (destinationPoint != null) {
+        points[points.length - 1] = destinationPoint;
+      }
+      return points;
+    }
+
+    if (originPoint != null && destinationPoint != null) {
+      return <LatLng>[originPoint, destinationPoint];
+    }
+
+    return points;
   }
 
   LatLng? _operatorPointForBooking(BookingModel booking) {
@@ -719,7 +847,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     if (booking.operatorLat == null || booking.operatorLng == null) {
       return null;
     }
-    return LatLng(booking.operatorLat!, booking.operatorLng!);
+    return _latLngOrNull(booking.operatorLat!, booking.operatorLng!);
   }
 
   void _scheduleCameraSync({
@@ -729,6 +857,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     required LatLng? originPoint,
     required LatLng? destinationPoint,
     required LatLng? operatorPoint,
+    required EdgeInsets mapPadding,
   }) {
     if (widget.mapBuilder != null || !mounted) {
       return;
@@ -742,8 +871,16 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         originPoint: originPoint,
         destinationPoint: destinationPoint,
         operatorPoint: operatorPoint,
+        mapPadding: mapPadding,
       );
-      await _followOperatorIfNeeded(status, operatorPoint);
+      await _followOperatorIfNeeded(
+        status,
+        operatorPoint,
+        routePoints,
+        originPoint,
+        destinationPoint,
+        mapPadding,
+      );
     });
   }
 
@@ -753,8 +890,9 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     required LatLng? originPoint,
     required LatLng? destinationPoint,
     required LatLng? operatorPoint,
+    required EdgeInsets mapPadding,
   }) async {
-    if (_mapController == null || _lastFittedBookingId == bookingId) {
+    if (_mapController == null) {
       return;
     }
 
@@ -769,13 +907,26 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       return;
     }
 
-    await _animateToBounds(_boundsFromPoints(fitPoints));
-    _lastFittedBookingId = bookingId;
+    final signature = _cameraSignature(
+      bookingId: bookingId,
+      points: fitPoints,
+      mapPadding: mapPadding,
+    );
+    if (_lastFittedCameraSignature == signature) {
+      return;
+    }
+
+    await _animateToBounds(_boundsFromPoints(fitPoints), mapPadding);
+    _lastFittedCameraSignature = signature;
   }
 
   Future<void> _followOperatorIfNeeded(
     BookingStatus status,
     LatLng? operatorPoint,
+    List<LatLng> routePoints,
+    LatLng? originPoint,
+    LatLng? destinationPoint,
+    EdgeInsets mapPadding,
   ) async {
     if (_mapController == null) {
       return;
@@ -800,10 +951,19 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       return;
     }
 
+    final focusPoints = <LatLng>[
+      operatorPoint,
+      ...routePoints,
+      if (destinationPoint != null) destinationPoint,
+      if (originPoint != null) originPoint,
+    ];
+
     try {
-      await _mapController!.animateCamera(
-        CameraUpdate.newLatLng(operatorPoint),
-      );
+      if (focusPoints.length >= 2) {
+        await _animateToBounds(_boundsFromPoints(focusPoints), mapPadding);
+      } else {
+        await _mapController!.animateCamera(CameraUpdate.newLatLng(operatorPoint));
+      }
       _lastFocusedOperatorPoint = operatorPoint;
       _lastOperatorFocusAt = DateTime.now();
     } catch (_) {
@@ -811,20 +971,60 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     }
   }
 
-  Future<void> _animateToBounds(LatLngBounds bounds) async {
+  String _cameraSignature({
+    required String bookingId,
+    required List<LatLng> points,
+    required EdgeInsets mapPadding,
+  }) {
+    final quantizedTop = (mapPadding.top / 12).round() * 12;
+    final quantizedBottom = (mapPadding.bottom / 12).round() * 12;
+    final quantizedLeft = (mapPadding.left / 12).round() * 12;
+    final quantizedRight = (mapPadding.right / 12).round() * 12;
+
+    final buffer = StringBuffer(bookingId);
+    buffer
+      ..write('|pad:')
+      ..write(quantizedTop.toStringAsFixed(1))
+      ..write(',')
+      ..write(quantizedBottom.toStringAsFixed(1))
+      ..write(',')
+      ..write(quantizedLeft.toStringAsFixed(1))
+      ..write(',')
+      ..write(quantizedRight.toStringAsFixed(1));
+    for (final p in points) {
+      buffer
+        ..write('|')
+        ..write(p.latitude.toStringAsFixed(5))
+        ..write(',')
+        ..write(p.longitude.toStringAsFixed(5));
+    }
+    return buffer.toString();
+  }
+
+  Future<void> _animateToBounds(
+    LatLngBounds bounds,
+    EdgeInsets mapPadding,
+  ) async {
     final controller = _mapController;
     if (controller == null) {
       return;
     }
 
+    final effectivePadding = math.max(
+      _routeBoundsPadding,
+      mapPadding.bottom * 0.55,
+    );
+
     try {
-      await controller.animateCamera(CameraUpdate.newLatLngBounds(bounds, 54));
+      await controller.animateCamera(
+        CameraUpdate.newLatLngBounds(bounds, effectivePadding),
+      );
     } catch (_) {
       // The map may not have laid out yet; retry once shortly after.
       await Future<void>.delayed(const Duration(milliseconds: 220));
       try {
         await controller.animateCamera(
-          CameraUpdate.newLatLngBounds(bounds, 54),
+          CameraUpdate.newLatLngBounds(bounds, effectivePadding),
         );
       } catch (_) {
         // Ignore bounds-fit failure and keep default camera.
@@ -833,12 +1033,23 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   }
 
   LatLngBounds _boundsFromPoints(List<LatLng> points) {
-    var minLat = points.first.latitude;
-    var maxLat = points.first.latitude;
-    var minLng = points.first.longitude;
-    var maxLng = points.first.longitude;
+    final safePoints = points
+        .where((p) => _isValidCoordinate(p.latitude, p.longitude))
+        .toList(growable: false);
 
-    for (final p in points.skip(1)) {
+    if (safePoints.isEmpty) {
+      return LatLngBounds(
+        southwest: _fallbackCameraPosition.target,
+        northeast: _fallbackCameraPosition.target,
+      );
+    }
+
+    var minLat = safePoints.first.latitude;
+    var maxLat = safePoints.first.latitude;
+    var minLng = safePoints.first.longitude;
+    var maxLng = safePoints.first.longitude;
+
+    for (final p in safePoints.skip(1)) {
       minLat = math.min(minLat, p.latitude);
       maxLat = math.max(maxLat, p.latitude);
       minLng = math.min(minLng, p.longitude);
@@ -1070,10 +1281,62 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   }
 
   LatLng? _latLngOrNull(double lat, double lng) {
-    if (lat == 0 && lng == 0) {
+    if (!_isValidCoordinate(lat, lng)) {
       return null;
     }
     return LatLng(lat, lng);
+  }
+
+  bool _isValidCoordinate(double lat, double lng) {
+    if (lat == 0 && lng == 0) {
+      return false;
+    }
+    if (!lat.isFinite || !lng.isFinite) {
+      return false;
+    }
+    return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+  }
+
+  String _pointSignature(LatLng? point) {
+    if (point == null) {
+      return 'null';
+    }
+    return '${point.latitude.toStringAsFixed(5)},${point.longitude.toStringAsFixed(5)}';
+  }
+
+  void _debugMapPayload(String message) {
+    if (!kDebugMode) {
+      return;
+    }
+    final now = DateTime.now();
+    if (_lastMapPayloadLogAt != null &&
+        now.difference(_lastMapPayloadLogAt!) <
+            const Duration(milliseconds: 250)) {
+      return;
+    }
+    _lastMapPayloadLogAt = now;
+    debugPrint(message);
+  }
+
+  String _polylineSignature({
+    required List<LatLng> routePoints,
+    required LatLng? originPoint,
+    required LatLng? destinationPoint,
+  }) {
+    final buffer = StringBuffer()
+      ..write('o=')
+      ..write(_pointSignature(originPoint))
+      ..write('|d=')
+      ..write(_pointSignature(destinationPoint));
+
+    for (final point in routePoints) {
+      buffer
+        ..write('|')
+        ..write(point.latitude.toStringAsFixed(5))
+        ..write(',')
+        ..write(point.longitude.toStringAsFixed(5));
+    }
+    return buffer.toString();
   }
 
   String _formatStatusLabel(String status) {

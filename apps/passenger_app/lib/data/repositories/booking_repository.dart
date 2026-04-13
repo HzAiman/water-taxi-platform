@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -97,6 +98,9 @@ class BookingRepository {
       BookingFields.operatorUid: null,
       if (routeSelection.routePolylineId != null)
         BookingFields.routePolylineId: routeSelection.routePolylineId,
+      if (routeSelection.routePolyline != null &&
+          routeSelection.routePolyline!.isNotEmpty)
+        BookingFields.routePolyline: routeSelection.routePolyline,
       BookingFields.createdAt: FieldValue.serverTimestamp(),
       BookingFields.updatedAt: FieldValue.serverTimestamp(),
     });
@@ -334,7 +338,24 @@ class BookingRepository {
           .toList();
       final startSnap = _snapPointToPolyline(origin, points);
       final endSnap = _snapPointToPolyline(destination, points);
-      final score = startSnap.distanceSquared + endSnap.distanceSquared;
+      final candidate = _PolylineMatch(
+        polylineId: raw.id,
+        polyline: points,
+        start: startSnap,
+        end: endSnap,
+        score: 0,
+      );
+      final segment = _extractSegment(candidate);
+      final startOffset = _distanceBetweenPoints(origin, startSnap.point);
+      final endOffset = _distanceBetweenPoints(destination, endSnap.point);
+      final segmentLength = _polylineLength(segment);
+      final directLength = _distanceBetweenPoints(startSnap.point, endSnap.point);
+      final detourPenalty =
+          directLength <= 1e-9 ? 0.0 : (segmentLength - directLength).abs();
+      final score =
+          ((startOffset + endOffset) * 2.0) +
+          segmentLength +
+          (detourPenalty * 4.0);
 
       if (bestMatch == null || score < bestMatch.score) {
         bestMatch = _PolylineMatch(
@@ -349,21 +370,10 @@ class BookingRepository {
 
     if (bestMatch != null) {
       final segment = _extractSegment(bestMatch);
-      if (segment.length >= 3) {
+      if (segment.length >= 2) {
         return _PolylineSelection(
           routePolylineId: bestMatch.polylineId,
           routePolyline: segment
-              .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
-              .toList(),
-        );
-      }
-
-      // If snapped segment is too short but source geometry is richer,
-      // keep the richer route to avoid rendering a misleading straight line.
-      if (bestMatch.polyline.length >= 3) {
-        return _PolylineSelection(
-          routePolylineId: bestMatch.polylineId,
-          routePolyline: bestMatch.polyline
               .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
               .toList(),
         );
@@ -475,6 +485,27 @@ class BookingRepository {
     final end = match.end;
     final points = match.polyline;
 
+    if (points.length < 2) {
+      return <_LatLngPoint>[start.point, end.point];
+    }
+
+    if (!_isClosedLoopPolyline(points)) {
+      return _extractLinearSegment(match);
+    }
+
+    final forward = _extractLoopSegment(match, step: 1);
+    final backward = _extractLoopSegment(match, step: -1);
+    if (_polylineLength(backward) < _polylineLength(forward)) {
+      return backward;
+    }
+    return forward;
+  }
+
+  static List<_LatLngPoint> _extractLinearSegment(_PolylineMatch match) {
+    final start = match.start;
+    final end = match.end;
+    final points = match.polyline;
+
     final segment = <_LatLngPoint>[start.point];
 
     if (start.segmentIndex <= end.segmentIndex) {
@@ -491,6 +522,38 @@ class BookingRepository {
     return segment;
   }
 
+  static List<_LatLngPoint> _extractLoopSegment(
+    _PolylineMatch match, {
+    required int step,
+  }) {
+    final segment = <_LatLngPoint>[match.start.point];
+    final segmentCount = match.polyline.length - 1;
+    var index = match.start.segmentIndex;
+    var guard = 0;
+
+    while (index != match.end.segmentIndex && guard <= segmentCount + 1) {
+      if (step > 0) {
+        final nextIndex = (index + 1) % segmentCount;
+        _addIfDistinct(segment, match.polyline[nextIndex]);
+        index = nextIndex;
+      } else {
+        _addIfDistinct(segment, match.polyline[index]);
+        index = (index - 1 + segmentCount) % segmentCount;
+      }
+      guard++;
+    }
+
+    _addIfDistinct(segment, match.end.point);
+    return segment;
+  }
+
+  static bool _isClosedLoopPolyline(List<_LatLngPoint> points) {
+    if (points.length < 3) {
+      return false;
+    }
+    return _distanceBetweenPoints(points.first, points.last) <= 1e-6;
+  }
+
   static void _addIfDistinct(List<_LatLngPoint> points, _LatLngPoint next) {
     if (points.isEmpty) {
       points.add(next);
@@ -502,6 +565,24 @@ class BookingRepository {
       return;
     }
     points.add(next);
+  }
+
+  static double _distanceBetweenPoints(_LatLngPoint a, _LatLngPoint b) {
+    final dLat = a.lat - b.lat;
+    final dLng = a.lng - b.lng;
+    return math.sqrt((dLat * dLat) + (dLng * dLng));
+  }
+
+  static double _polylineLength(List<_LatLngPoint> points) {
+    if (points.length < 2) {
+      return 0;
+    }
+
+    var length = 0.0;
+    for (var i = 1; i < points.length; i++) {
+      length += _distanceBetweenPoints(points[i - 1], points[i]);
+    }
+    return length;
   }
 
   Future<BookingModel> _fromDoc(String id, Map<String, dynamic> data) async {
