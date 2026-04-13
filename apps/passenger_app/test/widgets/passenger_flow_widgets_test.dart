@@ -91,6 +91,7 @@ void main() {
                   ({
                     required initialCameraPosition,
                     required markers,
+                    required padding,
                     required polylines,
                   }) {
                     return const SizedBox(key: ValueKey('mock-tracking-map'));
@@ -129,6 +130,7 @@ void main() {
                   ({
                     required initialCameraPosition,
                     required markers,
+                    required padding,
                     required polylines,
                   }) {
                     return const SizedBox(key: ValueKey('mock-tracking-map'));
@@ -171,6 +173,7 @@ void main() {
                   ({
                     required initialCameraPosition,
                     required markers,
+                    required padding,
                     required polylines,
                   }) {
                     return const SizedBox(key: ValueKey('mock-tracking-map'));
@@ -213,6 +216,7 @@ void main() {
                   ({
                     required initialCameraPosition,
                     required markers,
+                    required padding,
                     required polylines,
                   }) {
                     latestMarkers = markers;
