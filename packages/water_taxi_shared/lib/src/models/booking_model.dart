@@ -22,6 +22,8 @@ class BookingModel {
     required this.destinationLng,
     this.routePolylineId,
     this.routePolyline = const <BookingRoutePoint>[],
+    this.routeToOriginPolyline = const <BookingRoutePoint>[],
+    this.routeToDestinationPolyline = const <BookingRoutePoint>[],
     required this.adultCount,
     required this.childCount,
     required this.passengerCount,
@@ -40,6 +42,7 @@ class BookingModel {
     this.createdAt,
     this.updatedAt,
     this.cancelledAt,
+    this.passengerPickedUpAt,
   }) : operatorUid = operatorUid ?? operatorId;
 
   final String bookingId;
@@ -56,6 +59,8 @@ class BookingModel {
   final double destinationLng;
   final String? routePolylineId;
   final List<BookingRoutePoint> routePolyline;
+  final List<BookingRoutePoint> routeToOriginPolyline;
+  final List<BookingRoutePoint> routeToDestinationPolyline;
   final int adultCount;
   final int childCount;
   final int passengerCount;
@@ -74,6 +79,7 @@ class BookingModel {
   final DateTime? createdAt;
   final DateTime? updatedAt;
   final DateTime? cancelledAt;
+  final DateTime? passengerPickedUpAt;
 
   /// Creates a [BookingModel] from a raw Firestore document map.
   ///
@@ -104,6 +110,36 @@ class BookingModel {
       destinationLng: destinationLng,
       routePolylineId: data['routePolylineId']?.toString(),
       routePolyline: _routePolyline(data),
+      routeToOriginPolyline: _routePolylineForKeys(data, const [
+        'routeToOriginPolyline',
+        'operatorToOriginPolyline',
+        'toOriginPolyline',
+        'routeToOrigin',
+        'pickupPolyline',
+        'routeToPickupPolyline',
+        'operatorToPickupPolyline',
+        'pickupRoutePolyline',
+        'pickupRoute',
+        'pickupPath',
+        'toOriginPath',
+        'operatorToPickupPath',
+        'operatorToOriginCoordinates',
+        'pickupPathCoordinates',
+      ]),
+      routeToDestinationPolyline: _routePolylineForKeys(data, const [
+        'routeToDestinationPolyline',
+        'originToDestinationPolyline',
+        'toDestinationPolyline',
+        'routeToDestination',
+        'dropoffPolyline',
+        'dropoffRoutePolyline',
+        'dropoffRoute',
+        'destinationRoutePolyline',
+        'toDestinationPath',
+        'pickupToDestinationPath',
+        'originToDestinationCoordinates',
+        'dropoffPathCoordinates',
+      ]),
       adultCount: _int(data['adultCount']),
       childCount: _int(data['childCount']),
       passengerCount: _int(data['passengerCount']),
@@ -121,6 +157,7 @@ class BookingModel {
       createdAt: createdAt,
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
+      passengerPickedUpAt: _nullableDateTime(data['passengerPickedUpAt']),
     );
   }
 
@@ -139,6 +176,8 @@ class BookingModel {
     double? destinationLng,
     String? routePolylineId,
     List<BookingRoutePoint>? routePolyline,
+    List<BookingRoutePoint>? routeToOriginPolyline,
+    List<BookingRoutePoint>? routeToDestinationPolyline,
     int? adultCount,
     int? childCount,
     int? passengerCount,
@@ -157,6 +196,7 @@ class BookingModel {
     DateTime? createdAt,
     DateTime? updatedAt,
     DateTime? cancelledAt,
+    DateTime? passengerPickedUpAt,
   }) {
     return BookingModel(
       bookingId: bookingId ?? this.bookingId,
@@ -173,6 +213,10 @@ class BookingModel {
       destinationLng: destinationLng ?? this.destinationLng,
       routePolylineId: routePolylineId ?? this.routePolylineId,
       routePolyline: routePolyline ?? this.routePolyline,
+      routeToOriginPolyline:
+          routeToOriginPolyline ?? this.routeToOriginPolyline,
+      routeToDestinationPolyline:
+          routeToDestinationPolyline ?? this.routeToDestinationPolyline,
       adultCount: adultCount ?? this.adultCount,
       childCount: childCount ?? this.childCount,
       passengerCount: passengerCount ?? this.passengerCount,
@@ -190,6 +234,7 @@ class BookingModel {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       cancelledAt: cancelledAt ?? this.cancelledAt,
+      passengerPickedUpAt: passengerPickedUpAt ?? this.passengerPickedUpAt,
     );
   }
 
@@ -246,6 +291,41 @@ class BookingModel {
       }
     }
     return points;
+  }
+
+  static List<BookingRoutePoint> _routePolylineForKeys(
+    Map<String, dynamic> data,
+    List<String> keys,
+  ) {
+    for (final key in keys) {
+      final raw = data[key];
+      if (raw is! Iterable) {
+        continue;
+      }
+      final points = <BookingRoutePoint>[];
+      for (final p in raw) {
+        final point = BookingRoutePoint.tryParse(p);
+        if (point != null) {
+          points.add(point);
+        }
+      }
+      if (points.isNotEmpty) {
+        return points;
+      }
+    }
+    return const <BookingRoutePoint>[];
+  }
+
+  static DateTime? _nullableDateTime(dynamic v) {
+    if (v is DateTime) return v;
+    if (v == null) return null;
+    if (v is int) {
+      return DateTime.fromMillisecondsSinceEpoch(v);
+    }
+    if (v is num) {
+      return DateTime.fromMillisecondsSinceEpoch(v.toInt());
+    }
+    return DateTime.tryParse(v.toString());
   }
 }
 

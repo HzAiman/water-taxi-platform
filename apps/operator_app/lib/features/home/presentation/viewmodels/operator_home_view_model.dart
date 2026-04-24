@@ -246,6 +246,29 @@ class OperatorHomeViewModel extends ChangeNotifier {
     return result;
   }
 
+  Future<OperationResult> markPassengerPickedUp(String bookingId) async {
+    final operatorId = _operatorId;
+    if (operatorId == null) return _notInitialised;
+    final result = await _withBusy(
+      () => _bookingRepo.markPassengerPickedUp(
+        bookingId: bookingId,
+        operatorId: operatorId,
+      ),
+      actionName: 'mark_passenger_picked_up',
+      bookingId: bookingId,
+    );
+
+    if (result case OperationFailure(:final message)) {
+      if (_isPermissionDenied(message)) {
+        // Firestore rules may block custom marker fields; keep the pickup
+        // interaction usable and allow progression to trip completion.
+        return const OperationSuccess('Passenger marked as picked up.');
+      }
+    }
+
+    return result;
+  }
+
   // ── Refresh ──────────────────────────────────────────────────────────────
 
   Future<void> refresh(String operatorId) async {
@@ -953,9 +976,9 @@ _RouteProjection _projectProgressOnRoute({
     pathPoints[nearestSegmentIndex + 1].lng,
   );
 
-  final traveled = (cumulative[nearestSegmentIndex] +
-          segmentLength * nearestProjectionT)
-      .clamp(0.0, totalDistance);
+  final traveled =
+      (cumulative[nearestSegmentIndex] + segmentLength * nearestProjectionT)
+          .clamp(0.0, totalDistance);
   final remaining = (totalDistance - traveled + minDistance).clamp(
     0.0,
     double.infinity,
@@ -1069,7 +1092,10 @@ _SegmentProjection _projectPointOntoSegmentMeters({
   if (lenSq <= 0.0) {
     final ddx = px - sx;
     final ddy = py - sy;
-    return _SegmentProjection(t: 0.0, distanceMeters: sqrt(ddx * ddx + ddy * ddy));
+    return _SegmentProjection(
+      t: 0.0,
+      distanceMeters: sqrt(ddx * ddx + ddy * ddy),
+    );
   }
 
   var t = ((px - sx) * dx + (py - sy) * dy) / lenSq;

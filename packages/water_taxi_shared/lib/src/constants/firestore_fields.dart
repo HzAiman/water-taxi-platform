@@ -14,6 +14,9 @@ abstract final class BookingFields {
   static const String destinationCoords = 'destinationCoords';
   static const String routePolylineId = 'routePolylineId';
   static const String routePolyline = 'routePolyline';
+  static const String routeToOriginPolyline = 'routeToOriginPolyline';
+  static const String routeToDestinationPolyline = 'routeToDestinationPolyline';
+  static const String passengerPickedUpAt = 'passengerPickedUpAt';
   static const String adultCount = 'adultCount';
   static const String childCount = 'childCount';
   static const String passengerCount = 'passengerCount';

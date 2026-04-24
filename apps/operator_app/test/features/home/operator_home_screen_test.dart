@@ -293,7 +293,7 @@ void main() {
     expect(bookingRepo.lastStartedOperatorId, 'operator-1');
   });
 
-  testWidgets('online operator complete trip delegates to repository', (
+  testWidgets('online operator pickup then complete delegates to repository', (
     tester,
   ) async {
     final operatorRepo = _FakeOperatorRepository(
@@ -328,11 +328,64 @@ void main() {
     await tester.tap(find.text('Navigation'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Passenger Picked Up'), findsOneWidget);
+    expect(find.text('Complete Trip'), findsNothing);
+
+    await tester.tap(find.text('Passenger Picked Up'));
+    await tester.pumpAndSettle();
+
+    expect(bookingRepo.lastPickedUpBookingId, 'active-2');
+    expect(bookingRepo.lastPickedUpOperatorId, 'operator-1');
+    expect(find.text('Complete Trip'), findsOneWidget);
+
     await tester.tap(find.text('Complete Trip'));
     await tester.pumpAndSettle();
 
     expect(bookingRepo.lastCompletedBookingId, 'active-2');
     expect(bookingRepo.lastCompletedOperatorId, 'operator-1');
+  });
+
+  testWidgets('pickup marker from Firestore shows complete action directly', (
+    tester,
+  ) async {
+    final operatorRepo = _FakeOperatorRepository(
+      operator: const OperatorModel(
+        uid: 'operator-1',
+        operatorId: 'OP-1',
+        name: 'Captain Aiman',
+        email: 'captain@example.com',
+        isOnline: true,
+      ),
+    );
+    final bookingRepo = _FakeBookingRepository();
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        operatorId: 'operator-1',
+        operatorEmail: 'captain@example.com',
+        operatorRepo: operatorRepo,
+        bookingRepo: bookingRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bookingRepo.emitActive([
+      _sampleBooking(
+        id: 'active-3',
+        status: BookingStatus.onTheWay,
+        passengerPickedUpAt: DateTime(2026, 3, 15, 10, 7),
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Active Trip'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Navigation'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Passenger Picked Up'), findsNothing);
+    expect(find.text('Complete Trip'), findsOneWidget);
   });
 
   testWidgets('on-the-way active trip shows navigation guidance details', (
@@ -516,6 +569,8 @@ class _FakeBookingRepository extends BookingRepository {
   String? lastAcceptedOperatorId;
   String? lastStartedBookingId;
   String? lastStartedOperatorId;
+  String? lastPickedUpBookingId;
+  String? lastPickedUpOperatorId;
   String? lastCompletedBookingId;
   String? lastCompletedOperatorId;
 
@@ -576,6 +631,16 @@ class _FakeBookingRepository extends BookingRepository {
   }
 
   @override
+  Future<OperationResult> markPassengerPickedUp({
+    required String bookingId,
+    required String operatorId,
+  }) async {
+    lastPickedUpBookingId = bookingId;
+    lastPickedUpOperatorId = operatorId;
+    return const OperationSuccess('Passenger marked as picked up.');
+  }
+
+  @override
   Future<int> releaseAllAcceptedBookings(String operatorId) async => 0;
 
   void emitActive(List<BookingModel> bookings) {
@@ -593,6 +658,7 @@ BookingModel _sampleBooking({
   double? operatorLat,
   double? operatorLng,
   List<BookingRoutePoint> routePolyline = const [],
+  DateTime? passengerPickedUpAt,
 }) {
   return BookingModel(
     bookingId: id,
@@ -620,5 +686,6 @@ BookingModel _sampleBooking({
     createdAt: DateTime(2026, 3, 15, 10, 0),
     updatedAt: DateTime(2026, 3, 15, 10, 5),
     cancelledAt: null,
+    passengerPickedUpAt: passengerPickedUpAt,
   );
 }

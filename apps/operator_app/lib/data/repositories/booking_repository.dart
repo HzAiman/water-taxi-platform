@@ -20,12 +20,14 @@ class BookingRepository {
   Stream<List<BookingModel>> streamActiveBookings(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
-      .where(BookingFields.operatorUid, isEqualTo: operatorId)
+        .where(BookingFields.operatorUid, isEqualTo: operatorId)
         .limit(50)
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
           final active =
-              (await Future.wait(snap.docs.map((d) => _fromDoc(d.id, d.data()))))
+              (await Future.wait(
+                    snap.docs.map((d) => _fromDoc(d.id, d.data())),
+                  ))
                   .where(
                     (b) =>
                         b.status == BookingStatus.accepted ||
@@ -57,7 +59,9 @@ class BookingRepository {
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
           final pending =
-              (await Future.wait(snap.docs.map((d) => _fromDoc(d.id, d.data()))))
+              (await Future.wait(
+                    snap.docs.map((d) => _fromDoc(d.id, d.data())),
+                  ))
                   .where((b) => b.operatorUid == null || b.operatorUid!.isEmpty)
                   .toList()
                 ..sort((a, b) {
@@ -76,20 +80,21 @@ class BookingRepository {
   Stream<List<BookingModel>> streamOperatorBookingHistory(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
-      .where(BookingFields.operatorUid, isEqualTo: operatorId)
+        .where(BookingFields.operatorUid, isEqualTo: operatorId)
         .limit(500)
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
           final history =
-              (await Future.wait(snap.docs.map((d) => _fromDoc(d.id, d.data()))))
-                ..sort((a, b) {
-                  final at = a.updatedAt ?? a.createdAt;
-                  final bt = b.updatedAt ?? b.createdAt;
-                  if (at == null && bt == null) return 0;
-                  if (at == null) return 1;
-                  if (bt == null) return -1;
-                  return bt.compareTo(at);
-                });
+              (await Future.wait(
+                snap.docs.map((d) => _fromDoc(d.id, d.data())),
+              ))..sort((a, b) {
+                final at = a.updatedAt ?? a.createdAt;
+                final bt = b.updatedAt ?? b.createdAt;
+                if (at == null && bt == null) return 0;
+                if (at == null) return 1;
+                if (bt == null) return -1;
+                return bt.compareTo(at);
+              });
           return history;
         });
   }
@@ -308,6 +313,55 @@ class BookingRepository {
     operatorLng: operatorLng,
   );
 
+  /// Marks that the passenger has been picked up while trip remains
+  /// `on_the_way`.
+  Future<OperationResult> markPassengerPickedUp({
+    required String bookingId,
+    required String operatorId,
+  }) async {
+    try {
+      await _runWithRetry(
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snap.data()!;
+          final currentStatus = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          final assignedOperatorUid = _assignedOperatorUid(data);
+
+          if (currentStatus != BookingStatus.onTheWay ||
+              assignedOperatorUid != operatorId) {
+            throw StateError(
+              'Only your on-the-way booking can be marked as picked up.',
+            );
+          }
+
+          tx.update(ref, {
+            BookingFields.passengerPickedUpAt: FieldValue.serverTimestamp(),
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          });
+        }),
+      );
+
+      return const OperationSuccess('Passenger marked as picked up.');
+    } on StateError catch (e) {
+      return OperationFailure(
+        'Unable to update booking',
+        e.message,
+        isInfo: true,
+      );
+    } catch (e) {
+      return OperationFailure('Update failed', 'Could not update booking: $e');
+    }
+  }
+
   /// Updates the booking status to `completed`.
   Future<OperationResult> completeTrip({
     required String bookingId,
@@ -353,7 +407,7 @@ class BookingRepository {
   Future<int> releaseAllAcceptedBookings(String operatorId) async {
     final snap = await _db
         .collection(FirestoreCollections.bookings)
-      .where(BookingFields.operatorUid, isEqualTo: operatorId)
+        .where(BookingFields.operatorUid, isEqualTo: operatorId)
         .limit(50)
         .get();
 
@@ -501,15 +555,31 @@ class BookingRepository {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
     final routePolyline = await _resolveRoutePolyline(data);
+    final routeToOriginPolyline = await _resolveRouteToOriginPolyline(
+      data,
+      fallback: routePolyline,
+    );
+    final routeToDestinationPolyline = await _resolveRouteToDestinationPolyline(
+      data,
+      fallback: routePolyline,
+    );
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
     final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
         ?.toDate();
+    final passengerPickedUpAt =
+        (data[BookingFields.passengerPickedUpAt] as Timestamp?)?.toDate();
 
     data = {
       ...data,
       if (data[BookingFields.bookingId] == null) BookingFields.bookingId: id,
       if (routePolyline != null) BookingFields.routePolyline: routePolyline,
+      if (routeToOriginPolyline != null)
+        BookingFields.routeToOriginPolyline: routeToOriginPolyline,
+      if (routeToDestinationPolyline != null)
+        BookingFields.routeToDestinationPolyline: routeToDestinationPolyline,
+      if (passengerPickedUpAt != null)
+        BookingFields.passengerPickedUpAt: passengerPickedUpAt,
     };
 
     return BookingModel.fromMap(
@@ -521,6 +591,183 @@ class BookingRepository {
       createdAt: createdAt,
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
+    );
+  }
+
+  Future<List<Map<String, double>>?> _resolveRouteToOriginPolyline(
+    Map<String, dynamic> data, {
+    required List<Map<String, double>>? fallback,
+  }) async {
+    final direct = _normaliseRoutePolyline(
+      _extractPhaseRouteRaw(data, const [
+        BookingFields.routeToOriginPolyline,
+        'operatorToOriginPolyline',
+        'toOriginPolyline',
+        'routeToOrigin',
+        'pickupPolyline',
+        'routeToPickupPolyline',
+        'operatorToPickupPolyline',
+        'pickupRoutePolyline',
+        'pickupRoute',
+        'pickupPath',
+        'toOriginPath',
+        'operatorToPickupPath',
+        'operatorToOriginCoordinates',
+        'pickupPathCoordinates',
+      ]),
+    );
+    if (direct != null && direct.isNotEmpty) {
+      return direct;
+    }
+
+    final nested = _normaliseRoutePolyline(
+      _extractNestedPhaseRouteRaw(data, const [
+        'to_origin',
+        'toOrigin',
+        'to_pickup',
+        'toPickup',
+        'pickup',
+        'operator_to_origin',
+        'operatorToOrigin',
+      ]),
+    );
+    if (nested != null && nested.isNotEmpty) {
+      return nested;
+    }
+
+    final byId = await _resolvePhaseRouteFromId(
+      data,
+      idKeyCandidates: const [
+        'routeToOriginPolylineId',
+        'operatorToOriginPolylineId',
+        'toOriginPolylineId',
+        'routeToPickupPolylineId',
+        'operatorToPickupPolylineId',
+      ],
+      nestedIdCandidates: const [
+        'to_origin',
+        'toOrigin',
+        'to_pickup',
+        'toPickup',
+        'pickup',
+      ],
+    );
+    if (byId != null && byId.isNotEmpty) {
+      return byId;
+    }
+
+    return fallback;
+  }
+
+  Future<List<Map<String, double>>?> _resolveRouteToDestinationPolyline(
+    Map<String, dynamic> data, {
+    required List<Map<String, double>>? fallback,
+  }) async {
+    final direct = _normaliseRoutePolyline(
+      _extractPhaseRouteRaw(data, const [
+        BookingFields.routeToDestinationPolyline,
+        'originToDestinationPolyline',
+        'toDestinationPolyline',
+        'routeToDestination',
+        'dropoffPolyline',
+        'dropoffRoutePolyline',
+        'dropoffRoute',
+        'destinationRoutePolyline',
+        'toDestinationPath',
+        'pickupToDestinationPath',
+        'originToDestinationCoordinates',
+        'dropoffPathCoordinates',
+      ]),
+    );
+    if (direct != null && direct.isNotEmpty) {
+      return direct;
+    }
+
+    final nested = _normaliseRoutePolyline(
+      _extractNestedPhaseRouteRaw(data, const [
+        'to_destination',
+        'toDestination',
+        'to_dropoff',
+        'toDropoff',
+        'dropoff',
+        'origin_to_destination',
+        'originToDestination',
+      ]),
+    );
+    if (nested != null && nested.isNotEmpty) {
+      return nested;
+    }
+
+    final byId = await _resolvePhaseRouteFromId(
+      data,
+      idKeyCandidates: const [
+        'routeToDestinationPolylineId',
+        'originToDestinationPolylineId',
+        'toDestinationPolylineId',
+        'dropoffPolylineId',
+      ],
+      nestedIdCandidates: const [
+        'to_destination',
+        'toDestination',
+        'to_dropoff',
+        'toDropoff',
+        'dropoff',
+        'origin_to_destination',
+        'originToDestination',
+      ],
+    );
+    if (byId != null && byId.isNotEmpty) {
+      return byId;
+    }
+
+    return fallback;
+  }
+
+  Future<List<Map<String, double>>?> _resolvePhaseRouteFromId(
+    Map<String, dynamic> data, {
+    required List<String> idKeyCandidates,
+    required List<String> nestedIdCandidates,
+  }) async {
+    String? routeId;
+    for (final key in idKeyCandidates) {
+      final value = data[key]?.toString().trim();
+      if (value != null && value.isNotEmpty) {
+        routeId = value;
+        break;
+      }
+    }
+
+    if (routeId == null || routeId.isEmpty) {
+      final nestedIds = data['phasePolylineIds'] ?? data['phaseRouteIds'];
+      if (nestedIds is Map) {
+        for (final key in nestedIdCandidates) {
+          final value = nestedIds[key]?.toString().trim();
+          if (value != null && value.isNotEmpty) {
+            routeId = value;
+            break;
+          }
+        }
+      }
+    }
+
+    if (routeId == null || routeId.isEmpty) {
+      return null;
+    }
+
+    final snap = await _db
+        .collection(FirestoreCollections.polylines)
+        .doc(routeId)
+        .get();
+    if (!snap.exists || snap.data() == null) {
+      return null;
+    }
+
+    return _normaliseRoutePolyline(
+      snap.data()!['path'] ??
+          snap.data()!['coordinates'] ??
+          snap.data()!['polyline'] ??
+          snap.data()!['geometry'] ??
+          snap.data()![BookingFields.routePolyline],
     );
   }
 
@@ -598,6 +845,37 @@ class BookingRepository {
         data['routeCoordinates'] ??
         data['polylineCoordinates'] ??
         data['routePoints'];
+  }
+
+  static dynamic _extractPhaseRouteRaw(
+    Map<String, dynamic> data,
+    List<String> candidates,
+  ) {
+    for (final key in candidates) {
+      final value = data[key];
+      if (value != null) {
+        return value;
+      }
+    }
+    return null;
+  }
+
+  static dynamic _extractNestedPhaseRouteRaw(
+    Map<String, dynamic> data,
+    List<String> candidates,
+  ) {
+    final container = data['phasePolylines'] ?? data['phaseRoutes'];
+    if (container is! Map) {
+      return null;
+    }
+
+    for (final key in candidates) {
+      final value = container[key];
+      if (value != null) {
+        return value;
+      }
+    }
+    return null;
   }
 
   static List<Map<String, double>>? _normaliseRoutePolyline(dynamic raw) {

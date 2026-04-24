@@ -65,6 +65,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   OperatorHomeViewModel? _observedViewModel;
   bool _isActiveSectionExpanded = false;
   bool _isQueueSectionExpanded = false;
+  final Set<String> _pickedUpBookingIds = <String>{};
   final OperatorLocationCoordinator _locationCoordinator =
       const OperatorLocationCoordinator();
 
@@ -176,12 +177,30 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final activeBooking = viewModel.activeBookings.isNotEmpty
         ? viewModel.activeBookings.first
         : null;
+    _pickedUpBookingIds.removeWhere(
+      (id) => !viewModel.activeBookings.any(
+        (b) => b.bookingId == id && b.status == BookingStatus.onTheWay,
+      ),
+    );
+    for (final booking in viewModel.activeBookings) {
+      if (booking.status == BookingStatus.onTheWay &&
+          booking.passengerPickedUpAt != null) {
+        _pickedUpBookingIds.add(booking.bookingId);
+      }
+    }
+
+    final passengerPickedUp =
+        activeBooking != null && _isPassengerPickedUp(activeBooking);
     final operatorPoint = _operatorPointForBooking(activeBooking);
     final destinationPoint = activeBooking == null
-      ? null
-      : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
+        ? null
+        : _latLngOrNull(
+            activeBooking.destinationLat,
+            activeBooking.destinationLng,
+          );
     final trimmedRoutePoints = _trimmedRoutePointsForCamera(
       activeBooking,
+      passengerPickedUp: passengerPickedUp,
       operatorPoint: operatorPoint,
       destinationPoint: destinationPoint,
     );
@@ -407,13 +426,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final activeCount = activeBooking == null ? 0 : 1;
     final guidance = viewModel.navigationGuidance;
     final isOnTheWay =
-      activeBooking != null && activeBooking.status == BookingStatus.onTheWay;
+        activeBooking != null && activeBooking.status == BookingStatus.onTheWay;
+    final passengerPickedUp =
+        activeBooking != null && _isPassengerPickedUp(activeBooking);
     final bookingGuidance =
-      isOnTheWay &&
-        guidance != null &&
-        guidance.bookingId == activeBooking.bookingId
-      ? guidance
-      : null;
+        isOnTheWay &&
+            guidance != null &&
+            guidance.bookingId == activeBooking.bookingId
+        ? guidance
+        : null;
 
     return KeyedSubtree(
       key: ValueKey('booking-actions-${viewModel.streamVersion}'),
@@ -492,6 +513,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                   child: _buildNavigationInfoCard(
                     booking: activeBooking,
                     guidance: bookingGuidance,
+                    passengerPickedUp: passengerPickedUp,
                     viewModel: viewModel,
                   ),
                 ),
@@ -611,6 +633,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   Widget _buildNavigationInfoCard({
     required BookingModel booking,
     required OperatorNavigationGuidance? guidance,
+    required bool passengerPickedUp,
     required OperatorHomeViewModel viewModel,
   }) {
     final progressPercent = guidance == null
@@ -635,10 +658,20 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           ? 'Off-route warning: approx $offRoute away from planned route.'
           : null,
       isUpdating: viewModel.isUpdatingBooking,
-      onCompleteTrip: () async {
-        final result = await viewModel.completeTrip(booking.bookingId);
+      primaryActionLabel: passengerPickedUp
+          ? 'Complete Trip'
+          : 'Passenger Picked Up',
+      onPrimaryAction: () async {
+        final result = passengerPickedUp
+            ? await viewModel.completeTrip(booking.bookingId)
+            : await viewModel.markPassengerPickedUp(booking.bookingId);
         if (!mounted) {
           return;
+        }
+        if (result is OperationSuccess && !passengerPickedUp) {
+          setState(() {
+            _pickedUpBookingIds.add(booking.bookingId);
+          });
         }
         _showOperationResult(result);
       },
@@ -764,13 +797,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
 
     final syncSignature =
-        'm=${_mapNavigationMode.name}|f=${forceFollow ? 1 : 0}|${_cameraSyncScheduleSignature(
-      bookingId: activeBooking?.bookingId,
-      status: activeBooking?.status,
-      routePoints: routePoints,
-      operatorPoint: operatorPoint,
-      destinationPoint: destinationPoint,
-    )}';
+        'm=${_mapNavigationMode.name}|f=${forceFollow ? 1 : 0}|${_cameraSyncScheduleSignature(bookingId: activeBooking?.bookingId, status: activeBooking?.status, routePoints: routePoints, operatorPoint: operatorPoint, destinationPoint: destinationPoint)}';
     if (_lastScheduledCameraSyncSignature == syncSignature) {
       return;
     }
@@ -886,7 +913,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }) async {
     final lastPoint = _lastFollowOperatorPoint;
     final lastAt = _lastFollowAt;
-    final shouldFollow = forceFollow ||
+    final shouldFollow =
+        forceFollow ||
         lastPoint == null ||
         lastAt == null ||
         DateTime.now().difference(lastAt) >= _followRecenterInterval ||
@@ -923,6 +951,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
   List<LatLng> _trimmedRoutePointsForCamera(
     BookingModel? booking, {
+    required bool passengerPickedUp,
     required LatLng? operatorPoint,
     required LatLng? destinationPoint,
   }) {
@@ -930,13 +959,28 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return const <LatLng>[];
     }
 
-    final source = booking.routePolyline
+    final sourcePoints = booking.status == BookingStatus.onTheWay
+        ? (passengerPickedUp
+              ? booking.routeToDestinationPolyline
+              : booking.routeToOriginPolyline)
+        : booking.routePolyline;
+    final fallbackPoints = booking.status == BookingStatus.onTheWay
+        ? (passengerPickedUp
+              ? booking.routePolyline
+              : const <BookingRoutePoint>[])
+        : booking.routePolyline;
+    final source = (sourcePoints.isNotEmpty ? sourcePoints : fallbackPoints)
         .map((p) => _latLngOrNull(p.lat, p.lng))
         .whereType<LatLng>()
         .toList(growable: false);
     // Keep route geometry authoritative from Firestore and avoid synthetic
     // index-based slicing that can introduce straight-line artifacts.
     return source;
+  }
+
+  bool _isPassengerPickedUp(BookingModel booking) {
+    return booking.passengerPickedUpAt != null ||
+        _pickedUpBookingIds.contains(booking.bookingId);
   }
 
   LatLng? _latLngOrNull(double lat, double lng) {
@@ -1074,12 +1118,18 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final activeBooking = viewModel.activeBookings.isNotEmpty
         ? viewModel.activeBookings.first
         : null;
+    final passengerPickedUp =
+        activeBooking != null && _isPassengerPickedUp(activeBooking);
     final operatorPoint = _operatorPointForBooking(activeBooking);
     final destinationPoint = activeBooking == null
-      ? null
-      : _latLngOrNull(activeBooking.destinationLat, activeBooking.destinationLng);
+        ? null
+        : _latLngOrNull(
+            activeBooking.destinationLat,
+            activeBooking.destinationLng,
+          );
     final trimmedRoutePoints = _trimmedRoutePointsForCamera(
       activeBooking,
+      passengerPickedUp: passengerPickedUp,
       operatorPoint: operatorPoint,
       destinationPoint: destinationPoint,
     );
@@ -1092,7 +1142,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           : Stack(
               children: [
                 Positioned.fill(
-                  child: widget.mapBuilder?.call(
+                  child:
+                      widget.mapBuilder?.call(
                         initialCameraPosition: _initialCameraPosition,
                         hasLocationPermission: _hasLocationPermission,
                         onMapCreated: (GoogleMapController controller) {
@@ -1129,9 +1180,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                               activeBooking.status != BookingStatus.onTheWay) {
                             return;
                           }
-                          if (_mapNavigationMode == _MapNavigationMode.tracking) {
+                          if (_mapNavigationMode ==
+                              _MapNavigationMode.tracking) {
                             setState(() {
-                              _mapNavigationMode = _MapNavigationMode.userControlled;
+                              _mapNavigationMode =
+                                  _MapNavigationMode.userControlled;
                             });
                           }
                         },
@@ -1230,7 +1283,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      if (_mapNavigationMode == _MapNavigationMode.userControlled &&
+                      if (_mapNavigationMode ==
+                              _MapNavigationMode.userControlled &&
                           operatorPoint != null)
                         Padding(
                           padding: const EdgeInsets.only(bottom: 8),
@@ -1240,7 +1294,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                             foregroundColor: Colors.white,
                             onPressed: () async {
                               setState(() {
-                                _mapNavigationMode = _MapNavigationMode.tracking;
+                                _mapNavigationMode =
+                                    _MapNavigationMode.tracking;
                               });
                               _scheduleMapCameraSync(
                                 activeBooking,
@@ -1276,7 +1331,8 @@ class _CollapsibleNavigationCard extends StatefulWidget {
     required this.nextMarkerText,
     required this.offRouteText,
     required this.isUpdating,
-    required this.onCompleteTrip,
+    required this.primaryActionLabel,
+    required this.onPrimaryAction,
   });
 
   final String progressLabel;
@@ -1285,14 +1341,16 @@ class _CollapsibleNavigationCard extends StatefulWidget {
   final String nextMarkerText;
   final String? offRouteText;
   final bool isUpdating;
-  final Future<void> Function() onCompleteTrip;
+  final String primaryActionLabel;
+  final Future<void> Function() onPrimaryAction;
 
   @override
   State<_CollapsibleNavigationCard> createState() =>
       _CollapsibleNavigationCardState();
 }
 
-class _CollapsibleNavigationCardState extends State<_CollapsibleNavigationCard> {
+class _CollapsibleNavigationCardState
+    extends State<_CollapsibleNavigationCard> {
   bool _isExpanded = false;
 
   @override
@@ -1321,7 +1379,11 @@ class _CollapsibleNavigationCardState extends State<_CollapsibleNavigationCard> 
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(
                 children: [
-                  const Icon(Icons.navigation, color: Color(0xFF0066CC), size: 20),
+                  const Icon(
+                    Icons.navigation,
+                    color: Color(0xFF0066CC),
+                    size: 20,
+                  ),
                   const SizedBox(width: 8),
                   Text(
                     'Navigation',
@@ -1367,9 +1429,7 @@ class _CollapsibleNavigationCardState extends State<_CollapsibleNavigationCard> 
                   child: _buildNavigationMetric('Remaining', widget.remaining),
                 ),
                 const SizedBox(width: 10),
-                Expanded(
-                  child: _buildNavigationMetric('ETA', widget.eta),
-                ),
+                Expanded(child: _buildNavigationMetric('ETA', widget.eta)),
               ],
             ),
             const SizedBox(height: 8),
@@ -1385,7 +1445,10 @@ class _CollapsibleNavigationCardState extends State<_CollapsibleNavigationCard> 
               const SizedBox(height: 8),
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 8,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFFF4E5),
                   borderRadius: BorderRadius.circular(8),
@@ -1406,7 +1469,7 @@ class _CollapsibleNavigationCardState extends State<_CollapsibleNavigationCard> 
               child: ElevatedButton(
                 onPressed: widget.isUpdating
                     ? null
-                    : () => unawaited(widget.onCompleteTrip()),
+                    : () => unawaited(widget.onPrimaryAction()),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
@@ -1418,12 +1481,14 @@ class _CollapsibleNavigationCardState extends State<_CollapsibleNavigationCard> 
                         width: 18,
                         child: CircularProgressIndicator(
                           strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
                         ),
                       )
-                    : const Text(
-                        'Complete Trip',
-                        style: TextStyle(fontWeight: FontWeight.w700),
+                    : Text(
+                        widget.primaryActionLabel,
+                        style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
               ),
             ),
