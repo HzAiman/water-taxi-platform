@@ -1,8 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:operator_app/core/widgets/app_action_button.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:operator_app/features/profile/presentation/widgets/operator_account_form.dart';
 import 'package:provider/provider.dart';
 
 class OperatorAccountManagementPage extends StatefulWidget {
@@ -117,115 +117,21 @@ class _OperatorAccountManagementPageState
       body: ListView(
         padding: const EdgeInsets.all(24.0),
         children: [
-          Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Full Name',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _nameController,
-                  enabled: _isEditing,
-                  decoration: const InputDecoration(
-                    hintText: 'Enter your full name',
-                    prefixIcon: Icon(Icons.person),
-                  ),
-                  validator: (value) {
-                    if (_isEditing && (value == null || value.trim().isEmpty)) {
-                      return 'Name cannot be empty';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Operator ID',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _idController,
-                  enabled: _isEditing,
-                  decoration: const InputDecoration(
-                    hintText: 'Enter your operator ID',
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
-                  validator: (value) {
-                    if (_isEditing && (value == null || value.trim().isEmpty)) {
-                      return 'Operator ID cannot be empty';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 20),
-                const Text(
-                  'Email Address',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  controller: _emailController,
-                  enabled: false,
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.email),
-                    hintText: 'Email address',
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Email is managed by your login account and cannot be changed here.',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF666666)),
-                ),
-                const SizedBox(height: 28),
-                if (!_isEditing)
-                  AppActionButton(
-                    label: 'Edit Profile',
-                    onPressed: () {
-                      setState(() => _isEditing = true);
-                    },
-                    semanticLabel: 'Edit operator profile',
-                  )
-                else
-                  Column(
-                    children: [
-                      AppActionButton(
-                        label: 'Save Changes',
-                        onPressed: _isSaving ? null : _saveProfile,
-                        isLoading: _isSaving,
-                        semanticLabel: 'Save operator profile changes',
-                      ),
-                      const SizedBox(height: 12),
-                      AppActionButton(
-                        label: 'Cancel',
-                        outlined: true,
-                        onPressed: _isSaving
-                            ? null
-                            : () async {
-                                setState(() => _isEditing = false);
-                                await _loadProfile();
-                              },
-                        semanticLabel: 'Cancel operator profile edit',
-                      ),
-                    ],
-                  ),
-              ],
-            ),
+          OperatorAccountForm(
+            formKey: _formKey,
+            nameController: _nameController,
+            idController: _idController,
+            emailController: _emailController,
+            isEditing: _isEditing,
+            isSaving: _isSaving,
+            onEdit: () {
+              setState(() => _isEditing = true);
+            },
+            onSave: _saveProfile,
+            onCancel: () async {
+              setState(() => _isEditing = false);
+              await _loadProfile();
+            },
           ),
         ],
       ),

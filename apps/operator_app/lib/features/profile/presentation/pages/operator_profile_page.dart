@@ -2,8 +2,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:operator_app/core/widgets/app_action_button.dart';
-import 'package:operator_app/core/widgets/app_menu_tile.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_account_management_page.dart';
 import 'package:provider/provider.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
@@ -13,6 +11,7 @@ import 'package:operator_app/features/profile/presentation/pages/operator_presen
 import 'package:operator_app/features/profile/presentation/pages/operator_transaction_summary_page.dart';
 import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
 import 'package:operator_app/features/profile/presentation/widgets/operator_profile_header.dart';
+import 'package:operator_app/features/profile/presentation/widgets/operator_profile_menu.dart';
 
 class OperatorProfilePage extends StatefulWidget {
   const OperatorProfilePage({super.key});
@@ -95,80 +94,6 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
     super.dispose();
   }
 
-  Widget _buildMainProfileMenu() {
-    return ListView(
-      padding: const EdgeInsets.all(24.0),
-      children: [
-        AppMenuTile(
-          icon: Icons.manage_accounts,
-          title: 'Account Management',
-          subtitle: 'Update your operator profile details',
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const OperatorAccountManagementPage(),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 16),
-        AppMenuTile(
-          icon: Icons.receipt_long_outlined,
-          title: 'Ride / Transaction Summary',
-          subtitle: 'Track rides, earnings, and export income statements',
-          onTap: () {
-            final user = FirebaseAuth.instance.currentUser;
-            if (user == null) {
-              showTopInfo(
-                context,
-                title: 'Not signed in',
-                message: 'Sign in again to view transaction summary.',
-              );
-              return;
-            }
-
-            final bookingRepo = context.read<BookingRepository>();
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ChangeNotifierProvider(
-                  create: (_) => OperatorTransactionSummaryViewModel(
-                    bookingRepository: bookingRepo,
-                    operatorId: user.uid,
-                  ),
-                  child: const OperatorTransactionSummaryPage(),
-                ),
-              ),
-            );
-          },
-        ),
-        if (kDebugMode) ...[
-          const SizedBox(height: 16),
-          AppMenuTile(
-            icon: Icons.bug_report_outlined,
-            title: 'Presence Debug',
-            subtitle: 'Inspect operator_presence sync and online state',
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const OperatorPresenceDebugPage(),
-                ),
-              );
-            },
-          ),
-        ],
-        const SizedBox(height: 24),
-        AppActionButton(
-          label: 'Logout',
-          outlined: true,
-          foregroundColor: Colors.red,
-          borderColor: Colors.red,
-          onPressed: () => _logout(context),
-          semanticLabel: 'Log out of operator account',
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final topInset = MediaQuery.of(context).padding.top;
@@ -192,7 +117,53 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                         : 'ID: N/A',
                     topInset: topInset,
                   ),
-                  Expanded(child: _buildMainProfileMenu()),
+                  Expanded(
+                    child: OperatorProfileMenu(
+                      isDebugMode: kDebugMode,
+                      onAccountManagement: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                const OperatorAccountManagementPage(),
+                          ),
+                        );
+                      },
+                      onTransactionSummary: () {
+                        final user = FirebaseAuth.instance.currentUser;
+                        if (user == null) {
+                          showTopInfo(
+                            context,
+                            title: 'Not signed in',
+                            message:
+                                'Sign in again to view transaction summary.',
+                          );
+                          return;
+                        }
+
+                        final bookingRepo = context.read<BookingRepository>();
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => ChangeNotifierProvider(
+                              create: (_) =>
+                                  OperatorTransactionSummaryViewModel(
+                                    bookingRepository: bookingRepo,
+                                    operatorId: user.uid,
+                                  ),
+                              child: const OperatorTransactionSummaryPage(),
+                            ),
+                          ),
+                        );
+                      },
+                      onPresenceDebug: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => const OperatorPresenceDebugPage(),
+                          ),
+                        );
+                      },
+                      onLogout: () => _logout(context),
+                    ),
+                  ),
                 ],
               ),
       ),

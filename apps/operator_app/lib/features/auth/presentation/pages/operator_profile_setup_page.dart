@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
+import 'package:operator_app/features/auth/presentation/widgets/operator_profile_setup_form.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
 import 'package:provider/provider.dart';
 
@@ -66,119 +67,13 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const SizedBox(height: 16),
-                Center(
-                  child: Container(
-                    width: 120,
-                    height: 120,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      gradient: LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [
-                          const Color(0xFF0066CC).withValues(alpha: 0.1),
-                          const Color(0xFF0066CC).withValues(alpha: 0.05),
-                        ],
-                      ),
-                    ),
-                    child: const Icon(
-                      Icons.badge_outlined,
-                      size: 70,
-                      color: Color(0xFF0066CC),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 32),
-                Text(
-                  'First-time setup',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: const Color(0xFF1A1A1A),
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  'Please provide your operator details to continue.',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: Colors.grey[600]),
-                ),
-                const SizedBox(height: 32),
-                TextFormField(
-                  controller: _nameController,
-                  enabled: !_isSaving,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: const InputDecoration(
-                    labelText: 'Full Name',
-                    prefixIcon: Icon(Icons.person_outline),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Please enter your name';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: _idController,
-                  enabled: !_isSaving,
-                  decoration: const InputDecoration(
-                    labelText: 'Operator ID',
-                    hintText: 'e.g. OP-001',
-                    prefixIcon: Icon(Icons.badge_outlined),
-                  ),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Please enter your operator ID';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  enabled: false,
-                  initialValue: widget.email,
-                  decoration: const InputDecoration(
-                    labelText: 'Email',
-                    prefixIcon: Icon(Icons.email_outlined),
-                  ),
-                ),
-                const SizedBox(height: 32),
-                SizedBox(
-                  height: 54,
-                  child: ElevatedButton(
-                    onPressed: _isSaving ? null : _saveProfile,
-                    child: _isSaving
-                        ? const SizedBox(
-                            height: 24,
-                            width: 24,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(
-                                Colors.white,
-                              ),
-                            ),
-                          )
-                        : const Text(
-                            'Save and Continue',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                  ),
-                ),
-              ],
-            ),
+          child: OperatorProfileSetupForm(
+            formKey: _formKey,
+            nameController: _nameController,
+            idController: _idController,
+            email: widget.email,
+            isSaving: _isSaving,
+            onSubmit: _saveProfile,
           ),
         ),
       ),
