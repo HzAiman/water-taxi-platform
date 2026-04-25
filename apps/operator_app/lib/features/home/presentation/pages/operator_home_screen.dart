@@ -507,7 +507,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     : CrossFadeState.showFirst,
                 duration: const Duration(milliseconds: 180),
               ),
-              if (isOnTheWay)
+              if (activeBooking != null &&
+                  activeBooking.status == BookingStatus.onTheWay)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: _buildNavigationInfoCard(
@@ -959,23 +960,36 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return const <LatLng>[];
     }
 
-    final sourcePoints = booking.status == BookingStatus.onTheWay
+    // For onTheWay status, select appropriate phase polyline:
+    // - Pre-pickup (phase 1): routeToOriginPolyline (operator -> origin/pickup)
+    // - Post-pickup (phase 2): routeToDestinationPolyline (pickup location -> destination)
+    final phasePoints = booking.status == BookingStatus.onTheWay
         ? (passengerPickedUp
               ? booking.routeToDestinationPolyline
               : booking.routeToOriginPolyline)
         : booking.routePolyline;
+
+    // Fallback chain for missing polylines:
+    // 1. Try phase-specific polyline (preferred - has detailed routing)
+    // 2. Try full route polyline (may show wrong direction but better than nothing)
+    // 3. Use operator location marker for visibility
     final fallbackPoints = booking.status == BookingStatus.onTheWay
-        ? (passengerPickedUp
+        ? (phasePoints.isEmpty
               ? booking.routePolyline
               : const <BookingRoutePoint>[])
-        : booking.routePolyline;
-    final source = (sourcePoints.isNotEmpty ? sourcePoints : fallbackPoints)
+        : const <BookingRoutePoint>[];
+
+    final points = (phasePoints.isNotEmpty ? phasePoints : fallbackPoints)
         .map((p) => _latLngOrNull(p.lat, p.lng))
         .whereType<LatLng>()
         .toList(growable: false);
-    // Keep route geometry authoritative from Firestore and avoid synthetic
-    // index-based slicing that can introduce straight-line artifacts.
-    return source;
+
+    // If we still have no polyline but have operator location, include it for map visibility
+    if (points.isEmpty && operatorPoint != null) {
+      return <LatLng>[operatorPoint];
+    }
+
+    return points;
   }
 
   bool _isPassengerPickedUp(BookingModel booking) {
