@@ -125,9 +125,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: false,
       ),
     );
@@ -135,7 +135,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
       ),
     );
@@ -153,9 +153,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: false,
       ),
     );
@@ -163,7 +163,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
       ),
     );
@@ -182,9 +182,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: true,
       ),
     );
@@ -193,7 +193,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
         bookingRepo: bookingRepo,
       ),
@@ -223,9 +223,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: true,
       ),
     );
@@ -234,7 +234,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
         bookingRepo: bookingRepo,
       ),
@@ -260,9 +260,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: true,
       ),
     );
@@ -271,7 +271,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
         bookingRepo: bookingRepo,
       ),
@@ -299,9 +299,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: true,
       ),
     );
@@ -310,7 +310,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
         bookingRepo: bookingRepo,
       ),
@@ -351,9 +351,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: true,
       ),
     );
@@ -362,7 +362,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
         bookingRepo: bookingRepo,
       ),
@@ -394,9 +394,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: true,
       ),
     );
@@ -405,7 +405,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
         bookingRepo: bookingRepo,
       ),
@@ -446,9 +446,9 @@ void main() {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
-        operatorId: 'OP-1',
-        name: 'Captain Aiman',
-        email: 'captain@example.com',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
         isOnline: true,
       ),
     );
@@ -457,7 +457,7 @@ void main() {
     await tester.pumpWidget(
       buildTestWidget(
         operatorId: 'operator-1',
-        operatorEmail: 'captain@example.com',
+        operatorEmail: 'muzaffar@example.com',
         operatorRepo: operatorRepo,
         bookingRepo: bookingRepo,
       ),
@@ -485,9 +485,9 @@ void main() {
       final operatorRepo = _FakeOperatorRepository(
         operator: const OperatorModel(
           uid: 'operator-1',
-          operatorId: 'OP-1',
-          name: 'Captain Aiman',
-          email: 'captain@example.com',
+          operatorId: 'MWT-1',
+          name: 'Muzaffar Shah',
+          email: 'muzaffar@example.com',
           isOnline: true,
         ),
       );
@@ -496,7 +496,7 @@ void main() {
       await tester.pumpWidget(
         buildTestWidget(
           operatorId: 'operator-1',
-          operatorEmail: 'captain@example.com',
+          operatorEmail: 'muzaffar@example.com',
           operatorRepo: operatorRepo,
           bookingRepo: bookingRepo,
         ),

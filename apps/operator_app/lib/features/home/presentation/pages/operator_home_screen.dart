@@ -867,26 +867,18 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return const <LatLng>[];
     }
 
-    // For onTheWay status, select appropriate phase polyline:
+    // For onTheWay status, select only phase-specific polylines:
     // - Pre-pickup (phase 1): routeToOriginPolyline (operator -> origin/pickup)
-    // - Post-pickup (phase 2): routeToDestinationPolyline (pickup location -> destination)
+    // - Post-pickup (phase 2): routeToDestinationPolyline (operator/pickup -> destination)
+    // Intentionally do not fall back to routePolyline (origin -> destination),
+    // because that route is not valid for either operator phase.
     final phasePoints = booking.status == BookingStatus.onTheWay
         ? (passengerPickedUp
               ? booking.routeToDestinationPolyline
               : booking.routeToOriginPolyline)
-        : booking.routePolyline;
-
-    // Fallback chain for missing polylines:
-    // 1. Try phase-specific polyline (preferred - has detailed routing)
-    // 2. Try full route polyline (may show wrong direction but better than nothing)
-    // 3. Use operator location marker for visibility
-    final fallbackPoints = booking.status == BookingStatus.onTheWay
-        ? (phasePoints.isEmpty
-              ? booking.routePolyline
-              : const <BookingRoutePoint>[])
         : const <BookingRoutePoint>[];
 
-    final points = (phasePoints.isNotEmpty ? phasePoints : fallbackPoints)
+    final points = phasePoints
         .map((p) => _latLngOrNull(p.lat, p.lng))
         .whereType<LatLng>()
         .toList(growable: false);

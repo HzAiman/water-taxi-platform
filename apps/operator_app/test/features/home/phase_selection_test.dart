@@ -6,12 +6,12 @@ BookingModel _bookingFixture({
   String userId = 'user-1',
   String userName = 'Test Passenger',
   String userPhone = '+60123456789',
-  String origin = 'Marina Bay',
-  String destination = 'Changi Airport',
-  double originLat = 3.1357,
-  double originLng = 101.6880,
-  double destinationLat = 3.1400,
-  double destinationLng = 101.6950,
+  String origin = 'The Shore',
+  String destination = 'Casa Del Rio',
+  double originLat = 2.201667,
+  double originLng = 102.249444,
+  double destinationLat = 2.193056,
+  double destinationLng = 102.246111,
   String? operatorUid,
   double? operatorLat,
   double? operatorLng,
@@ -56,12 +56,12 @@ void main() {
   group('Phase Selection Logic', () {
     test('Phase 1 shows operator->origin polyline when pre-pickup', () {
       final mockOriginPolyline = [
-        BookingRoutePoint(lat: 3.1357, lng: 101.6880),
+        BookingRoutePoint(lat: 2.201667, lng: 102.249444),
         BookingRoutePoint(lat: 3.1365, lng: 101.6890),
       ];
       final mockDestinationPolyline = [
         BookingRoutePoint(lat: 3.1365, lng: 101.6890),
-        BookingRoutePoint(lat: 3.1400, lng: 101.6950),
+        BookingRoutePoint(lat: 2.193056, lng: 102.246111),
       ];
 
       final booking = _bookingFixture(
@@ -100,12 +100,12 @@ void main() {
 
     test('Phase 2 shows origin->destination polyline when post-pickup', () {
       final mockOriginPolyline = [
-        BookingRoutePoint(lat: 3.1357, lng: 101.6880),
+        BookingRoutePoint(lat: 2.201667, lng: 102.249444),
         BookingRoutePoint(lat: 3.1365, lng: 101.6890),
       ];
       final mockDestinationPolyline = [
         BookingRoutePoint(lat: 3.1365, lng: 101.6890),
-        BookingRoutePoint(lat: 3.1400, lng: 101.6950),
+        BookingRoutePoint(lat: 2.193056, lng: 102.246111),
       ];
 
       final booking = _bookingFixture(
@@ -152,9 +152,9 @@ void main() {
     test('Fallback to routePolyline when phase polyline is missing', () {
       final mockFullPolyline = [
         BookingRoutePoint(lat: 3.1350, lng: 101.6870),
-        BookingRoutePoint(lat: 3.1357, lng: 101.6880),
+        BookingRoutePoint(lat: 2.201667, lng: 102.249444),
         BookingRoutePoint(lat: 3.1365, lng: 101.6890),
-        BookingRoutePoint(lat: 3.1400, lng: 101.6950),
+        BookingRoutePoint(lat: 2.193056, lng: 102.246111),
       ];
 
       final booking = _bookingFixture(
@@ -192,7 +192,7 @@ void main() {
 
     test('Empty fallback for post-pickup if destination polyline missing', () {
       final mockOriginPolyline = [
-        BookingRoutePoint(lat: 3.1357, lng: 101.6880),
+        BookingRoutePoint(lat: 2.201667, lng: 102.249444),
         BookingRoutePoint(lat: 3.1365, lng: 101.6890),
       ];
 

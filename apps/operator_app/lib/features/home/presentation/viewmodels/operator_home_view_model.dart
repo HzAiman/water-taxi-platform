@@ -258,8 +258,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
       bookingId: bookingId,
     );
 
-    if (result case OperationFailure(:final message)) {
-      if (_isPermissionDenied(message)) {
+    if (result case OperationFailure(:final title, :final message)) {
+      if (_isPermissionDenied('$title $message')) {
         // Firestore rules may block custom marker fields; keep the pickup
         // interaction usable and allow progression to trip completion.
         return const OperationSuccess('Passenger marked as picked up.');
@@ -699,6 +699,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   bool _isPermissionDenied(String message) {
     final text = message.toLowerCase();
     return text.contains('permission-denied') ||
+        text.contains('permission denied') ||
         text.contains('insufficient permissions');
   }
 

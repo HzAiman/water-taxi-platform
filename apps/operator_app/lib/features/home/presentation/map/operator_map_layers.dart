@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
+enum _RoutePhase { toPickup, toDestination, none }
+
 class OperatorMapLayers {
   const OperatorMapLayers._();
 
@@ -75,24 +77,102 @@ class OperatorMapLayers {
       return const <Polyline>{};
     }
 
-    final routePoints = (routePointsOverride ??
-            activeBooking.routePolyline
-                .map((p) => LatLng(p.lat, p.lng))
-                .toList(growable: false))
-        .toList(growable: false);
+    final phase = _resolveRoutePhase(activeBooking);
+    var routePoints = _routePointsForPhase(activeBooking, phase);
 
-    if (routePoints.length >= 2) {
-      return {
-        Polyline(
-          polylineId: const PolylineId('route'),
-          points: routePoints,
-          color: const Color(0xFF0066CC),
-          width: 4,
-        ),
-      };
+    // Use routePointsOverride only as a fallback/debug hook.
+    if (routePoints.length < 2 && routePointsOverride != null) {
+      routePoints = routePointsOverride
+          .where((p) => _isValidLatLng(p.latitude, p.longitude))
+          .toList(growable: false);
     }
 
-    return const <Polyline>{};
+    // Final fallback: build a minimal straight line only for the current phase.
+    if (routePoints.length < 2) {
+      routePoints = _phaseFallbackLine(activeBooking, phase);
+    }
+
+    if (routePoints.length < 2) {
+      return const <Polyline>{};
+    }
+
+    final isPreview =
+        phase == _RoutePhase.toPickup &&
+        activeBooking.status == BookingStatus.accepted;
+
+    return {
+      Polyline(
+        polylineId: const PolylineId('route'),
+        points: routePoints,
+        color: isPreview ? const Color(0xFF94A3B8) : const Color(0xFF0066CC),
+        width: isPreview ? 3 : 5,
+      ),
+    };
+  }
+
+  static _RoutePhase _resolveRoutePhase(BookingModel booking) {
+    switch (booking.status) {
+      case BookingStatus.accepted:
+        return _RoutePhase.toPickup;
+      case BookingStatus.onTheWay:
+        return booking.passengerPickedUpAt == null
+            ? _RoutePhase.toPickup
+            : _RoutePhase.toDestination;
+      case BookingStatus.pending:
+      case BookingStatus.completed:
+      case BookingStatus.cancelled:
+      case BookingStatus.rejected:
+      case BookingStatus.unknown:
+        return _RoutePhase.none;
+    }
+  }
+
+  static List<LatLng> _routePointsForPhase(
+    BookingModel booking,
+    _RoutePhase phase,
+  ) {
+    final route = switch (phase) {
+      _RoutePhase.toPickup => booking.routeToOriginPolyline,
+      _RoutePhase.toDestination => booking.routeToDestinationPolyline,
+      _RoutePhase.none => const <BookingRoutePoint>[],
+    };
+
+    return route
+        .map((p) => LatLng(p.lat, p.lng))
+        .where((p) => _isValidLatLng(p.latitude, p.longitude))
+        .toList(growable: false);
+  }
+
+  static List<LatLng> _phaseFallbackLine(
+    BookingModel booking,
+    _RoutePhase phase,
+  ) {
+    switch (phase) {
+      case _RoutePhase.toPickup:
+        final opLat = booking.operatorLat;
+        final opLng = booking.operatorLng;
+        if (opLat != null &&
+            opLng != null &&
+            _isValidLatLng(opLat, opLng) &&
+            _isValidLatLng(booking.originLat, booking.originLng)) {
+          return <LatLng>[
+            LatLng(opLat, opLng),
+            LatLng(booking.originLat, booking.originLng),
+          ];
+        }
+        return const <LatLng>[];
+      case _RoutePhase.toDestination:
+        if (_isValidLatLng(booking.originLat, booking.originLng) &&
+            _isValidLatLng(booking.destinationLat, booking.destinationLng)) {
+          return <LatLng>[
+            LatLng(booking.originLat, booking.originLng),
+            LatLng(booking.destinationLat, booking.destinationLng),
+          ];
+        }
+        return const <LatLng>[];
+      case _RoutePhase.none:
+        return const <LatLng>[];
+    }
   }
 
   static bool _isValidLatLng(double lat, double lng) {
