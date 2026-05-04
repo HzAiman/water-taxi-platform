@@ -9,6 +9,77 @@ enum _RoutePhase { toPickup, toDestination, none }
 class OperatorMapLayers {
   const OperatorMapLayers._();
 
+  static bool isActiveNavigationBooking(BookingModel booking) {
+    return booking.status == BookingStatus.accepted ||
+        booking.status == BookingStatus.onTheWay;
+  }
+
+  static String routePhaseSignature(
+    BookingModel? booking, {
+    required bool passengerPickedUp,
+  }) {
+    if (booking == null) {
+      return 'none';
+    }
+
+    return [
+      booking.bookingId,
+      booking.status.firestoreValue,
+      passengerPickedUp ? '1' : '0',
+      booking.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ?? '-',
+    ].join('|');
+  }
+
+  static LatLngBounds boundsFromPoints(List<LatLng> points) {
+    if (points.isEmpty) {
+      return LatLngBounds(
+        southwest: LatLng(0, 0),
+        northeast: LatLng(0, 0),
+      );
+    }
+
+    var south = points.first.latitude;
+    var north = points.first.latitude;
+    var west = points.first.longitude;
+    var east = points.first.longitude;
+
+    for (final point in points.skip(1)) {
+      south = math.min(south, point.latitude);
+      north = math.max(north, point.latitude);
+      west = math.min(west, point.longitude);
+      east = math.max(east, point.longitude);
+    }
+
+    return LatLngBounds(
+      southwest: LatLng(south, west),
+      northeast: LatLng(north, east),
+    );
+  }
+
+  static List<LatLng> trimmedRoutePointsForCamera(
+    BookingModel? booking, {
+    required bool passengerPickedUp,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+  }) {
+    if (booking == null) {
+      return const <LatLng>[];
+    }
+
+    final phase = _resolveRoutePhase(booking, passengerPickedUp);
+    var routePoints = _routePointsForPhase(booking, phase);
+
+    if (routePoints.length < 2) {
+      routePoints = _phaseFallbackLine(
+        booking,
+        phase,
+        operatorPoint: operatorPoint,
+      );
+    }
+
+    return _trimRouteFromOperatorPosition(routePoints, booking);
+  }
+
   static Set<Marker> buildMarkers(BookingModel? activeBooking) {
     final markers = <Marker>{};
     if (activeBooking == null) {
@@ -48,7 +119,7 @@ class OperatorMapLayers {
       );
     }
 
-    if (_shouldShowOperatorMarker(activeBooking.status)) {
+    if (isActiveNavigationBooking(activeBooking)) {
       final opLat = activeBooking.operatorLat;
       final opLng = activeBooking.operatorLng;
       if (opLat != null && opLng != null) {
@@ -80,7 +151,10 @@ class OperatorMapLayers {
       return const <Polyline>{};
     }
 
-    final phase = _resolveRoutePhase(activeBooking);
+    final phase = _resolveRoutePhase(
+      activeBooking,
+      activeBooking.passengerPickedUpAt != null,
+    );
     var routePoints = _routePointsForPhase(activeBooking, phase);
 
     // Use routePointsOverride only as a fallback/debug hook.
@@ -119,14 +193,17 @@ class OperatorMapLayers {
     };
   }
 
-  static _RoutePhase _resolveRoutePhase(BookingModel booking) {
+  static _RoutePhase _resolveRoutePhase(
+    BookingModel booking,
+    bool passengerPickedUp,
+  ) {
     switch (booking.status) {
       case BookingStatus.accepted:
         return _RoutePhase.toPickup;
       case BookingStatus.onTheWay:
-        return booking.passengerPickedUpAt == null
-            ? _RoutePhase.toPickup
-            : _RoutePhase.toDestination;
+        return passengerPickedUp || booking.passengerPickedUpAt != null
+            ? _RoutePhase.toDestination
+            : _RoutePhase.toPickup;
       case BookingStatus.pending:
       case BookingStatus.completed:
       case BookingStatus.cancelled:
@@ -156,13 +233,11 @@ class OperatorMapLayers {
     List<LatLng> routePoints,
     BookingModel booking,
   ) {
-    final opLat = booking.operatorLat;
-    final opLng = booking.operatorLng;
-    if (opLat == null || opLng == null || routePoints.length < 2) {
+    final operatorPoint = _latLngOrNull(booking.operatorLat, booking.operatorLng);
+    if (operatorPoint == null || routePoints.length < 2) {
       return routePoints;
     }
 
-    final operatorPoint = LatLng(opLat, opLng);
     if (!_isValidLatLng(operatorPoint.latitude, operatorPoint.longitude)) {
       return routePoints;
     }
@@ -193,17 +268,17 @@ class OperatorMapLayers {
   static List<LatLng> _phaseFallbackLine(
     BookingModel booking,
     _RoutePhase phase,
+    {
+    LatLng? operatorPoint,
+  }
   ) {
     switch (phase) {
       case _RoutePhase.toPickup:
-        final opLat = booking.operatorLat;
-        final opLng = booking.operatorLng;
-        if (opLat != null &&
-            opLng != null &&
-            _isValidLatLng(opLat, opLng) &&
+        if (operatorPoint != null &&
+            _isValidLatLng(operatorPoint.latitude, operatorPoint.longitude) &&
             _isValidLatLng(booking.originLat, booking.originLng)) {
           return <LatLng>[
-            LatLng(opLat, opLng),
+            operatorPoint,
             LatLng(booking.originLat, booking.originLng),
           ];
         }
@@ -226,8 +301,11 @@ class OperatorMapLayers {
     return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
   }
 
-  static bool _shouldShowOperatorMarker(BookingStatus status) {
-    return status == BookingStatus.accepted || status == BookingStatus.onTheWay;
+  static LatLng? _latLngOrNull(double? lat, double? lng) {
+    if (lat == null || lng == null) {
+      return null;
+    }
+    return LatLng(lat, lng);
   }
 
   static double _distanceMeters(LatLng a, LatLng b) {

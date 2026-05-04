@@ -8,7 +8,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
-import 'package:operator_app/features/home/presentation/map/operator_home_route_mapper.dart';
+import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
 
 enum OperatorMapNavigationMode { overview, tracking, userControlled }
 
@@ -49,7 +49,6 @@ class OperatorMapControllerService {
   bool _isMapReady = false;
   bool _isCameraAnimating = false;
   bool _isProgrammaticCameraMove = false;
-  Future<void> _cameraAnimationTail = Future<void>.value();
   OperatorMapNavigationMode _navigationMode = OperatorMapNavigationMode.overview;
   bool _shouldFitRouteBeforeFollow = false;
   String? _lastRouteFitPhaseSignature;
@@ -100,7 +99,7 @@ class OperatorMapControllerService {
     required LatLng? operatorPoint,
   }) {
     if (activeBooking == null ||
-        !OperatorHomeRouteMapper.isActiveNavigationBooking(activeBooking) ||
+        !OperatorMapLayers.isActiveNavigationBooking(activeBooking) ||
         operatorPoint == null) {
       return OperatorMapNavigationMode.overview;
     }
@@ -122,7 +121,7 @@ class OperatorMapControllerService {
       return;
     }
 
-    final phaseSignature = OperatorHomeRouteMapper.routePhaseSignature(
+    final phaseSignature = OperatorMapLayers.routePhaseSignature(
       activeBooking,
       passengerPickedUp: passengerPickedUp,
     );
@@ -239,7 +238,7 @@ class OperatorMapControllerService {
     final padding = _resolveBoundsPadding(fitPoints);
     await animateCameraSafely(
       CameraUpdate.newLatLngBounds(
-        OperatorHomeRouteMapper.boundsFromPoints(fitPoints),
+        OperatorMapLayers.boundsFromPoints(fitPoints),
         padding,
       ),
       allowIfBusy: true,
@@ -342,26 +341,28 @@ class OperatorMapControllerService {
       return;
     }
 
-    _cameraAnimationTail = _cameraAnimationTail.then((_) async {
+    if (_isCameraAnimating) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
       if (_isCameraAnimating && !allowIfBusy) {
         await Future<void>.delayed(const Duration(milliseconds: 50));
+        if (_isCameraAnimating) {
+          return;
+        }
       }
+    }
 
-      _isCameraAnimating = true;
-      _isProgrammaticCameraMove = true;
+    _isCameraAnimating = true;
+    _isProgrammaticCameraMove = true;
+    _emitState();
+    try {
+      await controller.animateCamera(update);
+    } catch (e) {
+      _log('camera_animation_failed', data: {'error': e.toString()});
+    } finally {
+      _isCameraAnimating = false;
+      _isProgrammaticCameraMove = false;
       _emitState();
-      try {
-        await controller.animateCamera(update);
-      } catch (e) {
-        _log('camera_animation_failed', data: {'error': e.toString()});
-      } finally {
-        _isCameraAnimating = false;
-        _isProgrammaticCameraMove = false;
-        _emitState();
-      }
-    });
-
-    await _cameraAnimationTail;
+    }
   }
 
   double _resolveBoundsPadding(List<LatLng> points) {
@@ -369,7 +370,7 @@ class OperatorMapControllerService {
       return _cameraBoundsPadding;
     }
 
-    final bounds = OperatorHomeRouteMapper.boundsFromPoints(points);
+    final bounds = OperatorMapLayers.boundsFromPoints(points);
     final latSpan = (bounds.northeast.latitude - bounds.southwest.latitude).abs();
     final lngSpan = (bounds.northeast.longitude - bounds.southwest.longitude).abs();
     final span = math.max(latSpan, lngSpan);
@@ -391,6 +392,10 @@ class OperatorMapControllerService {
       name: 'operator_map_camera',
       error: data.isEmpty ? null : data,
     );
+  }
+
+  void dispose() {
+    state.dispose();
   }
 
   double _distanceMeters(LatLng a, LatLng b) {

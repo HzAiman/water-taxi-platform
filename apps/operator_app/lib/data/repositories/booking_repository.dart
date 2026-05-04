@@ -382,13 +382,24 @@ class BookingRepository {
   }) async {
     try {
       await _runWithRetry(
-        () => _db.collection(FirestoreCollections.tracking).doc(bookingId).set({
-          TrackingFields.bookingId: bookingId,
-          TrackingFields.operatorUid: operatorId,
-          TrackingFields.operatorLat: operatorLat,
-          TrackingFields.operatorLng: operatorLng,
-          TrackingFields.updatedAt: FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true)),
+        () async {
+          final bookingRef = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          await bookingRef.set({
+            BookingFields.operatorLat: operatorLat,
+            BookingFields.operatorLng: operatorLng,
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+
+          await _db.collection(FirestoreCollections.tracking).doc(bookingId).set({
+            TrackingFields.bookingId: bookingId,
+            TrackingFields.operatorUid: operatorId,
+            TrackingFields.operatorLat: operatorLat,
+            TrackingFields.operatorLng: operatorLng,
+            TrackingFields.updatedAt: FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        },
       );
 
       return const OperationSuccess('Location updated.');

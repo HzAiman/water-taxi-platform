@@ -8,7 +8,6 @@ import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/home/presentation/location/operator_location_coordinator.dart';
-import 'package:operator_app/features/home/presentation/map/operator_home_route_mapper.dart';
 import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
 import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
 import 'package:operator_app/features/home/presentation/widgets/operator_booking_panels.dart';
@@ -158,9 +157,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return;
     }
 
+    _observedViewModel?.setLocationWarningHandler(null);
     _observedViewModel?.removeListener(_onViewModelChanged);
     _observedViewModel = viewModel;
     _observedViewModel?.addListener(_onViewModelChanged);
+    _observedViewModel?.setLocationWarningHandler(_showLocationWarning);
   }
 
   @override
@@ -169,6 +170,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     _authSubscription?.cancel();
     _routeTransitionController.dispose();
     _observedViewModel?.removeListener(_onViewModelChanged);
+    _observedViewModel?.setLocationWarningHandler(null);
+    _mapCameraService.dispose();
     super.dispose();
   }
 
@@ -186,11 +189,17 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     _lastNavigationSyncKey = navigationKey;
 
     final activeBooking = snapshot.activeBooking;
-    final trimmedRoutePoints = OperatorHomeRouteMapper.trimmedRoutePointsForCamera(
+    final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: snapshot.passengerPickedUp,
       operatorPoint: snapshot.operatorPoint,
       destinationPoint: snapshot.destinationPoint,
+    );
+
+    _mapCameraService.prepareRouteFitBeforeFollow(
+      activeBooking,
+      routePoints: trimmedRoutePoints,
+      passengerPickedUp: snapshot.passengerPickedUp,
     );
 
     unawaited(
@@ -202,6 +211,14 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         forceFollow: false,
       ),
     );
+  }
+
+  void _showLocationWarning(String title, String message) {
+    if (!mounted) {
+      return;
+    }
+
+    showTopInfo(context, title: title, message: message);
   }
 
   Future<void> _initializeViewModel(
@@ -701,7 +718,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     required LatLng? destinationPoint,
     required bool passengerPickedUp,
   }) {
-    return OperatorHomeRouteMapper.buildPolylines(
+    return OperatorMapLayers.buildPolylines(
       activeBooking,
       routePointsOverride: routePoints,
       opacity: 1,
@@ -807,7 +824,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             onCameraMoveStarted: () {
               if (_mapCameraService.currentState.isProgrammaticCameraMove ||
                   activeBooking == null ||
-                  !OperatorHomeRouteMapper.isActiveNavigationBooking(
+                  !OperatorMapLayers.isActiveNavigationBooking(
                     activeBooking,
                   )) {
                 return;
@@ -986,7 +1003,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     );
     final viewModel = context.read<OperatorHomeViewModel>();
     final activeBooking = snapshot.activeBooking;
-    final trimmedRoutePoints = OperatorHomeRouteMapper.trimmedRoutePointsForCamera(
+    final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: snapshot.passengerPickedUp,
       operatorPoint: snapshot.operatorPoint,

@@ -58,6 +58,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   String? _cachedHomeSnapshotKey;
   Future<void>? _initializationFuture;
   bool _hasInitialized = false;
+  void Function(String title, String message)? _locationWarningHandler;
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
   static const double _locationPublishMinDistanceMeters = 20;
@@ -84,6 +85,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   String? get lastCancelledNoticeBookingId => _lastCancelledNoticeBookingId;
   OperatorNavigationGuidance? get navigationGuidance => _navigationGuidance;
+
+  void setLocationWarningHandler(
+    void Function(String title, String message)? handler,
+  ) {
+    _locationWarningHandler = handler;
+  }
 
   // ── Initialise ───────────────────────────────────────────────────────────
 
@@ -153,6 +160,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
     }
 
     _startStreams(operatorId);
+
+    await Future<void>.delayed(const Duration(milliseconds: 100));
+    await _syncNavigationLifecycle(operatorId);
   }
 
   // ── Online / Offline ─────────────────────────────────────────────────────
@@ -454,7 +464,13 @@ class OperatorHomeViewModel extends ChangeNotifier {
               ),
             );
           },
-          onError: (_) {
+          onError: (Object error, StackTrace stackTrace) {
+            if (_isPermissionRevokedError(error)) {
+              _locationWarningHandler?.call(
+                'Location permission revoked',
+                'Navigation guidance has paused. Re-enable location permission to resume tracking.',
+              );
+            }
             _stopLocationSharing();
           },
         );
@@ -519,6 +535,14 @@ class OperatorHomeViewModel extends ChangeNotifier {
       );
       return false;
     }
+  }
+
+  bool _isPermissionRevokedError(Object error) {
+    final text = error.toString().toLowerCase();
+    return text.contains('permission') &&
+        (text.contains('denied') ||
+            text.contains('revoked') ||
+            text.contains('not granted'));
   }
 
   Future<Position?> _currentPositionOrNull() async {
@@ -865,6 +889,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   void dispose() {
     _stopStreams();
     _initializationFuture = null;
+    _locationWarningHandler = null;
     super.dispose();
   }
 }
