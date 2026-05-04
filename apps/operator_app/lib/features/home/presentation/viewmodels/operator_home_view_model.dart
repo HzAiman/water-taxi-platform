@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:math';
 
 import 'package:firebase_auth/firebase_auth.dart';
@@ -55,6 +56,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   bool _wasOffRoute = false;
   OperatorHomeSnapshot? _cachedHomeSnapshot;
   String? _cachedHomeSnapshotKey;
+  Future<void>? _initializationFuture;
+  bool _hasInitialized = false;
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
   static const double _locationPublishMinDistanceMeters = 20;
@@ -86,6 +89,46 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   /// Call once when the home screen mounts, passing the current operator's uid.
   Future<void> initialize(String operatorId) async {
+    await ensureInitialized(operatorId);
+  }
+
+  Future<void> ensureInitialized(
+    String operatorId, {
+    bool force = false,
+  }) {
+    if (!force) {
+      if (_hasInitialized) {
+        return Future.value();
+      }
+      final pending = _initializationFuture;
+      if (pending != null) {
+        return pending;
+      }
+    }
+
+    final completer = Completer<void>();
+    final future = completer.future;
+    _initializationFuture = future;
+    unawaited(
+      _initialize(operatorId).then((_) {
+        _hasInitialized = true;
+        if (!completer.isCompleted) {
+          completer.complete();
+        }
+      }).catchError((Object error, StackTrace stackTrace) {
+        if (!completer.isCompleted) {
+          completer.completeError(error, stackTrace);
+        }
+      }).whenComplete(() {
+        if (_initializationFuture == future) {
+          _initializationFuture = null;
+        }
+      }),
+    );
+    return future;
+  }
+
+  Future<void> _initialize(String operatorId) async {
     _operatorId = operatorId;
 
     // Resolve current online status from Firestore.
@@ -100,9 +143,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
             .timeout(const Duration(seconds: 8));
         notifyListeners();
       }
-    } catch (_) {
-      debugPrint(
-        '[operator_home_vm] event=initialize_failed operatorId=$operatorId',
+    } catch (e) {
+      developer.log(
+        'initialize_failed',
+        name: 'operator_home_vm',
+        error: e,
+        stackTrace: StackTrace.current,
       );
     }
 
@@ -465,7 +511,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
       return permission == LocationPermission.always ||
           permission == LocationPermission.whileInUse;
     } catch (e) {
-      debugPrint('[operator_home_vm] event=location_permission_check_failed error=$e');
+      developer.log(
+        'location_permission_check_failed',
+        name: 'operator_home_vm',
+        error: e,
+        stackTrace: StackTrace.current,
+      );
       return false;
     }
   }
@@ -813,6 +864,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _stopStreams();
+    _initializationFuture = null;
     super.dispose();
   }
 }

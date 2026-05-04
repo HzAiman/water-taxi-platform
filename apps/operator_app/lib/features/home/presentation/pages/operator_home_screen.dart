@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -16,8 +17,6 @@ import 'package:operator_app/features/home/presentation/services/operator_map_co
 import 'package:permission_handler/permission_handler.dart';
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
-
-enum _MapNavigationMode { overview, tracking, userControlled }
 
 class OperatorHomeScreen extends StatefulWidget {
   const OperatorHomeScreen({
@@ -51,18 +50,14 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   bool _hasLocationPermission = false;
   bool _hasShownWelcomeAlert = false;
   bool _hasCheckedMapsConfig = false;
-  bool _mapReady = false;
   bool _isInitializingViewModel = false;
-  bool _hasInitializedViewModel = false;
   StreamSubscription<User?>? _authSubscription;
   DateTime? _lastRecoveryAttempt;
-  bool _isProgrammaticCameraMove = false;
-  bool _isCameraAnimating = false;
-  _MapNavigationMode _mapNavigationMode = _MapNavigationMode.overview;
+  DateTime? _lastLocationLookupAt;
+  String? _lastNavigationSyncKey;
   OperatorHomeViewModel? _observedViewModel;
   bool _isActiveSectionExpanded = false;
   bool _isQueueSectionExpanded = false;
-  final Set<String> _pickedUpBookingIds = <String>{};
   final OperatorLocationCoordinator _locationCoordinator =
       const OperatorLocationCoordinator();
   final Duration _routeTransitionDuration = const Duration(milliseconds: 700);
@@ -71,8 +66,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       OperatorMapControllerService();
   double _cameraBoundsPadding = 180;
 
-  late GoogleMapController _mapController;
-  Future<void> _cameraAnimationTail = Future<void>.value();
   CameraPosition _initialCameraPosition = const CameraPosition(
     target: LatLng(3.1390, 101.6869),
     zoom: 12,
@@ -99,7 +92,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           });
 
     _authSubscription = FirebaseAuth.instance.idTokenChanges().listen((user) {
-      if (!mounted || _hasInitializedViewModel || user == null) {
+      if (!mounted || user == null) {
         return;
       }
       unawaited(_initializeViewModel(user.uid));
@@ -138,7 +131,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return;
     }
 
-    if (_isCameraAnimating || _isProgrammaticCameraMove) {
+    if (_mapCameraService.currentState.isProgrammaticCameraMove) {
       return;
     }
 
@@ -154,7 +147,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return;
     }
 
-    unawaited(_initializeViewModel(operatorId));
+    unawaited(_initializeViewModel(operatorId, force: true));
   }
 
   @override
@@ -186,29 +179,28 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
 
     final snapshot = viewModel.homeSnapshot;
-    final activeBooking = snapshot.activeBooking;
-    if (activeBooking != null && snapshot.passengerPickedUp) {
-      _pickedUpBookingIds.add(activeBooking.bookingId);
+    final navigationKey = _navigationSyncKey(snapshot);
+    if (navigationKey == _lastNavigationSyncKey) {
+      return;
     }
+    _lastNavigationSyncKey = navigationKey;
 
-    final trimmedRoutePoints = _trimmedRoutePointsForCamera(
+    final activeBooking = snapshot.activeBooking;
+    final trimmedRoutePoints = OperatorHomeRouteMapper.trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: snapshot.passengerPickedUp,
       operatorPoint: snapshot.operatorPoint,
       destinationPoint: snapshot.destinationPoint,
     );
 
-    _prepareRouteFitBeforeFollow(
-      activeBooking,
-      routePoints: trimmedRoutePoints,
-      passengerPickedUp: snapshot.passengerPickedUp,
-    );
-
-    _scheduleMapCameraSync(
-      activeBooking,
-      routePoints: trimmedRoutePoints,
-      operatorPoint: snapshot.operatorPoint,
-      destinationPoint: snapshot.destinationPoint,
+    unawaited(
+      _syncNavigationCamera(
+        activeBooking,
+        routePoints: trimmedRoutePoints,
+        operatorPoint: snapshot.operatorPoint,
+        destinationPoint: snapshot.destinationPoint,
+        forceFollow: false,
+      ),
     );
   }
 
@@ -216,17 +208,24 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     String operatorId, {
     bool force = false,
   }) async {
-    if ((_hasInitializedViewModel && !force) || !mounted) {
+    if (!mounted) {
       return;
     }
 
-    _hasInitializedViewModel = true;
     setState(() => _isInitializingViewModel = true);
 
     try {
-      await context.read<OperatorHomeViewModel>().initialize(operatorId);
+      await context
+          .read<OperatorHomeViewModel>()
+          .ensureInitialized(operatorId, force: force);
     } catch (e) {
       if (mounted) {
+        developer.log(
+          'initialize_view_model_failed',
+          name: 'operator_home_screen',
+          error: e,
+          stackTrace: StackTrace.current,
+        );
         showTopError(
           context,
           title: 'Unable to load operator state',
@@ -277,14 +276,18 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }
 
   Future<void> _bootstrapLocation() async {
+    if (!_shouldPerformLocationLookup()) {
+      return;
+    }
+
     final access = await _resolveLocationAccess();
     if (access != OperatorLocationAccess.granted) {
       return;
     }
 
     try {
-      final pos = await _locationCoordinator.getCurrentPosition();
-      if (!mounted) {
+      final pos = await _getUserPositionSafely();
+      if (pos == null || !mounted) {
         return;
       }
 
@@ -295,7 +298,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         );
       });
 
-      if (_mapReady) {
+      if (_mapCameraService.currentState.isMapReady) {
         await _animateCameraSafely(
           CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16),
         );
@@ -354,12 +357,16 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }
 
   Future<void> _centerOnUser() async {
-    if (!_mapReady) {
+    if (!_mapCameraService.currentState.isMapReady) {
       showTopInfo(
         context,
         message: 'Map is still loading.',
         title: 'Please wait',
       );
+      return;
+    }
+
+    if (!_shouldPerformLocationLookup()) {
       return;
     }
 
@@ -369,8 +376,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
 
     try {
-      final pos = await _locationCoordinator.getCurrentPosition();
-      if (!mounted) {
+      final pos = await _getUserPositionSafely();
+      if (pos == null || !mounted) {
         return;
       }
       await _animateCameraSafely(
@@ -587,11 +594,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         if (!mounted) {
           return;
         }
-        if (result is OperationSuccess && !passengerPickedUp) {
-          setState(() {
-            _pickedUpBookingIds.add(booking.bookingId);
-          });
-        }
         _showOperationResult(result);
       },
     );
@@ -672,31 +674,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
   }
 
-  void _scheduleMapCameraSync(
-    BookingModel? activeBooking, {
-    required List<LatLng> routePoints,
-    required LatLng? operatorPoint,
-    required LatLng? destinationPoint,
-    bool forceFollow = false,
-  }) {
-    if (!mounted || widget.mapBuilder != null) {
-      return;
-    }
-
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!mounted || !_mapCameraService.isMapReady) {
-        return;
-      }
-      await _syncNavigationCamera(
-        activeBooking,
-        routePoints: routePoints,
-        operatorPoint: operatorPoint,
-        destinationPoint: destinationPoint,
-        forceFollow: forceFollow,
-      );
-    });
-  }
-
   Future<void> _syncNavigationCamera(
     BookingModel? activeBooking, {
     required List<LatLng> routePoints,
@@ -717,20 +694,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
   }
 
-  List<LatLng> _trimmedRoutePointsForCamera(
-    BookingModel? booking, {
-    required bool passengerPickedUp,
-    required LatLng? operatorPoint,
-    required LatLng? destinationPoint,
-  }) {
-    return OperatorHomeRouteMapper.trimmedRoutePointsForCamera(
-      booking,
-      passengerPickedUp: passengerPickedUp,
-      operatorPoint: operatorPoint,
-      destinationPoint: destinationPoint,
-    );
-  }
-
   Set<Polyline> _buildMapPolylines(
     BookingModel? activeBooking, {
     required List<LatLng> routePoints,
@@ -745,42 +708,273 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     );
   }
 
-  void _prepareRouteFitBeforeFollow(
-    BookingModel? activeBooking, {
-    required List<LatLng> routePoints,
-    required bool passengerPickedUp,
-  }) {
-    _mapCameraService.prepareRouteFitBeforeFollow(
-      activeBooking,
-      routePoints: routePoints,
-      passengerPickedUp: passengerPickedUp,
-    );
-  }
-
   bool _isPassengerPickedUp(BookingModel booking) {
-    return booking.passengerPickedUpAt != null ||
-        _pickedUpBookingIds.contains(booking.bookingId);
+    return booking.passengerPickedUpAt != null;
   }
 
   Future<void> _animateCameraSafely(
     CameraUpdate update, {
     bool allowIfBusy = false,
   }) async {
-    _cameraAnimationTail = _cameraAnimationTail.then((_) async {
-      if (_isCameraAnimating && !allowIfBusy) {
-        await Future<void>.delayed(const Duration(milliseconds: 50));
+    await _mapCameraService.animateCameraSafely(
+      update,
+      allowIfBusy: allowIfBusy,
+    );
+  }
+
+  Future<Position?> _getUserPositionSafely() async {
+    try {
+      return await _locationCoordinator.getCurrentPosition();
+    } catch (e) {
+      developer.log(
+        'get_user_position_failed',
+        name: 'operator_home_screen',
+        error: e,
+        stackTrace: StackTrace.current,
+      );
+      return null;
+    }
+  }
+
+  bool _shouldPerformLocationLookup() {
+    final now = DateTime.now();
+    final lastLookup = _lastLocationLookupAt;
+    if (lastLookup != null && now.difference(lastLookup) < const Duration(seconds: 2)) {
+      return false;
+    }
+    _lastLocationLookupAt = now;
+    return true;
+  }
+
+  String _navigationSyncKey(OperatorHomeSnapshot snapshot) {
+    final activeBooking = snapshot.activeBooking;
+    final operatorPoint = snapshot.operatorPoint;
+    final destinationPoint = snapshot.destinationPoint;
+    return [
+      activeBooking?.bookingId ?? '-',
+      activeBooking?.status.firestoreValue ?? '-',
+      snapshot.passengerPickedUp ? '1' : '0',
+      operatorPoint?.latitude.toStringAsFixed(5) ?? '-',
+      operatorPoint?.longitude.toStringAsFixed(5) ?? '-',
+      destinationPoint?.latitude.toStringAsFixed(5) ?? '-',
+      destinationPoint?.longitude.toStringAsFixed(5) ?? '-',
+      snapshot.pendingCount.toString(),
+      snapshot.topPendingBooking?.bookingId ?? '-',
+      snapshot.navigationGuidance?.nearestRouteMarker.toString() ?? '-',
+      snapshot.navigationGuidance?.isOffRoute == true ? '1' : '0',
+      snapshot.navigationGuidance?.progressFraction.toStringAsFixed(2) ?? '-',
+    ].join('|');
+  }
+
+  Widget _buildMap(
+    BuildContext context,
+    BookingModel? activeBooking,
+    OperatorHomeSnapshot snapshot,
+    List<LatLng> trimmedRoutePoints,
+  ) {
+    final operatorPoint = snapshot.operatorPoint;
+    final destinationPoint = snapshot.destinationPoint;
+
+    Widget buildMapContent(ValueChanged<GoogleMapController> onMapCreated) {
+      if (widget.mapBuilder != null) {
+        return widget.mapBuilder!.call(
+          initialCameraPosition: _initialCameraPosition,
+          hasLocationPermission: _hasLocationPermission,
+          onMapCreated: onMapCreated,
+        );
       }
 
-      _isCameraAnimating = true;
-      _isProgrammaticCameraMove = true;
-      try {
-        await _mapController.animateCamera(update);
-      } finally {
-        _isCameraAnimating = false;
-        _isProgrammaticCameraMove = false;
-      }
-    });
-    await _cameraAnimationTail;
+      return AnimatedBuilder(
+        animation: _routeTransitionController,
+        builder: (context, _) {
+          return GoogleMap(
+            key: const ValueKey('operator-map'),
+            initialCameraPosition: _initialCameraPosition,
+            myLocationEnabled: _hasLocationPermission,
+            myLocationButtonEnabled: false,
+            compassEnabled: true,
+            zoomControlsEnabled: false,
+            mapToolbarEnabled: false,
+            markers: OperatorMapLayers.buildMarkers(activeBooking),
+            polylines: _buildMapPolylines(
+              activeBooking,
+              routePoints: trimmedRoutePoints,
+              operatorPoint: operatorPoint,
+              destinationPoint: destinationPoint,
+              passengerPickedUp: snapshot.passengerPickedUp,
+            ),
+            onMapCreated: onMapCreated,
+            onCameraMoveStarted: () {
+              if (_mapCameraService.currentState.isProgrammaticCameraMove ||
+                  activeBooking == null ||
+                  !OperatorHomeRouteMapper.isActiveNavigationBooking(
+                    activeBooking,
+                  )) {
+                return;
+              }
+              _mapCameraService.handleCameraMoveStarted(
+                shouldYieldToUser: true,
+              );
+            },
+            onCameraIdle: _mapCameraService.handleCameraIdle,
+          );
+        },
+      );
+    }
+
+    return Positioned.fill(
+      child: buildMapContent((GoogleMapController controller) {
+        _mapCameraService.attachMapController(controller);
+        _mapCameraService.updateCameraBoundsPadding(_cameraBoundsPadding);
+        unawaited(
+          _syncNavigationCamera(
+            activeBooking,
+            routePoints: trimmedRoutePoints,
+            operatorPoint: operatorPoint,
+            destinationPoint: destinationPoint,
+            forceFollow: false,
+          ),
+        );
+      }),
+    );
+  }
+
+  Widget _buildOverlayUI(
+    BuildContext context,
+    String? operatorId,
+    OperatorHomeViewModel viewModel,
+  ) {
+    if (operatorId == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Positioned.fill(
+      child: Stack(
+        children: [
+          Positioned(
+            top: 16,
+            left: 16,
+            right: 16,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (viewModel.isOnline) ...[
+                  ConstrainedBox(
+                    constraints: BoxConstraints(
+                      maxHeight: MediaQuery.sizeOf(context).height * 0.80,
+                    ),
+                    child: _buildBookingActionCard(
+                      operatorId,
+                      viewModel,
+                    ),
+                  ),
+                ] else ...[
+                  const OperatorInfoCard(
+                    icon: Icons.power_settings_new,
+                    iconColor: Colors.red,
+                    title: 'You are offline',
+                    subtitle:
+                        'Go online to view active trips and pending booking queue.',
+                  ),
+                ],
+              ],
+            ),
+          ),
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 24,
+            child: Center(
+              child: ElevatedButton.icon(
+                onPressed: (viewModel.isToggling || _isInitializingViewModel)
+                    ? null
+                    : _toggleStatus,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      viewModel.isOnline ? Colors.red : const Color(0xFF0066CC),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 12,
+                  ),
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                icon: viewModel.isToggling
+                    ? const SizedBox(
+                        height: 18,
+                        width: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor: AlwaysStoppedAnimation<Color>(
+                            Colors.white,
+                          ),
+                        ),
+                      )
+                    : const Icon(Icons.power_settings_new),
+                label: Text(
+                  viewModel.isOnline ? 'Go Offline' : 'Go Online',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingButtons(
+    BookingModel? activeBooking,
+    List<LatLng> trimmedRoutePoints,
+    LatLng? operatorPoint,
+    LatLng? destinationPoint,
+  ) {
+    return Positioned(
+      bottom: 100,
+      right: 16,
+      child: ValueListenableBuilder<MapCameraState>(
+        valueListenable: _mapCameraService.state,
+        builder: (context, cameraState, _) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              if (cameraState.showRecenterButton && operatorPoint != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FloatingActionButton.small(
+                    heroTag: 'resume_follow',
+                    backgroundColor: const Color(0xFF0066CC),
+                    foregroundColor: Colors.white,
+                    onPressed: () {
+                      unawaited(
+                        _syncNavigationCamera(
+                          activeBooking,
+                          routePoints: trimmedRoutePoints,
+                          operatorPoint: operatorPoint,
+                          destinationPoint: destinationPoint,
+                          forceFollow: true,
+                        ),
+                      );
+                    },
+                    child: const Icon(Icons.my_location),
+                  ),
+                ),
+              FloatingActionButton(
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.black87,
+                onPressed: _centerOnUser,
+                child: const Icon(Icons.near_me),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   @override
@@ -792,14 +986,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     );
     final viewModel = context.read<OperatorHomeViewModel>();
     final activeBooking = snapshot.activeBooking;
-    final passengerPickedUp = snapshot.passengerPickedUp;
-    final operatorPoint = snapshot.operatorPoint;
-    final destinationPoint = snapshot.destinationPoint;
-    final trimmedRoutePoints = _trimmedRoutePointsForCamera(
+    final trimmedRoutePoints = OperatorHomeRouteMapper.trimmedRoutePointsForCamera(
       activeBooking,
-      passengerPickedUp: passengerPickedUp,
-      operatorPoint: operatorPoint,
-      destinationPoint: destinationPoint,
+      passengerPickedUp: snapshot.passengerPickedUp,
+      operatorPoint: snapshot.operatorPoint,
+      destinationPoint: snapshot.destinationPoint,
     );
     final isLoading = _isInitializingViewModel;
 
@@ -809,211 +1000,22 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           ? const Center(child: Text('Not signed in'))
           : Stack(
               children: [
-                Positioned.fill(
-                  child:
-                      widget.mapBuilder?.call(
-                        initialCameraPosition: _initialCameraPosition,
-                        hasLocationPermission: _hasLocationPermission,
-                        onMapCreated: (GoogleMapController controller) {
-                          _mapCameraService.attachMapController(controller);
-                          _mapReady = true;
-                          _mapCameraService.updateCameraBoundsPadding(
-                            _cameraBoundsPadding,
-                          );
-                          _scheduleMapCameraSync(
-                            activeBooking,
-                            routePoints: trimmedRoutePoints,
-                            operatorPoint: operatorPoint,
-                            destinationPoint: destinationPoint,
-                          );
-                        },
-                      ) ??
-                      AnimatedBuilder(
-                        animation: _routeTransitionController,
-                        builder: (context, _) {
-                          return GoogleMap(
-                            key: const ValueKey('operator-map'),
-                            initialCameraPosition: _initialCameraPosition,
-                            myLocationEnabled: _hasLocationPermission,
-                            myLocationButtonEnabled: false,
-                            compassEnabled: true,
-                            zoomControlsEnabled: false,
-                            mapToolbarEnabled: false,
-                            markers: OperatorMapLayers.buildMarkers(
-                              activeBooking,
-                            ),
-                            polylines: _buildMapPolylines(
-                              activeBooking,
-                              routePoints: trimmedRoutePoints,
-                              operatorPoint: operatorPoint,
-                              destinationPoint: destinationPoint,
-                              passengerPickedUp: passengerPickedUp,
-                            ),
-                            onMapCreated: (GoogleMapController controller) {
-                              _mapCameraService.attachMapController(controller);
-                              _mapReady = true;
-                              _mapCameraService.updateCameraBoundsPadding(
-                                _cameraBoundsPadding,
-                              );
-                              _scheduleMapCameraSync(
-                                activeBooking,
-                                routePoints: trimmedRoutePoints,
-                                operatorPoint: operatorPoint,
-                                destinationPoint: destinationPoint,
-                              );
-                            },
-                            onCameraMoveStarted: () {
-                              if (_mapCameraService.isProgrammaticCameraMove ||
-                                  activeBooking == null ||
-                                  !OperatorHomeRouteMapper.isActiveNavigationBooking(
-                                    activeBooking,
-                                  )) {
-                                return;
-                              }
-                              final previousMode =
-                                  _mapCameraService.navigationMode;
-                              _mapCameraService.handleCameraMoveStarted(
-                                shouldYieldToUser: true,
-                              );
-                              if (previousMode !=
-                                  _mapCameraService.navigationMode) {
-                                setState(() {
-                                  _mapNavigationMode =
-                                      _MapNavigationMode.userControlled;
-                                });
-                              }
-                            },
-                            onCameraIdle: () {
-                              _mapCameraService.handleCameraIdle();
-                              _isProgrammaticCameraMove = false;
-                            },
-                          );
-                        },
-                      ),
+                _buildMap(
+                  context,
+                  activeBooking,
+                  snapshot,
+                  trimmedRoutePoints,
                 ),
                 if (isLoading)
                   const Positioned.fill(
                     child: Center(child: CircularProgressIndicator()),
                   ),
-                Positioned.fill(
-                  child: Stack(
-                    children: [
-                      Positioned(
-                        top: 16,
-                        left: 16,
-                        right: 16,
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            if (viewModel.isOnline) ...[
-                              ConstrainedBox(
-                                constraints: BoxConstraints(
-                                  maxHeight:
-                                      MediaQuery.sizeOf(context).height * 0.80,
-                                ),
-                                child: _buildBookingActionCard(
-                                  operatorId,
-                                  viewModel,
-                                ),
-                              ),
-                            ] else ...[
-                              const OperatorInfoCard(
-                                icon: Icons.power_settings_new,
-                                iconColor: Colors.red,
-                                title: 'You are offline',
-                                subtitle:
-                                    'Go online to view active trips and pending booking queue.',
-                              ),
-                            ],
-                          ],
-                        ),
-                      ),
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 24,
-                        child: Center(
-                          child: ElevatedButton.icon(
-                            onPressed: (viewModel.isToggling || isLoading)
-                                ? null
-                                : _toggleStatus,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: viewModel.isOnline
-                                  ? Colors.red
-                                  : const Color(0xFF0066CC),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 24,
-                                vertical: 12,
-                              ),
-                              elevation: 4,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                            icon: viewModel.isToggling
-                                ? const SizedBox(
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
-                                      ),
-                                    ),
-                                  )
-                                : const Icon(Icons.power_settings_new),
-                            label: Text(
-                              viewModel.isOnline ? 'Go Offline' : 'Go Online',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Positioned(
-                  bottom: 100,
-                  right: 16,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      if (_mapNavigationMode ==
-                              _MapNavigationMode.userControlled &&
-                          operatorPoint != null)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 8),
-                          child: FloatingActionButton.small(
-                            heroTag: 'resume_follow',
-                            backgroundColor: const Color(0xFF0066CC),
-                            foregroundColor: Colors.white,
-                            onPressed: () async {
-                              setState(() {
-                                _mapNavigationMode =
-                                    _MapNavigationMode.tracking;
-                              });
-                              _scheduleMapCameraSync(
-                                activeBooking,
-                                routePoints: trimmedRoutePoints,
-                                operatorPoint: operatorPoint,
-                                destinationPoint: destinationPoint,
-                                forceFollow: true,
-                              );
-                            },
-                            child: const Icon(Icons.my_location),
-                          ),
-                        ),
-                      FloatingActionButton(
-                        backgroundColor: Colors.white,
-                        foregroundColor: Colors.black87,
-                        onPressed: _centerOnUser,
-                        child: const Icon(Icons.near_me),
-                      ),
-                    ],
-                  ),
+                _buildOverlayUI(context, operatorId, viewModel),
+                _buildFloatingButtons(
+                  activeBooking,
+                  trimmedRoutePoints,
+                  snapshot.operatorPoint,
+                  snapshot.destinationPoint,
                 ),
               ],
             ),

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
@@ -11,10 +12,38 @@ import 'package:operator_app/features/home/presentation/map/operator_home_route_
 
 enum OperatorMapNavigationMode { overview, tracking, userControlled }
 
+@immutable
+class MapCameraState {
+  const MapCameraState({
+    required this.navigationMode,
+    required this.isFollowing,
+    required this.showRecenterButton,
+    required this.isMapReady,
+    required this.isProgrammaticCameraMove,
+  });
+
+  const MapCameraState.initial()
+      : this(
+          navigationMode: OperatorMapNavigationMode.overview,
+          isFollowing: false,
+          showRecenterButton: false,
+          isMapReady: false,
+          isProgrammaticCameraMove: false,
+        );
+
+  final OperatorMapNavigationMode navigationMode;
+  final bool isFollowing;
+  final bool showRecenterButton;
+  final bool isMapReady;
+  final bool isProgrammaticCameraMove;
+}
+
 class OperatorMapControllerService {
   OperatorMapControllerService({this.enableDebugLogging = kDebugMode});
 
   final bool enableDebugLogging;
+  final ValueNotifier<MapCameraState> state =
+      ValueNotifier<MapCameraState>(const MapCameraState.initial());
 
   GoogleMapController? _mapController;
   bool _isMapReady = false;
@@ -36,11 +65,13 @@ class OperatorMapControllerService {
   bool get isCameraAnimating => _isCameraAnimating;
   bool get isProgrammaticCameraMove => _isProgrammaticCameraMove;
   OperatorMapNavigationMode get navigationMode => _navigationMode;
+  MapCameraState get currentState => state.value;
 
   void attachMapController(GoogleMapController controller) {
     _mapController = controller;
     _isMapReady = true;
     _log('map_attached');
+    _emitState();
   }
 
   void updateCameraBoundsPadding(double padding) {
@@ -49,6 +80,7 @@ class OperatorMapControllerService {
 
   void clearTransitionState() {
     _shouldFitRouteBeforeFollow = false;
+    _emitState();
   }
 
   void resetForNoActiveBooking() {
@@ -60,6 +92,7 @@ class OperatorMapControllerService {
     _lastTilt = null;
     _lastRouteFitPhaseSignature = null;
     _shouldFitRouteBeforeFollow = false;
+    _emitState();
   }
 
   OperatorMapNavigationMode resolveNavigationMode({
@@ -76,6 +109,7 @@ class OperatorMapControllerService {
       return OperatorMapNavigationMode.userControlled;
     }
 
+    _emitState();
     return OperatorMapNavigationMode.tracking;
   }
 
@@ -134,6 +168,7 @@ class OperatorMapControllerService {
           operatorPoint != null) {
         await followOperatorWithPolicy(operatorPoint, forceFollow: true);
       }
+      _emitState();
       return _navigationMode;
     }
 
@@ -147,6 +182,7 @@ class OperatorMapControllerService {
           operatorPoint: operatorPoint,
           destinationPoint: destinationPoint,
         );
+        _emitState();
         return _navigationMode;
       case OperatorMapNavigationMode.tracking:
         if (operatorPoint != null) {
@@ -155,6 +191,7 @@ class OperatorMapControllerService {
             forceFollow: forceFollow,
           );
         }
+        _emitState();
         return _navigationMode;
     }
   }
@@ -166,11 +203,13 @@ class OperatorMapControllerService {
         _navigationMode == OperatorMapNavigationMode.tracking) {
       _navigationMode = OperatorMapNavigationMode.userControlled;
       _log('camera_yield_to_user');
+      _emitState();
     }
   }
 
   void handleCameraIdle() {
     _isProgrammaticCameraMove = false;
+    _emitState();
   }
 
   Future<void> runOverviewCamera(
@@ -288,6 +327,7 @@ class OperatorMapControllerService {
       _lastCameraTarget = cameraTarget;
       _lastZoom = cameraZoom;
       _lastTilt = cameraTilt;
+      _emitState();
     } catch (e) {
       _log('camera_follow_failed', data: {'error': e.toString()});
     }
@@ -309,6 +349,7 @@ class OperatorMapControllerService {
 
       _isCameraAnimating = true;
       _isProgrammaticCameraMove = true;
+      _emitState();
       try {
         await controller.animateCamera(update);
       } catch (e) {
@@ -316,6 +357,7 @@ class OperatorMapControllerService {
       } finally {
         _isCameraAnimating = false;
         _isProgrammaticCameraMove = false;
+        _emitState();
       }
     });
 
@@ -344,8 +386,11 @@ class OperatorMapControllerService {
       return;
     }
 
-    final payload = data.entries.map((entry) => '${entry.key}=${entry.value}').join(' ');
-    debugPrint('[operator_map_camera] event=$event${payload.isEmpty ? '' : ' $payload'}');
+    developer.log(
+      event,
+      name: 'operator_map_camera',
+      error: data.isEmpty ? null : data,
+    );
   }
 
   double _distanceMeters(LatLng a, LatLng b) {
@@ -431,4 +476,15 @@ class OperatorMapControllerService {
   }
 
   static double _degreesToRadians(double degrees) => degrees * (math.pi / 180);
+
+  void _emitState() {
+    state.value = MapCameraState(
+      navigationMode: _navigationMode,
+      isFollowing: _navigationMode == OperatorMapNavigationMode.tracking,
+      showRecenterButton:
+          _navigationMode == OperatorMapNavigationMode.userControlled,
+      isMapReady: _isMapReady,
+      isProgrammaticCameraMove: _isProgrammaticCameraMove,
+    );
+  }
 }
