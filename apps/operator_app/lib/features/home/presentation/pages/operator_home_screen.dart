@@ -19,6 +19,8 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 enum _MapNavigationMode { overview, tracking, userControlled }
 
+enum _NavigationRoutePhase { toPickup, toDestination, none }
+
 class OperatorHomeScreen extends StatefulWidget {
   const OperatorHomeScreen({
     super.key,
@@ -43,7 +45,7 @@ class OperatorHomeScreen extends StatefulWidget {
 }
 
 class _OperatorHomeScreenState extends State<OperatorHomeScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, TickerProviderStateMixin {
   static const MethodChannel _mapsConfigChannel = MethodChannel(
     'operator_app/maps_config',
   );
@@ -68,9 +70,20 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   final Set<String> _pickedUpBookingIds = <String>{};
   final OperatorLocationCoordinator _locationCoordinator =
       const OperatorLocationCoordinator();
-
-  static const Duration _followRecenterInterval = Duration(seconds: 4);
-  static const double _followRecenterDistanceMeters = 20;
+  final Duration _routeTransitionDuration = const Duration(milliseconds: 400);
+  final Duration _routeThrottleInterval = const Duration(milliseconds: 1500);
+  final double _routeThrottleDistanceMeters = 15;
+  late final AnimationController _routeTransitionController;
+  BookingModel? _lastActiveBooking;
+  BookingModel? _transitionPreviousBooking;
+  _NavigationRoutePhase _lastRoutePhase = _NavigationRoutePhase.none;
+  String? _lastRoutePolylineSignature;
+  DateTime? _lastRoutePolylineUpdateAt;
+  LatLng? _lastRoutePolylineOperatorPoint;
+  Set<Polyline>? _cachedRoutePolylines;
+  String? _lastRouteBoundsFitSignature;
+  bool _shouldFitRouteBeforeFollow = false;
+  bool _isCameraAnimating = false;
   static const double _cameraBoundsPadding = 180;
 
   late GoogleMapController _mapController;
@@ -91,6 +104,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _routeTransitionController =
+        AnimationController(vsync: this, duration: _routeTransitionDuration)
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed) {
+              _transitionPreviousBooking = null;
+            }
+          });
 
     _authSubscription = FirebaseAuth.instance.idTokenChanges().listen((user) {
       if (!mounted || _hasInitializedViewModel || user == null) {
@@ -164,6 +184,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
+    _routeTransitionController.dispose();
     _observedViewModel?.removeListener(_onViewModelChanged);
     super.dispose();
   }
@@ -177,6 +198,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final activeBooking = viewModel.activeBookings.isNotEmpty
         ? viewModel.activeBookings.first
         : null;
+    final currentRoutePhase = _resolveNavigationRoutePhase(activeBooking);
+    if (currentRoutePhase != _lastRoutePhase &&
+        _lastActiveBooking != null &&
+        activeBooking != null) {
+      _transitionPreviousBooking = _lastActiveBooking;
+      _routeTransitionController.forward(from: 0);
+    }
+    _lastRoutePhase = currentRoutePhase;
+    _lastActiveBooking = activeBooking;
     _pickedUpBookingIds.removeWhere(
       (id) => !viewModel.activeBookings.any(
         (b) => b.bookingId == id && b.status == BookingStatus.onTheWay,
@@ -201,6 +231,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final trimmedRoutePoints = _trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: passengerPickedUp,
+      operatorPoint: operatorPoint,
+      destinationPoint: destinationPoint,
+    );
+
+    _prepareRouteFitBeforeFollow(
+      activeBooking,
+      routePoints: trimmedRoutePoints,
       operatorPoint: operatorPoint,
       destinationPoint: destinationPoint,
     );
@@ -297,7 +334,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       });
 
       if (_mapReady) {
-        await _mapController.animateCamera(
+        await _animateCameraSafely(
           CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16),
         );
       }
@@ -374,7 +411,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       if (!mounted) {
         return;
       }
-      await _mapController.animateCamera(
+      await _animateCameraSafely(
         CameraUpdate.newLatLngZoom(LatLng(pos.latitude, pos.longitude), 16),
       );
     } catch (e) {
@@ -702,6 +739,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       _lastCameraBoundsSignature = null;
       _lastFollowOperatorPoint = null;
       _lastFollowAt = null;
+      _lastRouteBoundsFitSignature = null;
+      _shouldFitRouteBeforeFollow = false;
     }
 
     final syncSignature =
@@ -730,7 +769,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     required LatLng? operatorPoint,
   }) {
     if (activeBooking == null ||
-        activeBooking.status != BookingStatus.onTheWay ||
+        !_isActiveNavigationBooking(activeBooking) ||
         operatorPoint == null) {
       return _MapNavigationMode.overview;
     }
@@ -750,6 +789,22 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     required bool forceFollow,
   }) async {
     if (!_mapReady) {
+      return;
+    }
+
+    if (_shouldFitRouteBeforeFollow &&
+        _mapNavigationMode != _MapNavigationMode.userControlled &&
+        activeBooking != null) {
+      await _runOverviewCamera(
+        activeBooking,
+        routePoints: routePoints,
+        operatorPoint: operatorPoint,
+        destinationPoint: destinationPoint,
+      );
+      _shouldFitRouteBeforeFollow = false;
+      if (operatorPoint != null) {
+        await _followOperatorWithPolicy(operatorPoint, forceFollow: true);
+      }
       return;
     }
 
@@ -793,7 +848,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
     if (fitPoints.length < 2) {
       if (operatorPoint != null) {
-        await _mapController.animateCamera(
+        await _animateCameraSafely(
           CameraUpdate.newLatLngZoom(operatorPoint, 16),
         );
       }
@@ -825,18 +880,47 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         forceFollow ||
         lastPoint == null ||
         lastAt == null ||
-        DateTime.now().difference(lastAt) >= _followRecenterInterval ||
+        DateTime.now().difference(lastAt) >= _routeThrottleInterval ||
         _distanceMeters(lastPoint, operatorPoint) >=
-            _followRecenterDistanceMeters;
+            _routeThrottleDistanceMeters;
 
     if (!shouldFollow) {
       return;
     }
 
     try {
-      _isProgrammaticCameraMove = true;
-      await _mapController.animateCamera(
-        CameraUpdate.newLatLngZoom(operatorPoint, 16),
+      final bearing = lastPoint == null
+          ? 0.0
+          : _bearingDegrees(lastPoint, operatorPoint);
+      final speedMps = lastPoint == null || lastAt == null
+          ? 0.0
+          : _distanceMeters(lastPoint, operatorPoint) /
+                math.max(
+                  DateTime.now().difference(lastAt).inMilliseconds / 1000,
+                  0.001,
+                );
+      final aheadMeters = (20 + (speedMps * 6)).clamp(20.0, 60.0);
+      final zoom = speedMps < 4
+          ? 17.4
+          : speedMps < 10
+          ? 16.8
+          : 16.2;
+      final tilt = speedMps < 3
+          ? 45.0
+          : speedMps < 8
+          ? 52.0
+          : 58.0;
+      final cameraTarget = _offsetPoint(operatorPoint, bearing, aheadMeters);
+
+      await _animateCameraSafely(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: cameraTarget,
+            zoom: zoom,
+            tilt: tilt,
+            bearing: bearing,
+          ),
+        ),
       );
       _lastFollowOperatorPoint = operatorPoint;
       _lastFollowAt = DateTime.now();
@@ -845,8 +929,34 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
   }
 
+  void _prepareRouteFitBeforeFollow(
+    BookingModel? activeBooking, {
+    required List<LatLng> routePoints,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+  }) {
+    if (activeBooking == null ||
+        !_isActiveNavigationBooking(activeBooking) ||
+        routePoints.length < 2) {
+      return;
+    }
+
+    final signature = _cameraBoundsSignature(
+      bookingId: activeBooking.bookingId,
+      routePoints: routePoints,
+      destinationPoint: destinationPoint,
+      padding: _cameraBoundsPadding,
+    );
+    if (_lastRouteBoundsFitSignature == signature) {
+      return;
+    }
+
+    _lastRouteBoundsFitSignature = signature;
+    _shouldFitRouteBeforeFollow = true;
+  }
+
   LatLng? _operatorPointForBooking(BookingModel? booking) {
-    if (booking == null || booking.status != BookingStatus.onTheWay) {
+    if (booking == null || !_isActiveNavigationBooking(booking)) {
       return null;
     }
     final lat = booking.operatorLat;
@@ -867,12 +977,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return const <LatLng>[];
     }
 
-    // For onTheWay status, select only phase-specific polylines:
-    // - Pre-pickup (phase 1): routeToOriginPolyline (operator -> origin/pickup)
-    // - Post-pickup (phase 2): routeToDestinationPolyline (operator/pickup -> destination)
-    // Intentionally do not fall back to routePolyline (origin -> destination),
-    // because that route is not valid for either operator phase.
-    final phasePoints = booking.status == BookingStatus.onTheWay
+    // For active navigation states, select only phase-specific polylines.
+    // Avoid falling back to routePolyline because that route is not valid for
+    // either operator phase.
+    final phasePoints = _isActiveNavigationBooking(booking)
         ? (passengerPickedUp
               ? booking.routeToDestinationPolyline
               : booking.routeToOriginPolyline)
@@ -889,6 +997,81 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
 
     return points;
+  }
+
+  Set<Polyline> _buildMapPolylines(
+    BookingModel? activeBooking, {
+    required List<LatLng> routePoints,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+    required bool passengerPickedUp,
+  }) {
+    final currentSignature = _routeRenderSignature(
+      booking: activeBooking,
+      routePoints: routePoints,
+      operatorPoint: operatorPoint,
+      destinationPoint: destinationPoint,
+      transitionValue: _routeTransitionController.value,
+    );
+
+    final now = DateTime.now();
+    final shouldRebuild =
+        _cachedRoutePolylines == null ||
+        _lastRoutePolylineSignature != currentSignature ||
+        _lastRoutePolylineUpdateAt == null ||
+        _lastRoutePolylineOperatorPoint == null ||
+        operatorPoint == null ||
+        _distanceMeters(_lastRoutePolylineOperatorPoint!, operatorPoint) >=
+            _routeThrottleDistanceMeters ||
+        now.difference(_lastRoutePolylineUpdateAt!) >= _routeThrottleInterval;
+
+    if (!shouldRebuild) {
+      return _cachedRoutePolylines!;
+    }
+
+    final polylines = <Polyline>{};
+    final transitionValue = _routeTransitionController.value.clamp(0.0, 1.0);
+
+    if (_transitionPreviousBooking != null && transitionValue < 1) {
+      final previousBooking = _transitionPreviousBooking;
+      final previousOperatorPoint = _operatorPointForBooking(previousBooking);
+      final previousPassengerPickedUp =
+          previousBooking != null && _isPassengerPickedUp(previousBooking);
+      final previousTrimmedRoutePoints = _trimmedRoutePointsForCamera(
+        previousBooking,
+        passengerPickedUp: previousPassengerPickedUp,
+        operatorPoint: previousOperatorPoint,
+        destinationPoint: previousBooking == null
+            ? null
+            : _latLngOrNull(
+                previousBooking.destinationLat,
+                previousBooking.destinationLng,
+              ),
+      );
+      polylines.addAll(
+        OperatorMapLayers.buildPolylines(
+          previousBooking,
+          routePointsOverride: previousTrimmedRoutePoints,
+          opacity: 1 - transitionValue,
+        ),
+      );
+    }
+
+    if (activeBooking != null) {
+      polylines.addAll(
+        OperatorMapLayers.buildPolylines(
+          activeBooking,
+          routePointsOverride: routePoints,
+          opacity: _transitionPreviousBooking != null ? transitionValue : 1,
+        ),
+      );
+    }
+
+    _cachedRoutePolylines = polylines;
+    _lastRoutePolylineSignature = currentSignature;
+    _lastRoutePolylineUpdateAt = now;
+    _lastRoutePolylineOperatorPoint = operatorPoint;
+    return polylines;
   }
 
   bool _isPassengerPickedUp(BookingModel booking) {
@@ -911,18 +1094,36 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
   Future<void> _animateToBounds(LatLngBounds bounds, double padding) async {
     try {
-      await _mapController.animateCamera(
+      await _animateCameraSafely(
         CameraUpdate.newLatLngBounds(bounds, padding),
+        allowIfBusy: true,
       );
     } catch (_) {
       await Future<void>.delayed(const Duration(milliseconds: 220));
       try {
-        await _mapController.animateCamera(
+        await _animateCameraSafely(
           CameraUpdate.newLatLngBounds(bounds, padding),
+          allowIfBusy: true,
         );
       } catch (_) {
         // Ignore bounds-fit failure and keep current camera.
       }
+    }
+  }
+
+  Future<void> _animateCameraSafely(
+    CameraUpdate update, {
+    bool allowIfBusy = false,
+  }) async {
+    if (_isCameraAnimating && !allowIfBusy) {
+      return;
+    }
+    _isCameraAnimating = true;
+    _isProgrammaticCameraMove = true;
+    try {
+      await _mapController.animateCamera(update);
+    } finally {
+      _isCameraAnimating = false;
     }
   }
 
@@ -1024,6 +1225,109 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     );
   }
 
+  bool _isActiveNavigationBooking(BookingModel booking) {
+    return booking.status == BookingStatus.accepted ||
+        booking.status == BookingStatus.onTheWay;
+  }
+
+  _NavigationRoutePhase _resolveNavigationRoutePhase(BookingModel? booking) {
+    if (booking == null || !_isActiveNavigationBooking(booking)) {
+      return _NavigationRoutePhase.none;
+    }
+    if (booking.passengerPickedUpAt != null ||
+        _pickedUpBookingIds.contains(booking.bookingId)) {
+      return _NavigationRoutePhase.toDestination;
+    }
+    return _NavigationRoutePhase.toPickup;
+  }
+
+  String _routePhaseSignature(BookingModel? booking) {
+    if (booking == null) {
+      return 'none';
+    }
+    return '${booking.bookingId}|${booking.status.firestoreValue}|${booking.passengerPickedUpAt != null ? 1 : 0}';
+  }
+
+  String _routeRenderSignature({
+    required BookingModel? booking,
+    required List<LatLng> routePoints,
+    required LatLng? operatorPoint,
+    required LatLng? destinationPoint,
+    required double transitionValue,
+  }) {
+    final buffer = StringBuffer(_routePhaseSignature(booking))
+      ..write('|t=${transitionValue.toStringAsFixed(2)}')
+      ..write('|r=${routePoints.length}');
+
+    if (routePoints.isNotEmpty) {
+      final first = routePoints.first;
+      final last = routePoints.last;
+      buffer.write(
+        '|f=${first.latitude.toStringAsFixed(4)},${first.longitude.toStringAsFixed(4)}',
+      );
+      buffer.write(
+        '|l=${last.latitude.toStringAsFixed(4)},${last.longitude.toStringAsFixed(4)}',
+      );
+    }
+
+    if (operatorPoint != null) {
+      buffer.write(
+        '|o=${operatorPoint.latitude.toStringAsFixed(4)},${operatorPoint.longitude.toStringAsFixed(4)}',
+      );
+    }
+
+    if (destinationPoint != null) {
+      buffer.write(
+        '|d=${destinationPoint.latitude.toStringAsFixed(4)},${destinationPoint.longitude.toStringAsFixed(4)}',
+      );
+    }
+
+    return buffer.toString();
+  }
+
+  double _bearingDegrees(LatLng from, LatLng to) {
+    final fromLat = _degreesToRadians(from.latitude);
+    final fromLng = _degreesToRadians(from.longitude);
+    final toLat = _degreesToRadians(to.latitude);
+    final toLng = _degreesToRadians(to.longitude);
+    final y = math.sin(toLng - fromLng) * math.cos(toLat);
+    final x =
+        math.cos(fromLat) * math.sin(toLat) -
+        math.sin(fromLat) * math.cos(toLat) * math.cos(toLng - fromLng);
+    final bearing = math.atan2(y, x) * 180 / math.pi;
+    return (bearing + 360) % 360;
+  }
+
+  LatLng _offsetPoint(
+    LatLng origin,
+    double bearingDegrees,
+    double distanceMeters,
+  ) {
+    const earthRadiusMeters = 6371000.0;
+    final angularDistance = distanceMeters / earthRadiusMeters;
+    final bearing = _degreesToRadians(bearingDegrees);
+    final lat1 = _degreesToRadians(origin.latitude);
+    final lng1 = _degreesToRadians(origin.longitude);
+
+    final lat2 = math.asin(
+      math.sin(lat1) * math.cos(angularDistance) +
+          math.cos(lat1) * math.sin(angularDistance) * math.cos(bearing),
+    );
+    final lng2 =
+        lng1 +
+        math.atan2(
+          math.sin(bearing) * math.sin(angularDistance) * math.cos(lat1),
+          math.cos(angularDistance) - math.sin(lat1) * math.sin(lat2),
+        );
+
+    return LatLng(
+      lat2 * 180 / math.pi,
+      ((lng2 * 180 / math.pi) + 540) % 360 - 180,
+    );
+  }
+
+  static double _degreesToRadians(double degrees) => degrees * (math.pi / 180);
+
   @override
   Widget build(BuildContext context) {
     final operatorId = _operatorId;
@@ -1064,45 +1368,55 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                           _mapReady = true;
                         },
                       ) ??
-                      GoogleMap(
-                        key: const ValueKey('operator-map'),
-                        initialCameraPosition: _initialCameraPosition,
-                        myLocationEnabled: _hasLocationPermission,
-                        myLocationButtonEnabled: false,
-                        compassEnabled: true,
-                        zoomControlsEnabled: false,
-                        mapToolbarEnabled: false,
-                        markers: OperatorMapLayers.buildMarkers(activeBooking),
-                        polylines: OperatorMapLayers.buildPolylines(
-                          activeBooking,
-                          routePointsOverride: trimmedRoutePoints,
-                        ),
-                        onMapCreated: (GoogleMapController controller) {
-                          _mapController = controller;
-                          _mapReady = true;
-                          _scheduleMapCameraSync(
-                            activeBooking,
-                            routePoints: trimmedRoutePoints,
-                            operatorPoint: operatorPoint,
-                            destinationPoint: destinationPoint,
+                      AnimatedBuilder(
+                        animation: _routeTransitionController,
+                        builder: (context, _) {
+                          return GoogleMap(
+                            key: const ValueKey('operator-map'),
+                            initialCameraPosition: _initialCameraPosition,
+                            myLocationEnabled: _hasLocationPermission,
+                            myLocationButtonEnabled: false,
+                            compassEnabled: true,
+                            zoomControlsEnabled: false,
+                            mapToolbarEnabled: false,
+                            markers: OperatorMapLayers.buildMarkers(
+                              activeBooking,
+                            ),
+                            polylines: _buildMapPolylines(
+                              activeBooking,
+                              routePoints: trimmedRoutePoints,
+                              operatorPoint: operatorPoint,
+                              destinationPoint: destinationPoint,
+                              passengerPickedUp: passengerPickedUp,
+                            ),
+                            onMapCreated: (GoogleMapController controller) {
+                              _mapController = controller;
+                              _mapReady = true;
+                              _scheduleMapCameraSync(
+                                activeBooking,
+                                routePoints: trimmedRoutePoints,
+                                operatorPoint: operatorPoint,
+                                destinationPoint: destinationPoint,
+                              );
+                            },
+                            onCameraMoveStarted: () {
+                              if (_isProgrammaticCameraMove ||
+                                  activeBooking == null ||
+                                  !_isActiveNavigationBooking(activeBooking)) {
+                                return;
+                              }
+                              if (_mapNavigationMode ==
+                                  _MapNavigationMode.tracking) {
+                                setState(() {
+                                  _mapNavigationMode =
+                                      _MapNavigationMode.userControlled;
+                                });
+                              }
+                            },
+                            onCameraIdle: () {
+                              _isProgrammaticCameraMove = false;
+                            },
                           );
-                        },
-                        onCameraMoveStarted: () {
-                          if (_isProgrammaticCameraMove ||
-                              activeBooking == null ||
-                              activeBooking.status != BookingStatus.onTheWay) {
-                            return;
-                          }
-                          if (_mapNavigationMode ==
-                              _MapNavigationMode.tracking) {
-                            setState(() {
-                              _mapNavigationMode =
-                                  _MapNavigationMode.userControlled;
-                            });
-                          }
-                        },
-                        onCameraIdle: () {
-                          _isProgrammaticCameraMove = false;
                         },
                       ),
                 ),

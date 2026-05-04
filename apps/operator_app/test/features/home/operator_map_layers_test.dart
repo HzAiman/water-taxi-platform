@@ -46,6 +46,49 @@ BookingModel _bookingFixture({
 }
 
 void main() {
+  group('OperatorMapLayers.buildMarkers', () {
+    test('shows operator marker from accepted onward', () {
+      final acceptedBooking = _bookingFixture(
+        bookingId: 'm1',
+        status: BookingStatus.accepted,
+      );
+      final onTheWayBooking = _bookingFixture(
+        bookingId: 'm2',
+        status: BookingStatus.onTheWay,
+      );
+
+      final acceptedMarkers = OperatorMapLayers.buildMarkers(acceptedBooking);
+      final onTheWayMarkers = OperatorMapLayers.buildMarkers(onTheWayBooking);
+
+      expect(
+        acceptedMarkers.any(
+          (marker) => marker.markerId.value == 'operator_location',
+        ),
+        isTrue,
+      );
+      expect(
+        onTheWayMarkers.any(
+          (marker) => marker.markerId.value == 'operator_location',
+        ),
+        isTrue,
+      );
+    });
+
+    test('does not show operator marker before acceptance', () {
+      final pendingBooking = _bookingFixture(
+        bookingId: 'm3',
+        status: BookingStatus.pending,
+      );
+
+      final markers = OperatorMapLayers.buildMarkers(pendingBooking);
+
+      expect(
+        markers.any((marker) => marker.markerId.value == 'operator_location'),
+        isFalse,
+      );
+    });
+  });
+
   group('OperatorMapLayers.buildPolylines', () {
     test('onTheWay pre-pickup renders routeToOriginPolyline', () {
       final booking = _bookingFixture(
@@ -70,6 +113,46 @@ void main() {
       expect(polyline.points, hasLength(2));
       expect(polyline.points.first, const LatLng(2.2100, 102.2500));
       expect(polyline.points.last, const LatLng(2.201667, 102.249444));
+    });
+
+    test('trims the active route from the current operator position', () {
+      final booking = _bookingFixture(
+        bookingId: 'b1a',
+        operatorLat: 2.2030,
+        operatorLng: 102.2450,
+        routeToOriginPolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.2000, lng: 102.2400),
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2000, lng: 102.2600),
+        ],
+      );
+
+      final polylines = OperatorMapLayers.buildPolylines(booking);
+      expect(polylines, hasLength(1));
+
+      final polyline = polylines.first;
+      expect(polyline.points.first.latitude, closeTo(2.2000, 0.00001));
+      expect(polyline.points.first.longitude, closeTo(102.2450, 0.00001));
+      expect(polyline.points.last, const LatLng(2.2000, 102.2600));
+
+      final movedBooking = _bookingFixture(
+        bookingId: 'b1b',
+        operatorLat: 2.2030,
+        operatorLng: 102.2450,
+        routeToOriginPolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.2000, lng: 102.2400),
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2000, lng: 102.2600),
+        ],
+      );
+
+      final movedPolylines = OperatorMapLayers.buildPolylines(movedBooking);
+      expect(movedPolylines, hasLength(1));
+      expect(movedPolylines.first.points, const <LatLng>[
+        LatLng(2.2000, 102.2450),
+        LatLng(2.2000, 102.2500),
+        LatLng(2.2000, 102.2600),
+      ]);
     });
 
     test('onTheWay post-pickup renders routeToDestinationPolyline', () {
