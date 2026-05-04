@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
@@ -52,6 +53,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   int? _maxReachedRouteMarker;
   int? _lastAlertRouteMarker;
   bool _wasOffRoute = false;
+  OperatorHomeSnapshot? _cachedHomeSnapshot;
+  String? _cachedHomeSnapshotKey;
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
   static const double _locationPublishMinDistanceMeters = 20;
@@ -65,6 +68,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
   int get streamVersion => _streamVersion;
 
   List<BookingModel> get activeBookings => _activeBookings;
+
+  BookingModel? get activeBooking => _resolveActiveBooking();
+
+  OperatorHomeSnapshot get homeSnapshot => _resolveHomeSnapshot();
 
   /// Pending bookings visible to this operator (not already rejected by them).
   List<BookingModel> visiblePendingBookings(String operatorId) =>
@@ -94,7 +101,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
         notifyListeners();
       }
     } catch (_) {
-      // Keep UI responsive even if initial profile/presence fetch stalls.
+      debugPrint(
+        '[operator_home_vm] event=initialize_failed operatorId=$operatorId',
+      );
     }
 
     _startStreams(operatorId);
@@ -351,6 +360,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _stopLocationSharing();
     _activeBookings = [];
     _pendingBookings = [];
+    _cachedHomeSnapshot = null;
+    _cachedHomeSnapshotKey = null;
   }
 
   Future<void> _startLocationSharing(
@@ -453,7 +464,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
       return permission == LocationPermission.always ||
           permission == LocationPermission.whileInUse;
-    } catch (_) {
+    } catch (e) {
+      debugPrint('[operator_home_vm] event=location_permission_check_failed error=$e');
       return false;
     }
   }
@@ -551,6 +563,84 @@ class OperatorHomeViewModel extends ChangeNotifier {
     if (notify) {
       notifyListeners();
     }
+  }
+
+  BookingModel? _resolveActiveBooking() {
+    if (_activeBookings.isEmpty) {
+      return null;
+    }
+    return _activeBookings.first;
+  }
+
+  OperatorHomeSnapshot _resolveHomeSnapshot() {
+    final activeBooking = _resolveActiveBooking();
+    final operatorId = _operatorId;
+    final passengerPickedUp = activeBooking?.passengerPickedUpAt != null;
+    final operatorPoint = _bookingPoint(activeBooking);
+    final destinationPoint = activeBooking == null
+        ? null
+      : LatLng(activeBooking.destinationLat, activeBooking.destinationLng);
+    final pendingBookings = operatorId == null
+        ? const <BookingModel>[]
+      : _pendingBookings
+        .where((booking) => !booking.rejectedBy.contains(operatorId))
+        .toList(growable: false);
+    final topPendingBooking = pendingBookings.isNotEmpty ? pendingBookings.first : null;
+    final key = [
+      operatorId ?? '-',
+      activeBooking?.bookingId ?? '-',
+      activeBooking?.status.firestoreValue ?? '-',
+      activeBooking?.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ?? '-',
+      passengerPickedUp ? '1' : '0',
+      operatorPoint?.latitude.toStringAsFixed(5) ?? '-',
+      operatorPoint?.longitude.toStringAsFixed(5) ?? '-',
+      destinationPoint?.latitude.toStringAsFixed(5) ?? '-',
+      destinationPoint?.longitude.toStringAsFixed(5) ?? '-',
+      pendingBookings.length.toString(),
+      topPendingBooking?.bookingId ?? '-',
+      _isOnline ? '1' : '0',
+      _isToggling ? '1' : '0',
+      _isUpdatingBooking ? '1' : '0',
+      _isRefreshing ? '1' : '0',
+      _streamVersion.toString(),
+    ].join('|');
+
+    if (_cachedHomeSnapshotKey == key && _cachedHomeSnapshot != null) {
+      return _cachedHomeSnapshot!;
+    }
+
+    final snapshot = OperatorHomeSnapshot(
+      isOnline: _isOnline,
+      isToggling: _isToggling,
+      isUpdatingBooking: _isUpdatingBooking,
+      isRefreshing: _isRefreshing,
+      streamVersion: _streamVersion,
+      activeBooking: activeBooking,
+      passengerPickedUp: passengerPickedUp,
+      operatorPoint: operatorPoint,
+      destinationPoint: destinationPoint,
+      pendingCount: pendingBookings.length,
+      topPendingBooking: topPendingBooking,
+      navigationGuidance: _navigationGuidance,
+    );
+
+    _cachedHomeSnapshotKey = key;
+    _cachedHomeSnapshot = snapshot;
+    return snapshot;
+  }
+
+  LatLng? _bookingPoint(BookingModel? booking) {
+    if (booking == null) {
+      return null;
+    }
+
+    final lat = booking.operatorLat;
+    final lng = booking.operatorLng;
+    if (lat == null || lng == null) {
+      return null;
+    }
+
+    return LatLng(lat, lng);
   }
 
   void _emitNavigationAlerts(
@@ -725,6 +815,37 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _stopStreams();
     super.dispose();
   }
+}
+
+@immutable
+class OperatorHomeSnapshot {
+  const OperatorHomeSnapshot({
+    required this.isOnline,
+    required this.isToggling,
+    required this.isUpdatingBooking,
+    required this.isRefreshing,
+    required this.streamVersion,
+    required this.activeBooking,
+    required this.passengerPickedUp,
+    required this.operatorPoint,
+    required this.destinationPoint,
+    required this.pendingCount,
+    required this.topPendingBooking,
+    required this.navigationGuidance,
+  });
+
+  final bool isOnline;
+  final bool isToggling;
+  final bool isUpdatingBooking;
+  final bool isRefreshing;
+  final int streamVersion;
+  final BookingModel? activeBooking;
+  final bool passengerPickedUp;
+  final LatLng? operatorPoint;
+  final LatLng? destinationPoint;
+  final int pendingCount;
+  final BookingModel? topPendingBooking;
+  final OperatorNavigationGuidance? navigationGuidance;
 }
 
 // ── Stale booking helper (used by widget layer) ──────────────────────────────
