@@ -73,7 +73,6 @@ class OperatorMapLayers {
       routePoints = _phaseFallbackLine(
         booking,
         phase,
-        operatorPoint: operatorPoint,
       );
     }
 
@@ -268,10 +267,8 @@ class OperatorMapLayers {
   static List<LatLng> _phaseFallbackLine(
     BookingModel booking,
     _RoutePhase phase,
-    {
-    LatLng? operatorPoint,
-  }
   ) {
+    final operatorPoint = _latLngOrNull(booking.operatorLat, booking.operatorLng);
     switch (phase) {
       case _RoutePhase.toPickup:
         if (operatorPoint != null &&

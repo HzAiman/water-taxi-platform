@@ -159,10 +159,18 @@ class OperatorHomeViewModel extends ChangeNotifier {
       );
     }
 
-    _startStreams(operatorId);
+    _startStreams(
+      operatorId,
+      onFirstActiveEmission: () =>
+          unawaited(_syncNavigationLifecycle(operatorId)),
+    );
 
-    await Future<void>.delayed(const Duration(milliseconds: 100));
-    await _syncNavigationLifecycle(operatorId);
+    // Fallback for slow devices or cold cache misses: sync after 500ms if not
+    // already triggered by stream callback.
+    await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (_trackingBookingId == null) {
+      await _syncNavigationLifecycle(operatorId);
+    }
   }
 
   // ── Online / Offline ─────────────────────────────────────────────────────
@@ -361,13 +369,23 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   // ── Private ──────────────────────────────────────────────────────────────
 
-  void _startStreams(String operatorId) {
+  void _startStreams(
+    String operatorId, {
+    void Function()? onFirstActiveEmission,
+  }) {
     _stopStreams();
 
+    var hasCalledCallback = false;
     _activeSubscription = _bookingRepo
         .streamActiveBookings(operatorId)
         .listen(
           (list) {
+            // Call the first-emission callback once, then mark as called.
+            if (!hasCalledCallback && onFirstActiveEmission != null) {
+              hasCalledCallback = true;
+              onFirstActiveEmission();
+            }
+
             _activeBookings = list;
             _refreshNavigationGuidance(notify: false);
 
@@ -538,11 +556,15 @@ class OperatorHomeViewModel extends ChangeNotifier {
   }
 
   bool _isPermissionRevokedError(Object error) {
+    if (error is LocationServiceDisabledException) return true;
     final text = error.toString().toLowerCase();
     return text.contains('permission') &&
         (text.contains('denied') ||
             text.contains('revoked') ||
-            text.contains('not granted'));
+            text.contains('not granted')) ||
+        text.contains('service disabled') ||
+        text.contains('location service') ||
+        text.contains('permissiondefinitionsnotfound');
   }
 
   Future<Position?> _currentPositionOrNull() async {

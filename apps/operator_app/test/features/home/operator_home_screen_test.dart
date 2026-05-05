@@ -336,6 +336,17 @@ void main() {
 
     expect(bookingRepo.lastPickedUpBookingId, 'active-2');
     expect(bookingRepo.lastPickedUpOperatorId, 'operator-1');
+
+    // Emit updated booking state with passenger picked up
+    bookingRepo.emitActive([
+      _sampleBooking(
+        id: 'active-2',
+        status: BookingStatus.onTheWay,
+        passengerPickedUpAt: DateTime.now(),
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
     expect(find.text('Complete Trip'), findsOneWidget);
 
     await tester.tap(find.text('Complete Trip'));
