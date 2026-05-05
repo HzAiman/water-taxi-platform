@@ -232,9 +232,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     setState(() => _isInitializingViewModel = true);
 
     try {
-      await context
-          .read<OperatorHomeViewModel>()
-          .ensureInitialized(operatorId, force: force);
+      await context.read<OperatorHomeViewModel>().ensureInitialized(
+        operatorId,
+        force: force,
+      );
     } catch (e) {
       if (mounted) {
         developer.log(
@@ -721,6 +722,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     return OperatorMapLayers.buildPolylines(
       activeBooking,
       routePointsOverride: routePoints,
+      passengerPickedUp: passengerPickedUp,
       opacity: 1,
     );
   }
@@ -756,7 +758,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   bool _shouldPerformLocationLookup() {
     final now = DateTime.now();
     final lastLookup = _lastLocationLookupAt;
-    if (lastLookup != null && now.difference(lastLookup) < const Duration(seconds: 2)) {
+    if (lastLookup != null &&
+        now.difference(lastLookup) < const Duration(seconds: 2)) {
       return false;
     }
     _lastLocationLookupAt = now;
@@ -824,9 +827,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             onCameraMoveStarted: () {
               if (_mapCameraService.currentState.isProgrammaticCameraMove ||
                   activeBooking == null ||
-                  !OperatorMapLayers.isActiveNavigationBooking(
-                    activeBooking,
-                  )) {
+                  !OperatorMapLayers.isActiveNavigationBooking(activeBooking)) {
                 return;
               }
               _mapCameraService.handleCameraMoveStarted(
@@ -880,10 +881,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     constraints: BoxConstraints(
                       maxHeight: MediaQuery.sizeOf(context).height * 0.80,
                     ),
-                    child: _buildBookingActionCard(
-                      operatorId,
-                      viewModel,
-                    ),
+                    child: _buildBookingActionCard(operatorId, viewModel),
                   ),
                 ] else ...[
                   const OperatorInfoCard(
@@ -907,8 +905,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     ? null
                     : _toggleStatus,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      viewModel.isOnline ? Colors.red : const Color(0xFF0066CC),
+                  backgroundColor: viewModel.isOnline
+                      ? Colors.red
+                      : const Color(0xFF0066CC),
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 12,
@@ -998,9 +997,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   Widget build(BuildContext context) {
     _cameraBoundsPadding = MediaQuery.sizeOf(context).width * 0.2;
     final operatorId = _operatorId;
-    final snapshot = context.select<OperatorHomeViewModel, OperatorHomeSnapshot>(
-      (viewModel) => viewModel.homeSnapshot,
-    );
+    final snapshot = context
+        .select<OperatorHomeViewModel, OperatorHomeSnapshot>(
+          (viewModel) => viewModel.homeSnapshot,
+        );
     final viewModel = context.read<OperatorHomeViewModel>();
     final activeBooking = snapshot.activeBooking;
     final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
@@ -1017,12 +1017,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           ? const Center(child: Text('Not signed in'))
           : Stack(
               children: [
-                _buildMap(
-                  context,
-                  activeBooking,
-                  snapshot,
-                  trimmedRoutePoints,
-                ),
+                _buildMap(context, activeBooking, snapshot, trimmedRoutePoints),
                 if (isLoading)
                   const Positioned.fill(
                     child: Center(child: CircularProgressIndicator()),

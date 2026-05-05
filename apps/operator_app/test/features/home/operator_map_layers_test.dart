@@ -107,7 +107,10 @@ void main() {
         ],
       );
 
-      final polylines = OperatorMapLayers.buildPolylines(booking);
+      final polylines = OperatorMapLayers.buildPolylines(
+        booking,
+        passengerPickedUp: false,
+      );
       expect(polylines, hasLength(1));
       final polyline = polylines.first;
       expect(polyline.points, hasLength(2));
@@ -127,7 +130,10 @@ void main() {
         ],
       );
 
-      final polylines = OperatorMapLayers.buildPolylines(booking);
+      final polylines = OperatorMapLayers.buildPolylines(
+        booking,
+        passengerPickedUp: false,
+      );
       expect(polylines, hasLength(1));
 
       final polyline = polylines.first;
@@ -146,7 +152,10 @@ void main() {
         ],
       );
 
-      final movedPolylines = OperatorMapLayers.buildPolylines(movedBooking);
+      final movedPolylines = OperatorMapLayers.buildPolylines(
+        movedBooking,
+        passengerPickedUp: false,
+      );
       expect(movedPolylines, hasLength(1));
       expect(movedPolylines.first.points, const <LatLng>[
         LatLng(2.2000, 102.2450),
@@ -169,7 +178,10 @@ void main() {
         ],
       );
 
-      final polylines = OperatorMapLayers.buildPolylines(booking);
+      final polylines = OperatorMapLayers.buildPolylines(
+        booking,
+        passengerPickedUp: true,
+      );
       expect(polylines, hasLength(1));
       final polyline = polylines.first;
       expect(polyline.points, hasLength(2));
@@ -188,7 +200,10 @@ void main() {
         ],
       );
 
-      final polylines = OperatorMapLayers.buildPolylines(booking);
+      final polylines = OperatorMapLayers.buildPolylines(
+        booking,
+        passengerPickedUp: false,
+      );
       expect(polylines, hasLength(1));
       final polyline = polylines.first;
       // fallback line for phase 1 should be operator -> pickup, not routePolyline
@@ -213,6 +228,7 @@ void main() {
       final polylines = OperatorMapLayers.buildPolylines(
         booking,
         routePointsOverride: override,
+        passengerPickedUp: false,
       );
       expect(polylines, hasLength(1));
       final polyline = polylines.first;

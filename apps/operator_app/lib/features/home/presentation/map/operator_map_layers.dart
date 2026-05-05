@@ -32,10 +32,7 @@ class OperatorMapLayers {
 
   static LatLngBounds boundsFromPoints(List<LatLng> points) {
     if (points.isEmpty) {
-      return LatLngBounds(
-        southwest: LatLng(0, 0),
-        northeast: LatLng(0, 0),
-      );
+      return LatLngBounds(southwest: LatLng(0, 0), northeast: LatLng(0, 0));
     }
 
     var south = points.first.latitude;
@@ -70,10 +67,7 @@ class OperatorMapLayers {
     var routePoints = _routePointsForPhase(booking, phase);
 
     if (routePoints.length < 2) {
-      routePoints = _phaseFallbackLine(
-        booking,
-        phase,
-      );
+      routePoints = _phaseFallbackLine(booking, phase);
     }
 
     return _trimRouteFromOperatorPosition(routePoints, booking);
@@ -144,16 +138,14 @@ class OperatorMapLayers {
   static Set<Polyline> buildPolylines(
     BookingModel? activeBooking, {
     List<LatLng>? routePointsOverride,
+    required bool passengerPickedUp,
     double opacity = 1,
   }) {
     if (activeBooking == null) {
       return const <Polyline>{};
     }
 
-    final phase = _resolveRoutePhase(
-      activeBooking,
-      activeBooking.passengerPickedUpAt != null,
-    );
+    final phase = _resolveRoutePhase(activeBooking, passengerPickedUp);
     var routePoints = _routePointsForPhase(activeBooking, phase);
 
     // Use routePointsOverride only as a fallback/debug hook.
@@ -232,7 +224,10 @@ class OperatorMapLayers {
     List<LatLng> routePoints,
     BookingModel booking,
   ) {
-    final operatorPoint = _latLngOrNull(booking.operatorLat, booking.operatorLng);
+    final operatorPoint = _latLngOrNull(
+      booking.operatorLat,
+      booking.operatorLng,
+    );
     if (operatorPoint == null || routePoints.length < 2) {
       return routePoints;
     }
@@ -268,7 +263,10 @@ class OperatorMapLayers {
     BookingModel booking,
     _RoutePhase phase,
   ) {
-    final operatorPoint = _latLngOrNull(booking.operatorLat, booking.operatorLng);
+    final operatorPoint = _latLngOrNull(
+      booking.operatorLat,
+      booking.operatorLng,
+    );
     switch (phase) {
       case _RoutePhase.toPickup:
         if (operatorPoint != null &&

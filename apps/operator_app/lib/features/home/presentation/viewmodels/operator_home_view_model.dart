@@ -99,10 +99,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     await ensureInitialized(operatorId);
   }
 
-  Future<void> ensureInitialized(
-    String operatorId, {
-    bool force = false,
-  }) {
+  Future<void> ensureInitialized(String operatorId, {bool force = false}) {
     if (!force) {
       if (_hasInitialized) {
         return Future.value();
@@ -117,20 +114,23 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final future = completer.future;
     _initializationFuture = future;
     unawaited(
-      _initialize(operatorId).then((_) {
-        _hasInitialized = true;
-        if (!completer.isCompleted) {
-          completer.complete();
-        }
-      }).catchError((Object error, StackTrace stackTrace) {
-        if (!completer.isCompleted) {
-          completer.completeError(error, stackTrace);
-        }
-      }).whenComplete(() {
-        if (_initializationFuture == future) {
-          _initializationFuture = null;
-        }
-      }),
+      _initialize(operatorId)
+          .then((_) {
+            _hasInitialized = true;
+            if (!completer.isCompleted) {
+              completer.complete();
+            }
+          })
+          .catchError((Object error, StackTrace stackTrace) {
+            if (!completer.isCompleted) {
+              completer.completeError(error, stackTrace);
+            }
+          })
+          .whenComplete(() {
+            if (_initializationFuture == future) {
+              _initializationFuture = null;
+            }
+          }),
     );
     return future;
   }
@@ -559,9 +559,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
     if (error is LocationServiceDisabledException) return true;
     final text = error.toString().toLowerCase();
     return text.contains('permission') &&
-        (text.contains('denied') ||
-            text.contains('revoked') ||
-            text.contains('not granted')) ||
+            (text.contains('denied') ||
+                text.contains('revoked') ||
+                text.contains('not granted')) ||
         text.contains('service disabled') ||
         text.contains('location service') ||
         text.contains('permissiondefinitionsnotfound');
@@ -676,18 +676,21 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final operatorPoint = _bookingPoint(activeBooking);
     final destinationPoint = activeBooking == null
         ? null
-      : LatLng(activeBooking.destinationLat, activeBooking.destinationLng);
+        : LatLng(activeBooking.destinationLat, activeBooking.destinationLng);
     final pendingBookings = operatorId == null
         ? const <BookingModel>[]
-      : _pendingBookings
-        .where((booking) => !booking.rejectedBy.contains(operatorId))
-        .toList(growable: false);
-    final topPendingBooking = pendingBookings.isNotEmpty ? pendingBookings.first : null;
+        : _pendingBookings
+              .where((booking) => !booking.rejectedBy.contains(operatorId))
+              .toList(growable: false);
+    final topPendingBooking = pendingBookings.isNotEmpty
+        ? pendingBookings.first
+        : null;
     final key = [
       operatorId ?? '-',
       activeBooking?.bookingId ?? '-',
       activeBooking?.status.firestoreValue ?? '-',
-      activeBooking?.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ?? '-',
+      activeBooking?.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ??
+          '-',
       passengerPickedUp ? '1' : '0',
       operatorPoint?.latitude.toStringAsFixed(5) ?? '-',
       operatorPoint?.longitude.toStringAsFixed(5) ?? '-',
@@ -1056,6 +1059,8 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
     return null;
   }
 
+  const severeOffRouteCapMeters = 5000.0;
+
   final polyline = booking.routePolyline;
   final projection = _projectProgressOnRoute(
     currentLat: currentLat,
@@ -1068,8 +1073,28 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   );
 
   final totalRouteMarkers = max(polyline.length, 2);
+  var progressFraction = projection.progressFraction;
+  var remainingDistanceMeters = projection.remainingDistanceMeters;
+  var offRouteDistanceMeters = projection.offRouteDistanceMeters;
+
+  if (offRouteDistanceMeters > severeOffRouteCapMeters) {
+    final floorMarker = lastResolvedRouteMarker ?? 1;
+    final minProgress = totalRouteMarkers <= 1
+        ? 0.0
+        : ((floorMarker - 1) / (totalRouteMarkers - 1)).clamp(0.0, 1.0);
+    progressFraction = max(progressFraction, minProgress).clamp(0.0, 1.0);
+    remainingDistanceMeters = _routeTotalDistanceMeters(
+      originLat: booking.originLat,
+      originLng: booking.originLng,
+      destinationLat: booking.destinationLat,
+      destinationLng: booking.destinationLng,
+      routePolyline: polyline,
+    );
+    offRouteDistanceMeters = severeOffRouteCapMeters;
+  }
+
   var nearestRouteMarker =
-      (projection.progressFraction * (totalRouteMarkers - 1)).round() + 1;
+      (progressFraction * (totalRouteMarkers - 1)).round() + 1;
   nearestRouteMarker = nearestRouteMarker.clamp(1, totalRouteMarkers).toInt();
 
   if (lastResolvedRouteMarker != null &&
@@ -1094,10 +1119,8 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   );
 
   Duration? eta;
-  if (speed != null && speed >= 0.5 && projection.remainingDistanceMeters > 0) {
-    eta = Duration(
-      seconds: (projection.remainingDistanceMeters / speed).round(),
-    );
+  if (speed != null && speed >= 0.5 && remainingDistanceMeters > 0) {
+    eta = Duration(seconds: (remainingDistanceMeters / speed).round());
   }
 
   return OperatorNavigationGuidance(
@@ -1105,10 +1128,10 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
     nearestRouteMarker: nearestRouteMarker,
     nextRouteMarker: nextRouteMarker,
     totalRouteMarkers: totalRouteMarkers,
-    progressFraction: projection.progressFraction,
-    remainingDistanceMeters: projection.remainingDistanceMeters,
-    offRouteDistanceMeters: projection.offRouteDistanceMeters,
-    isOffRoute: projection.offRouteDistanceMeters > offRouteToleranceMeters,
+    progressFraction: progressFraction,
+    remainingDistanceMeters: remainingDistanceMeters,
+    offRouteDistanceMeters: offRouteDistanceMeters,
+    isOffRoute: offRouteDistanceMeters > offRouteToleranceMeters,
     speedMetersPerSecond: speed,
     eta: eta,
   );
@@ -1233,7 +1256,7 @@ double? _resolveEffectiveSpeedMps({
   }
 
   final elapsedSeconds = now.difference(lastSampleAt).inMilliseconds / 1000.0;
-  if (elapsedSeconds <= 0) {
+  if (elapsedSeconds < 0.5) {
     return null;
   }
 
@@ -1247,7 +1270,40 @@ double? _resolveEffectiveSpeedMps({
     return null;
   }
 
-  return movedMeters / elapsedSeconds;
+  final speed = movedMeters / elapsedSeconds;
+  if (!speed.isFinite || speed <= 0.5) {
+    return null;
+  }
+
+  return speed;
+}
+
+double _routeTotalDistanceMeters({
+  required double originLat,
+  required double originLng,
+  required double destinationLat,
+  required double destinationLng,
+  required List<BookingRoutePoint> routePolyline,
+}) {
+  if (routePolyline.length < 2) {
+    return Geolocator.distanceBetween(
+      originLat,
+      originLng,
+      destinationLat,
+      destinationLng,
+    );
+  }
+
+  var total = 0.0;
+  for (var i = 0; i < routePolyline.length - 1; i++) {
+    total += Geolocator.distanceBetween(
+      routePolyline[i].lat,
+      routePolyline[i].lng,
+      routePolyline[i + 1].lat,
+      routePolyline[i + 1].lng,
+    );
+  }
+  return total;
 }
 
 double _distanceToLineSegmentMeters({

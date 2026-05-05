@@ -23,13 +23,13 @@ class MapCameraState {
   });
 
   const MapCameraState.initial()
-      : this(
-          navigationMode: OperatorMapNavigationMode.overview,
-          isFollowing: false,
-          showRecenterButton: false,
-          isMapReady: false,
-          isProgrammaticCameraMove: false,
-        );
+    : this(
+        navigationMode: OperatorMapNavigationMode.overview,
+        isFollowing: false,
+        showRecenterButton: false,
+        isMapReady: false,
+        isProgrammaticCameraMove: false,
+      );
 
   final OperatorMapNavigationMode navigationMode;
   final bool isFollowing;
@@ -42,14 +42,16 @@ class OperatorMapControllerService {
   OperatorMapControllerService({this.enableDebugLogging = kDebugMode});
 
   final bool enableDebugLogging;
-  final ValueNotifier<MapCameraState> state =
-      ValueNotifier<MapCameraState>(const MapCameraState.initial());
+  final ValueNotifier<MapCameraState> state = ValueNotifier<MapCameraState>(
+    const MapCameraState.initial(),
+  );
 
   GoogleMapController? _mapController;
   bool _isMapReady = false;
   bool _isCameraAnimating = false;
   bool _isProgrammaticCameraMove = false;
-  OperatorMapNavigationMode _navigationMode = OperatorMapNavigationMode.overview;
+  OperatorMapNavigationMode _navigationMode =
+      OperatorMapNavigationMode.overview;
   bool _shouldFitRouteBeforeFollow = false;
   String? _lastRouteFitPhaseSignature;
   DateTime? _lastFollowAt;
@@ -84,7 +86,10 @@ class OperatorMapControllerService {
     _emitState();
   }
 
-  void resetForNoActiveBooking() {
+  Future<void> resetForNoActiveBooking() async {
+    if (_isMapReady) {
+      await _resetCameraTiltToOverview();
+    }
     _lastFollowOperatorPoint = null;
     _lastFollowAt = null;
     _lastBearing = null;
@@ -152,7 +157,7 @@ class OperatorMapControllerService {
     );
 
     if (activeBooking == null) {
-      resetForNoActiveBooking();
+      await resetForNoActiveBooking();
       return _navigationMode;
     }
 
@@ -198,9 +203,7 @@ class OperatorMapControllerService {
     }
   }
 
-  void handleCameraMoveStarted({
-    required bool shouldYieldToUser,
-  }) {
+  void handleCameraMoveStarted({required bool shouldYieldToUser}) {
     if (shouldYieldToUser &&
         _navigationMode == OperatorMapNavigationMode.tracking) {
       _navigationMode = OperatorMapNavigationMode.userControlled;
@@ -356,6 +359,26 @@ class OperatorMapControllerService {
     _lastTilt = tilt;
   }
 
+  Future<void> _resetCameraTiltToOverview() async {
+    final target = _lastCameraTarget;
+    final zoom = _lastZoom;
+    if (target == null || zoom == null) {
+      return;
+    }
+
+    await animateCameraSafely(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: target,
+          zoom: zoom,
+          bearing: 0.0,
+          tilt: _overviewTilt,
+        ),
+      ),
+      allowIfBusy: true,
+    );
+  }
+
   Future<void> animateCameraSafely(
     CameraUpdate update, {
     bool allowIfBusy = false,
@@ -395,14 +418,16 @@ class OperatorMapControllerService {
     }
 
     final bounds = OperatorMapLayers.boundsFromPoints(points);
-    final latSpan = (bounds.northeast.latitude - bounds.southwest.latitude).abs();
-    final lngSpan = (bounds.northeast.longitude - bounds.southwest.longitude).abs();
+    final latSpan = (bounds.northeast.latitude - bounds.southwest.latitude)
+        .abs();
+    final lngSpan = (bounds.northeast.longitude - bounds.southwest.longitude)
+        .abs();
     final span = math.max(latSpan, lngSpan);
     final multiplier = span > 0.08
         ? 0.8
         : span > 0.03
-            ? 0.9
-            : 1.0;
+        ? 0.9
+        : 1.0;
     return (_cameraBoundsPadding * multiplier).clamp(96.0, 240.0);
   }
 
