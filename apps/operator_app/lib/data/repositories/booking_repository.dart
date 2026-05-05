@@ -566,13 +566,9 @@ class BookingRepository {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
     final routePolyline = await _resolveRoutePolyline(data);
-    final routeToOriginPolyline = await _resolveRouteToOriginPolyline(
-      data,
-      fallback: routePolyline,
-    );
+    final routeToOriginPolyline = await _resolveRouteToOriginPolyline(data);
     final routeToDestinationPolyline = await _resolveRouteToDestinationPolyline(
       data,
-      fallback: routePolyline,
     );
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
@@ -606,9 +602,8 @@ class BookingRepository {
   }
 
   Future<List<Map<String, double>>?> _resolveRouteToOriginPolyline(
-    Map<String, dynamic> data, {
-    required List<Map<String, double>>? fallback,
-  }) async {
+    Map<String, dynamic> data,
+  ) async {
     final direct = _normaliseRoutePolyline(
       _extractPhaseRouteRaw(data, const [
         BookingFields.routeToOriginPolyline,
@@ -667,13 +662,12 @@ class BookingRepository {
       return byId;
     }
 
-    return fallback;
+    return null;
   }
 
   Future<List<Map<String, double>>?> _resolveRouteToDestinationPolyline(
-    Map<String, dynamic> data, {
-    required List<Map<String, double>>? fallback,
-  }) async {
+    Map<String, dynamic> data,
+  ) async {
     final direct = _normaliseRoutePolyline(
       _extractPhaseRouteRaw(data, const [
         BookingFields.routeToDestinationPolyline,
@@ -731,7 +725,7 @@ class BookingRepository {
       return byId;
     }
 
-    return fallback;
+    return null;
   }
 
   Future<List<Map<String, double>>?> _resolvePhaseRouteFromId(
@@ -760,6 +754,8 @@ class BookingRepository {
         }
       }
     }
+
+    routeId ??= _extractNestedPhaseRouteId(data, nestedIdCandidates);
 
     if (routeId == null || routeId.isEmpty) {
       return null;
@@ -883,9 +879,57 @@ class BookingRepository {
     for (final key in candidates) {
       final value = container[key];
       if (value != null) {
-        return value;
+        return _unwrapPhaseRoutePayload(value);
       }
     }
+    return null;
+  }
+
+  static dynamic _unwrapPhaseRoutePayload(dynamic value) {
+    if (value is Map) {
+      return value['path'] ??
+          value['coordinates'] ??
+          value['polyline'] ??
+          value['geometry'] ??
+          value['points'] ??
+          value[BookingFields.routePolyline] ??
+          value;
+    }
+    return value;
+  }
+
+  static String? _extractNestedPhaseRouteId(
+    Map<String, dynamic> data,
+    List<String> nestedIdCandidates,
+  ) {
+    final container = data['phasePolylines'] ?? data['phaseRoutes'];
+    if (container is! Map) {
+      return null;
+    }
+
+    for (final key in nestedIdCandidates) {
+      final value = container[key];
+      if (value is String) {
+        final routeId = value.trim();
+        if (routeId.isNotEmpty) {
+          return routeId;
+        }
+      }
+
+      if (value is Map) {
+        final routeId =
+            value['routePolylineId'] ??
+            value['polylineId'] ??
+            value['routeId'] ??
+            value['id'] ??
+            value['ref'];
+        final normalized = routeId?.toString().trim();
+        if (normalized != null && normalized.isNotEmpty) {
+          return normalized;
+        }
+      }
+    }
+
     return null;
   }
 
@@ -910,8 +954,15 @@ class BookingRepository {
     }
 
     if (entry is Map) {
-      final lat = _asDouble(entry['lat'] ?? entry['latitude']);
-      final lng = _asDouble(entry['lng'] ?? entry['longitude'] ?? entry['lon']);
+      final lat = _asDouble(
+        entry['lat'] ?? entry['latitude'] ?? entry['_latitude'],
+      );
+      final lng = _asDouble(
+        entry['lng'] ??
+            entry['longitude'] ??
+            entry['lon'] ??
+            entry['_longitude'],
+      );
       if (lat != null && lng != null) {
         return {'lat': lat, 'lng': lng};
       }

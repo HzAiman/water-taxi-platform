@@ -79,9 +79,10 @@ class OperatorMapLayers {
       return markers;
     }
 
+    final passengerPickedUp = activeBooking.passengerPickedUpAt != null;
     final originLat = activeBooking.originLat;
     final originLng = activeBooking.originLng;
-    if (_isValidLatLng(originLat, originLng)) {
+    if (!passengerPickedUp && _isValidLatLng(originLat, originLng)) {
       markers.add(
         Marker(
           markerId: const MarkerId('origin'),
@@ -279,10 +280,11 @@ class OperatorMapLayers {
         }
         return const <LatLng>[];
       case _RoutePhase.toDestination:
-        if (_isValidLatLng(booking.originLat, booking.originLng) &&
+        if (operatorPoint != null &&
+            _isValidLatLng(operatorPoint.latitude, operatorPoint.longitude) &&
             _isValidLatLng(booking.destinationLat, booking.destinationLng)) {
           return <LatLng>[
-            LatLng(booking.originLat, booking.originLng),
+            operatorPoint,
             LatLng(booking.destinationLat, booking.destinationLng),
           ];
         }

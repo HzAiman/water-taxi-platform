@@ -337,8 +337,13 @@ class BookingRoutePoint {
 
   static BookingRoutePoint? tryParse(dynamic raw) {
     if (raw is Map) {
-      final lat = _asDouble(raw['lat'] ?? raw['latitude']);
-      final lng = _asDouble(raw['lng'] ?? raw['longitude'] ?? raw['lon']);
+      final lat = _asDouble(raw['lat'] ?? raw['latitude'] ?? raw['_latitude']);
+      final lng = _asDouble(
+        raw['lng'] ??
+            raw['longitude'] ??
+            raw['lon'] ??
+            raw['_longitude'],
+      );
       if (lat != null && lng != null) {
         return BookingRoutePoint(lat: lat, lng: lng);
       }

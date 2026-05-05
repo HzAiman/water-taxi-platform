@@ -416,15 +416,145 @@ void main() {
           booking.routeToOriginPolyline.first.lat,
           closeTo(2.18, 0.000001),
         );
-        // Destination phase missing -> falls back to main route polyline.
-        expect(booking.routeToDestinationPolyline, hasLength(2));
+        // Destination phase missing -> keep it empty so the UI can render a
+        // phase-appropriate fallback instead of reusing the generic route.
+        expect(booking.routeToDestinationPolyline, isEmpty);
+      },
+    );
+
+    test(
+      'streamActiveBookings resolves phase routes from nested payloads and polyline ids',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repository = BookingRepository(firestore: firestore);
+
+        await firestore
+            .collection(FirestoreCollections.polylines)
+            .doc('dest-phase-polyline')
+            .set({
+              'path': const [
+                {'lat': 2.2000, 'lng': 102.2500},
+                {'lat': 2.1965, 'lng': 102.2480},
+                {'lat': 2.1930, 'lng': 102.2460},
+              ],
+            });
+
+        await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc('booking-stream-3')
+            .set({
+              BookingFields.bookingId: 'booking-stream-3',
+              BookingFields.userId: 'user-1',
+              BookingFields.userName: 'Passenger One',
+              BookingFields.userPhone: '0123456789',
+              BookingFields.origin: 'Jetty A',
+              BookingFields.destination: 'Jetty B',
+              BookingFields.originCoords: const GeoPoint(2.2, 102.25),
+              BookingFields.destinationCoords: const GeoPoint(2.193, 102.246),
+              BookingFields.adultCount: 1,
+              BookingFields.childCount: 0,
+              BookingFields.passengerCount: 1,
+              BookingFields.totalFare: 10.0,
+              BookingFields.fareSnapshotId: 'fare-snapshot-test',
+              BookingFields.paymentMethod: PaymentMethods.onlineBanking,
+              BookingFields.paymentStatus: 'paid',
+              BookingFields.status: BookingStatus.onTheWay.firestoreValue,
+              BookingFields.operatorUid: 'operator-1',
+              'phaseRoutes': const {
+                'to_origin': {
+                  'path': [
+                    {'lat': 2.2100, 'lng': 102.2600},
+                    {'lat': 2.2050, 'lng': 102.2550},
+                    {'lat': 2.2000, 'lng': 102.2500},
+                  ],
+                },
+                'to_destination': {'polylineId': 'dest-phase-polyline'},
+              },
+              BookingFields.createdAt: Timestamp.now(),
+              BookingFields.updatedAt: Timestamp.now(),
+            });
+
+        final active = await repository
+            .streamActiveBookings('operator-1')
+            .first;
+        expect(active, hasLength(1));
+        final booking = active.first;
+
+        expect(booking.routeToOriginPolyline, hasLength(3));
+        expect(
+          booking.routeToOriginPolyline.first.lat,
+          closeTo(2.2100, 0.000001),
+        );
+        expect(booking.routeToDestinationPolyline, hasLength(3));
+        expect(
+          booking.routeToDestinationPolyline.first.lng,
+          closeTo(102.2500, 0.000001),
+        );
+        expect(
+          booking.routeToDestinationPolyline.last.lat,
+          closeTo(2.1930, 0.000001),
+        );
+      },
+    );
+
+    test(
+      'streamActiveBookings hydrates polyline collection path with firestore-exported underscore keys',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repository = BookingRepository(firestore: firestore);
+
+        await firestore
+            .collection(FirestoreCollections.polylines)
+            .doc('route_1')
+            .set({
+              'path': const [
+                {'_latitude': 2.2073978, '_longitude': 102.251349},
+                {'_latitude': 2.2070574, '_longitude': 102.2511928},
+                {'_latitude': 2.2068474, '_longitude': 102.2509458},
+              ],
+            });
+
+        await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc('booking-stream-4')
+            .set({
+              BookingFields.bookingId: 'booking-stream-4',
+              BookingFields.userId: 'user-1',
+              BookingFields.userName: 'Passenger One',
+              BookingFields.userPhone: '0123456789',
+              BookingFields.origin: 'Jetty A',
+              BookingFields.destination: 'Jetty B',
+              BookingFields.originCoords: const GeoPoint(2.2073978, 102.251349),
+              BookingFields.destinationCoords: const GeoPoint(2.2068474, 102.2509458),
+              BookingFields.adultCount: 1,
+              BookingFields.childCount: 0,
+              BookingFields.passengerCount: 1,
+              BookingFields.totalFare: 10.0,
+              BookingFields.fareSnapshotId: 'fare-snapshot-test',
+              BookingFields.paymentMethod: PaymentMethods.onlineBanking,
+              BookingFields.paymentStatus: 'paid',
+              BookingFields.status: BookingStatus.onTheWay.firestoreValue,
+              BookingFields.operatorUid: 'operator-1',
+              'phaseRoutes': const {
+                'to_destination': {'polylineId': 'route_1'},
+              },
+              BookingFields.createdAt: Timestamp.now(),
+              BookingFields.updatedAt: Timestamp.now(),
+            });
+
+        final active = await repository
+            .streamActiveBookings('operator-1')
+            .first;
+        final booking = active.first;
+
+        expect(booking.routeToDestinationPolyline, hasLength(3));
         expect(
           booking.routeToDestinationPolyline.first.lat,
-          closeTo(2.2, 0.000001),
+          closeTo(2.2073978, 0.000001),
         );
         expect(
           booking.routeToDestinationPolyline.last.lng,
-          closeTo(102.3, 0.000001),
+          closeTo(102.2509458, 0.000001),
         );
       },
     );

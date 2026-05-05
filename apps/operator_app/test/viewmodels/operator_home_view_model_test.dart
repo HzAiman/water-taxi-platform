@@ -737,6 +737,54 @@ void main() {
       expect(guidance!.nearestRouteMarker, greaterThanOrEqualTo(3));
     });
 
+    test('navigation helper uses routeToOriginPolyline before pickup', () {
+      final booking = BookingModel(
+        bookingId: 'nav-phase-1',
+        userId: 'user-1',
+        userName: 'Passenger One',
+        userPhone: '0123456789',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        originLat: 2.2000,
+        originLng: 102.2500,
+        destinationLat: 2.2050,
+        destinationLng: 102.2600,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2025, lng: 102.2550),
+          BookingRoutePoint(lat: 2.2050, lng: 102.2600),
+        ],
+        routeToOriginPolyline: const [
+          BookingRoutePoint(lat: 2.1900, lng: 102.2400),
+          BookingRoutePoint(lat: 2.1950, lng: 102.2450),
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+        ],
+        adultCount: 1,
+        childCount: 0,
+        passengerCount: 1,
+        totalFare: 12,
+        paymentMethod: PaymentMethods.creditCard,
+        paymentStatus: 'paid',
+        status: BookingStatus.onTheWay,
+        operatorUid: 'operator-1',
+        operatorLat: 2.1950,
+        operatorLng: 102.2450,
+        rejectedBy: const [],
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.1951,
+        currentLng: 102.2451,
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+      );
+
+      expect(guidance, isNotNull);
+      expect(guidance!.nearestRouteMarker, inInclusiveRange(1, 3));
+      expect(guidance.nextRouteMarker, inInclusiveRange(1, 3));
+      expect(guidance.offRouteDistanceMeters, lessThan(80));
+    });
+
     test('navigation helper flags off-route when far from segment', () {
       final booking = BookingModel(
         bookingId: 'nav-3',

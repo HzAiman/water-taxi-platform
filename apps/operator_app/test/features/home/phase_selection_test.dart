@@ -149,7 +149,9 @@ void main() {
       );
     });
 
-    test('Fallback to routePolyline when phase polyline is missing', () {
+    test(
+      'Missing phase 1 polyline stays empty so renderer can use operator to pickup fallback',
+      () {
       final mockFullPolyline = [
         BookingRoutePoint(lat: 3.1350, lng: 101.6870),
         BookingRoutePoint(lat: 2.201667, lng: 102.249444),
@@ -170,13 +172,9 @@ void main() {
 
       final passengerPickedUp = booking.passengerPickedUpAt != null;
 
-      // Phase 1: Should use routePolyline as fallback
       final phase1Primary = passengerPickedUp
           ? booking.routeToDestinationPolyline
           : booking.routeToOriginPolyline;
-      final phase1Fallback = phase1Primary.isEmpty
-          ? booking.routePolyline
-          : const <BookingRoutePoint>[];
 
       expect(
         phase1Primary.isEmpty,
@@ -184,9 +182,9 @@ void main() {
         reason: 'Phase 1 primary should be empty',
       );
       expect(
-        phase1Fallback,
+        booking.routePolyline,
         mockFullPolyline,
-        reason: 'Phase 1 fallback should use routePolyline',
+        reason: 'Generic route may still exist for passenger tracking',
       );
     });
 

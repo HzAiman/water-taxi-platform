@@ -1061,14 +1061,26 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
 
   const severeOffRouteCapMeters = 5000.0;
 
-  final polyline = booking.routePolyline;
+  final passengerPickedUp = booking.passengerPickedUpAt != null;
+  final phasePolyline = passengerPickedUp
+      ? booking.routeToDestinationPolyline
+      : booking.routeToOriginPolyline;
+  final startLat = passengerPickedUp
+      ? booking.originLat
+      : (booking.operatorLat ?? currentLat);
+  final startLng = passengerPickedUp
+      ? booking.originLng
+      : (booking.operatorLng ?? currentLng);
+  final endLat = passengerPickedUp ? booking.destinationLat : booking.originLat;
+  final endLng = passengerPickedUp ? booking.destinationLng : booking.originLng;
+  final polyline = phasePolyline;
   final projection = _projectProgressOnRoute(
     currentLat: currentLat,
     currentLng: currentLng,
-    originLat: booking.originLat,
-    originLng: booking.originLng,
-    destinationLat: booking.destinationLat,
-    destinationLng: booking.destinationLng,
+    originLat: startLat,
+    originLng: startLng,
+    destinationLat: endLat,
+    destinationLng: endLng,
     routePolyline: polyline,
   );
 
@@ -1084,10 +1096,10 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
         : ((floorMarker - 1) / (totalRouteMarkers - 1)).clamp(0.0, 1.0);
     progressFraction = max(progressFraction, minProgress).clamp(0.0, 1.0);
     remainingDistanceMeters = _routeTotalDistanceMeters(
-      originLat: booking.originLat,
-      originLng: booking.originLng,
-      destinationLat: booking.destinationLat,
-      destinationLng: booking.destinationLng,
+      originLat: startLat,
+      originLng: startLng,
+      destinationLat: endLat,
+      destinationLng: endLng,
       routePolyline: polyline,
     );
     offRouteDistanceMeters = severeOffRouteCapMeters;

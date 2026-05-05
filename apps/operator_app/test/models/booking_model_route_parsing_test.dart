@@ -117,6 +117,40 @@ void main() {
       );
     });
 
+    test('fromMap parses firestore-exported underscore coordinate keys', () {
+      final model = BookingModel.fromMap(
+        {
+          'bookingId': 'booking-parse-3b',
+          'userId': 'user-1',
+          'userName': 'Passenger One',
+          'userPhone': '0123456789',
+          'origin': 'Jetty A',
+          'destination': 'Jetty B',
+          'routePolyline': const [
+            {'_latitude': 2.2073978, '_longitude': 102.251349},
+            {'_latitude': 2.2070574, '_longitude': 102.2511928},
+          ],
+          'adultCount': 1,
+          'childCount': 0,
+          'passengerCount': 1,
+          'totalFare': 12.0,
+          'fareSnapshotId': 'fare-snapshot-test',
+          'paymentMethod': PaymentMethods.creditCard,
+          'paymentStatus': 'paid',
+          'status': BookingStatus.onTheWay.firestoreValue,
+          'rejectedBy': const <String>[],
+        },
+        originLat: 2.2000,
+        originLng: 102.2500,
+        destinationLat: 2.2100,
+        destinationLng: 102.2600,
+      );
+
+      expect(model.routePolyline, hasLength(2));
+      expect(model.routePolyline.first.lat, closeTo(2.2073978, 0.0000001));
+      expect(model.routePolyline.first.lng, closeTo(102.251349, 0.0000001));
+    });
+
     test('fromMap parses passengerPickedUpAt from string and epoch millis', () {
       final fromIso = BookingModel.fromMap(
         {

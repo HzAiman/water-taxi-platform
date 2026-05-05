@@ -87,6 +87,22 @@ void main() {
         isFalse,
       );
     });
+
+    test('hides pickup marker after passenger is picked up', () {
+      final booking = _bookingFixture(
+        bookingId: 'm4',
+        status: BookingStatus.onTheWay,
+        passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+      );
+
+      final markers = OperatorMapLayers.buildMarkers(booking);
+
+      expect(markers.any((marker) => marker.markerId.value == 'origin'), isFalse);
+      expect(
+        markers.any((marker) => marker.markerId.value == 'destination'),
+        isTrue,
+      );
+    });
   });
 
   group('OperatorMapLayers.buildPolylines', () {
@@ -187,6 +203,27 @@ void main() {
       expect(polyline.points, hasLength(2));
       expect(polyline.points.first, const LatLng(2.201667, 102.249444));
       expect(polyline.points.last, const LatLng(2.193056, 102.246111));
+    });
+
+    test('post-pickup fallback uses operator to destination', () {
+      final booking = _bookingFixture(
+        bookingId: 'b2-fallback',
+        operatorLat: 2.198500,
+        operatorLng: 102.247500,
+        passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+        routeToDestinationPolyline: const <BookingRoutePoint>[],
+      );
+
+      final polylines = OperatorMapLayers.buildPolylines(
+        booking,
+        passengerPickedUp: true,
+      );
+
+      expect(polylines, hasLength(1));
+      expect(polylines.first.points, const <LatLng>[
+        LatLng(2.198500, 102.247500),
+        LatLng(2.193056, 102.246111),
+      ]);
     });
 
     test('does not use routePolyline for phase selection', () {
