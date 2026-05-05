@@ -40,7 +40,13 @@ service cloud.firestore {
     }
 
     function isAssignedOperator() {
-      return isOperator() && bookingOperatorUid(resource.data) == request.auth.uid;
+      return isOperator() && (
+        bookingOperatorUid(resource.data) == request.auth.uid
+        || (
+          exists(/databases/$(database)/documents/operators/$(request.auth.uid))
+          && get(/databases/$(database)/documents/operators/$(request.auth.uid)).data.operatorId == bookingOperatorUid(resource.data)
+        )
+      );
     }
 
     function bookingCreateHasExpectedFields() {
@@ -91,6 +97,20 @@ service cloud.firestore {
       && request.resource.data.fareSnapshotId is string;
     }
 
+    // Helper: determine whether a booking (from arbitrary data object) is
+    // assigned to the current authenticated operator, either by matching the
+    // stored operator UID or by matching the booking's operatorId against the
+    // operatorId field on the operator profile document for the authenticated
+    // user. This covers bookings that reference operators by operatorId
+    // (legacy / human-facing id) instead of the Firebase auth UID.
+    function bookingAssignedToAuthFromData(data) {
+      return bookingOperatorUid(data) == request.auth.uid
+        || (
+          exists(/databases/$(database)/documents/operators/$(request.auth.uid))
+          && get(/databases/$(database)/documents/operators/$(request.auth.uid)).data.operatorId == bookingOperatorUid(data)
+        );
+    }
+
     function bookingUpdateHasExpectedFields() {
       return request.resource.data.keys().hasOnly([
         'bookingId',
@@ -126,6 +146,7 @@ service cloud.firestore {
         'status',
         'operatorUid',
         'operatorId',
+        'passengerPickedUpAt',
         'operatorLat',
         'operatorLng',
         'rejectedBy',
@@ -227,7 +248,7 @@ service cloud.firestore {
           isOwner(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId)
           || (
             isOperator()
-            && bookingOperatorUid(get(/databases/$(database)/documents/bookings/$(bookingId)).data) == request.auth.uid
+            && bookingAssignedToAuthFromData(get(/databases/$(database)/documents/bookings/$(bookingId)).data)
           )
         );
       allow create, update: if isOperator()
@@ -241,7 +262,7 @@ service cloud.firestore {
         ])
         && request.resource.data.bookingId == bookingId
         && request.resource.data.operatorUid == request.auth.uid
-        && bookingOperatorUid(get(/databases/$(database)/documents/bookings/$(bookingId)).data) == request.auth.uid;
+        && bookingAssignedToAuthFromData(get(/databases/$(database)/documents/bookings/$(bookingId)).data);
       allow delete: if false;
     }
 
@@ -407,7 +428,7 @@ service cloud.firestore {
         allow read: if isOwner(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId)
           || (
             isOperator()
-            && bookingOperatorUid(get(/databases/$(database)/documents/bookings/$(bookingId)).data) == request.auth.uid
+            && bookingAssignedToAuthFromData(get(/databases/$(database)/documents/bookings/$(bookingId)).data)
           );
         allow create: if isSignedIn()
           && request.resource.data.keys().hasOnly([

@@ -59,6 +59,8 @@ class OperatorMapControllerService {
   double? _lastZoom;
   double? _lastTilt;
   double _cameraBoundsPadding = 180;
+  static const double _trackingTilt = 45.0;
+  static const double _overviewTilt = 0.0;
 
   bool get isMapReady => _isMapReady;
   bool get isCameraAnimating => _isCameraAnimating;
@@ -181,6 +183,7 @@ class OperatorMapControllerService {
           operatorPoint: operatorPoint,
           destinationPoint: destinationPoint,
         );
+        await _ensureTilt(_overviewTilt);
         _emitState();
         return _navigationMode;
       case OperatorMapNavigationMode.tracking:
@@ -280,7 +283,7 @@ class OperatorMapControllerService {
                 math.max(elapsed.inMilliseconds / 1000, 0.001);
       final aheadMeters = (18 + (speedMps * 5)).clamp(18.0, 55.0);
       final targetZoom = (17.8 - (speedMps * 0.14)).clamp(16.1, 17.8);
-      final targetTilt = (46.0 + (speedMps * 1.8)).clamp(40.0, 60.0);
+      final targetTilt = _trackingTilt;
       final smoothing = _cameraSmoothingFactor(speedMps);
       final rawTarget = _offsetPoint(operatorPoint, bearing, aheadMeters);
       final predictedTarget = lastPoint == null
@@ -330,6 +333,27 @@ class OperatorMapControllerService {
     } catch (e) {
       _log('camera_follow_failed', data: {'error': e.toString()});
     }
+  }
+
+  Future<void> _ensureTilt(double tilt) async {
+    if (_lastCameraTarget == null || _lastZoom == null) {
+      _lastTilt = tilt;
+      return;
+    }
+
+    final targetBearing = _lastBearing ?? 0.0;
+    await animateCameraSafely(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: _lastCameraTarget!,
+          zoom: _lastZoom!,
+          bearing: targetBearing,
+          tilt: tilt,
+        ),
+      ),
+      allowIfBusy: true,
+    );
+    _lastTilt = tilt;
   }
 
   Future<void> animateCameraSafely(
