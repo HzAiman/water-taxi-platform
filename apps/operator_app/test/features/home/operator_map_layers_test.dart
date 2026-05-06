@@ -227,8 +227,9 @@ void main() {
       );
       expect(polylines, hasLength(1));
       final polyline = polylines.first;
-      expect(polyline.points, hasLength(2));
-      expect(polyline.points.first, const LatLng(2.201667, 102.249444));
+      expect(polyline.points, hasLength(3));
+      expect(polyline.points.first, const LatLng(2.2100, 102.2500));
+      expect(polyline.points[1], const LatLng(2.201667, 102.249444));
       expect(polyline.points.last, const LatLng(2.193056, 102.246111));
     });
 
@@ -264,10 +265,7 @@ void main() {
           polylines.first.points.first.latitude,
           closeTo(2.2005186, 0.00001),
         );
-        expect(
-          polylines.first.points.last,
-          const LatLng(2.1994408, 102.2483514),
-        );
+        expect(polylines.first.points.last, const LatLng(2.193056, 102.246111));
       },
     );
 
@@ -442,6 +440,27 @@ void main() {
         LatLng(2.2001006, 102.2479594),
         LatLng(2.193056, 102.246111),
       ]);
+    });
+
+    test('phase route segmentation failure does not draw raw stored route', () {
+      final booking = _bookingFixture(
+        bookingId: 'health-no-raw-phase-route',
+        operatorLat: null,
+        operatorLng: null,
+        passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+        routeToDestinationPolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.201667, lng: 102.249444),
+          BookingRoutePoint(lat: 2.193056, lng: 102.246111),
+        ],
+      );
+
+      final health = OperatorMapLayers.resolveRouteHealth(
+        booking,
+        passengerPickedUp: true,
+      );
+
+      expect(health.source, OperatorRouteSource.straightLineFallback);
+      expect(health.routePoints, isEmpty);
     });
   });
 }

@@ -193,6 +193,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: snapshot.passengerPickedUp,
+      operatorPoint: snapshot.operatorPoint,
     );
 
     _mapCameraService.prepareRouteFitBeforeFollow(
@@ -750,6 +751,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final polylines = OperatorMapLayers.buildPolylines(
       activeBooking,
       passengerPickedUp: passengerPickedUp,
+      operatorPoint: operatorPoint,
       opacity: 1,
     ).toSet();
 
@@ -1112,6 +1114,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: snapshot.passengerPickedUp,
+      operatorPoint: snapshot.operatorPoint,
     );
     final isLoading = _isInitializingViewModel;
 

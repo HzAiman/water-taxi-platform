@@ -112,33 +112,60 @@ class OperatorMapLayers {
   static List<LatLng> trimmedRoutePointsForCamera(
     BookingModel? booking, {
     required bool passengerPickedUp,
+    LatLng? operatorPoint,
   }) {
     if (booking == null) {
       return const <LatLng>[];
     }
 
     return _trimRouteFromOperatorPosition(
-      resolveRouteHealth(
+      resolvedRoutePointsForPhase(
         booking,
         passengerPickedUp: passengerPickedUp,
-      ).routePoints,
+        operatorPoint: operatorPoint,
+        includeOperatorAnchors: false,
+      ),
       booking,
+      operatorPoint: operatorPoint,
     );
   }
 
   static List<LatLng> resolvedRoutePointsForPhase(
     BookingModel booking, {
     required bool passengerPickedUp,
+    LatLng? operatorPoint,
+    bool includeOperatorAnchors = true,
   }) {
-    return resolveRouteHealth(
+    final phase = _resolveRoutePhase(booking, passengerPickedUp);
+    if (phase == OperatorRoutePhase.none) {
+      return const <LatLng>[];
+    }
+
+    final phaseRoute = _phaseRoutePoints(booking, phase);
+    if (phaseRoute.length >= 2) {
+      final segmented = _segmentFromRoutePoints(
+        phaseRoute,
+        booking,
+        phase,
+        operatorPoint: operatorPoint,
+        includeLiveAnchors: includeOperatorAnchors,
+      );
+      if (segmented.length >= 2) {
+        return segmented;
+      }
+    }
+
+    return _phaseFallbackLine(
       booking,
-      passengerPickedUp: passengerPickedUp,
-    ).routePoints;
+      phase,
+      operatorPoint: includeOperatorAnchors ? operatorPoint : null,
+    );
   }
 
   static OperatorRouteHealth resolveRouteHealth(
     BookingModel? booking, {
     required bool passengerPickedUp,
+    LatLng? operatorPoint,
   }) {
     if (booking == null) {
       return const OperatorRouteHealth(
@@ -159,27 +186,47 @@ class OperatorMapLayers {
       );
     }
 
+    final fallbackPoints = _phaseFallbackLine(
+      booking,
+      phase,
+      operatorPoint: operatorPoint,
+    );
     final phaseRoute = _phaseRoutePoints(booking, phase);
     if (phaseRoute.length >= 2) {
-      final segmented = _segmentFromRoutePoints(phaseRoute, booking, phase);
-      final routePoints = segmented.length >= 2 ? segmented : phaseRoute;
+      final segmented = _segmentFromRoutePoints(
+        phaseRoute,
+        booking,
+        phase,
+        operatorPoint: operatorPoint,
+        includeLiveAnchors: true,
+      );
+      final routePoints = segmented.length >= 2 ? segmented : fallbackPoints;
+      final usesSegmentedRoute = segmented.length >= 2;
       return OperatorRouteHealth(
         phase: phase,
-        source: phase == OperatorRoutePhase.toPickup
-            ? OperatorRouteSource.routeToOriginPolyline
-            : OperatorRouteSource.routeToDestinationPolyline,
+        source: usesSegmentedRoute
+            ? phase == OperatorRoutePhase.toPickup
+                  ? OperatorRouteSource.routeToOriginPolyline
+                  : OperatorRouteSource.routeToDestinationPolyline
+            : OperatorRouteSource.straightLineFallback,
         routePoints: routePoints,
-        label: phase == OperatorRoutePhase.toPickup
-            ? 'Using operator-to-pickup route'
-            : 'Using operator-to-dropoff route',
+        label: usesSegmentedRoute
+            ? phase == OperatorRoutePhase.toPickup
+                  ? 'Using operator-to-pickup route'
+                  : 'Using operator-to-dropoff route'
+            : 'Using straight-line fallback',
+        warning: usesSegmentedRoute
+            ? null
+            : phase == OperatorRoutePhase.toPickup
+            ? 'Missing routeToOriginPolyline. Showing straight line to pickup.'
+            : 'Missing routeToDestinationPolyline. Showing straight line to dropoff.',
       );
     }
 
-    final fallback = _phaseFallbackLine(booking, phase);
     return OperatorRouteHealth(
       phase: phase,
       source: OperatorRouteSource.straightLineFallback,
-      routePoints: fallback,
+      routePoints: fallbackPoints,
       label: 'Using straight-line fallback',
       warning: phase == OperatorRoutePhase.toPickup
           ? 'Missing routeToOriginPolyline. Showing straight line to pickup.'
@@ -258,6 +305,7 @@ class OperatorMapLayers {
   static Set<Polyline> buildPolylines(
     BookingModel? activeBooking, {
     required bool passengerPickedUp,
+    LatLng? operatorPoint,
     double opacity = 1,
   }) {
     if (activeBooking == null) {
@@ -267,12 +315,17 @@ class OperatorMapLayers {
     final routeHealth = resolveRouteHealth(
       activeBooking,
       passengerPickedUp: passengerPickedUp,
+      operatorPoint: operatorPoint,
     );
     var routePoints = routeHealth.routePoints;
 
     // Trim the live route so it visually progresses forward from the current
     // operator position instead of staying static.
-    routePoints = _trimRouteFromOperatorPosition(routePoints, activeBooking);
+    routePoints = _trimRouteFromOperatorPosition(
+      routePoints,
+      activeBooking,
+      operatorPoint: operatorPoint,
+    );
 
     if (routePoints.length < 2) {
       return const <Polyline>{};
@@ -340,17 +393,20 @@ class OperatorMapLayers {
 
   static List<LatLng> _trimRouteFromOperatorPosition(
     List<LatLng> routePoints,
-    BookingModel booking,
-  ) {
-    final operatorPoint = _latLngOrNull(
-      booking.operatorLat,
-      booking.operatorLng,
-    );
-    if (operatorPoint == null || routePoints.length < 2) {
+    BookingModel booking, {
+    LatLng? operatorPoint,
+  }) {
+    final liveOperatorPoint =
+        operatorPoint ??
+        _latLngOrNull(booking.operatorLat, booking.operatorLng);
+    if (liveOperatorPoint == null || routePoints.length < 2) {
       return routePoints;
     }
 
-    if (!_isValidLatLng(operatorPoint.latitude, operatorPoint.longitude)) {
+    if (!_isValidLatLng(
+      liveOperatorPoint.latitude,
+      liveOperatorPoint.longitude,
+    )) {
       return routePoints;
     }
 
@@ -360,11 +416,11 @@ class OperatorMapLayers {
 
     for (var i = 0; i < routePoints.length - 1; i++) {
       final projectedPoint = _projectPointOntoSegment(
-        operatorPoint,
+        liveOperatorPoint,
         routePoints[i],
         routePoints[i + 1],
       );
-      final distance = _distanceMeters(operatorPoint, projectedPoint);
+      final distance = _distanceMeters(liveOperatorPoint, projectedPoint);
       if (distance < bestDistance) {
         bestDistance = distance;
         bestProjectedPoint = projectedPoint;
@@ -379,29 +435,35 @@ class OperatorMapLayers {
 
   static List<LatLng> _phaseFallbackLine(
     BookingModel booking,
-    OperatorRoutePhase phase,
-  ) {
-    final operatorPoint = _latLngOrNull(
-      booking.operatorLat,
-      booking.operatorLng,
-    );
+    OperatorRoutePhase phase, {
+    LatLng? operatorPoint,
+  }) {
+    final liveOperatorPoint =
+        operatorPoint ??
+        _latLngOrNull(booking.operatorLat, booking.operatorLng);
     switch (phase) {
       case OperatorRoutePhase.toPickup:
-        if (operatorPoint != null &&
-            _isValidLatLng(operatorPoint.latitude, operatorPoint.longitude) &&
+        if (liveOperatorPoint != null &&
+            _isValidLatLng(
+              liveOperatorPoint.latitude,
+              liveOperatorPoint.longitude,
+            ) &&
             _isValidLatLng(booking.originLat, booking.originLng)) {
           return <LatLng>[
-            operatorPoint,
+            liveOperatorPoint,
             LatLng(booking.originLat, booking.originLng),
           ];
         }
         return const <LatLng>[];
       case OperatorRoutePhase.toDestination:
-        if (operatorPoint != null &&
-            _isValidLatLng(operatorPoint.latitude, operatorPoint.longitude) &&
+        if (liveOperatorPoint != null &&
+            _isValidLatLng(
+              liveOperatorPoint.latitude,
+              liveOperatorPoint.longitude,
+            ) &&
             _isValidLatLng(booking.destinationLat, booking.destinationLng)) {
           return <LatLng>[
-            operatorPoint,
+            liveOperatorPoint,
             LatLng(booking.destinationLat, booking.destinationLng),
           ];
         }
@@ -414,8 +476,10 @@ class OperatorMapLayers {
   static List<LatLng> _segmentFromRoutePoints(
     List<LatLng> routePoints,
     BookingModel booking,
-    OperatorRoutePhase phase,
-  ) {
+    OperatorRoutePhase phase, {
+    LatLng? operatorPoint,
+    bool includeLiveAnchors = true,
+  }) {
     final genericPoints = routePoints;
     if (genericPoints.length < 2) {
       return const <LatLng>[];
@@ -425,13 +489,12 @@ class OperatorMapLayers {
     // location to the drop-off jetty. Never anchor the rendered segment at the
     // pickup jetty once the passenger has been picked up.
     final startPoint = switch (phase) {
-      OperatorRoutePhase.toPickup => _latLngOrNull(
-        booking.operatorLat,
-        booking.operatorLng,
-      ),
+      OperatorRoutePhase.toPickup =>
+        operatorPoint ??
+            _latLngOrNull(booking.operatorLat, booking.operatorLng),
       OperatorRoutePhase.toDestination =>
-        _latLngOrNull(booking.operatorLat, booking.operatorLng) ??
-            LatLng(booking.originLat, booking.originLng),
+        operatorPoint ??
+            _latLngOrNull(booking.operatorLat, booking.operatorLng),
       OperatorRoutePhase.none => null,
     };
     final endPoint = switch (phase) {
@@ -459,9 +522,26 @@ class OperatorMapLayers {
       return const <LatLng>[];
     }
 
-    return _isClosedLoopPolyline(genericPoints)
+    final segment = _isClosedLoopPolyline(genericPoints)
         ? _extractShortestLoopSegment(genericPoints, startSnap, endSnap)
         : _extractLinearSegment(genericPoints, startSnap, endSnap);
+    if (!includeLiveAnchors) {
+      return segment;
+    }
+    return _attachLiveAnchors(segment, startPoint, endPoint);
+  }
+
+  static List<LatLng> _attachLiveAnchors(
+    List<LatLng> segmentedRoute,
+    LatLng startPoint,
+    LatLng endPoint,
+  ) {
+    final anchored = <LatLng>[startPoint];
+    for (final point in segmentedRoute) {
+      _addIfDistinct(anchored, point);
+    }
+    _addIfDistinct(anchored, endPoint);
+    return anchored;
   }
 
   static _SnappedRoutePoint? _snapPointToRoute(

@@ -750,12 +750,13 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final activeBooking = _resolveActiveBooking();
     final operatorId = _operatorId;
     final passengerPickedUp = activeBooking?.passengerPickedUpAt != null;
+    final operatorPoint = _bookingPoint(activeBooking);
     final routeHealth = OperatorMapLayers.resolveRouteHealth(
       activeBooking,
       passengerPickedUp: passengerPickedUp,
+      operatorPoint: operatorPoint,
     );
     final isLiveLocationStale = _isLiveLocationStale(DateTime.now());
-    final operatorPoint = _bookingPoint(activeBooking);
     final destinationPoint = activeBooking == null
         ? null
         : LatLng(activeBooking.destinationLat, activeBooking.destinationLng);

@@ -72,11 +72,17 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
     booking,
     passengerPickedUp: passengerPickedUp,
   );
-  final polyline = routeHealth.routePoints
-      .map(
-        (point) => BookingRoutePoint(lat: point.latitude, lng: point.longitude),
-      )
-      .toList(growable: false);
+  final polyline =
+      OperatorMapLayers.resolvedRoutePointsForPhase(
+            booking,
+            passengerPickedUp: passengerPickedUp,
+            includeOperatorAnchors: false,
+          )
+          .map(
+            (point) =>
+                BookingRoutePoint(lat: point.latitude, lng: point.longitude),
+          )
+          .toList(growable: false);
   final startLat = booking.operatorLat ?? currentLat;
   final startLng = booking.operatorLng ?? currentLng;
   final endLat = passengerPickedUp ? booking.destinationLat : booking.originLat;

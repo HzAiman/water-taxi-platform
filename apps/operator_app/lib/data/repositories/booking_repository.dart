@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -12,6 +13,8 @@ class BookingRepository {
     : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
+  List<_PolylineSource>? _cachedPolylineSources;
+  DateTime? _cachedPolylineSourcesAt;
 
   // ── Streams ──────────────────────────────────────────────────────────────
 
@@ -381,26 +384,24 @@ class BookingRepository {
     required double operatorLng,
   }) async {
     try {
-      await _runWithRetry(
-        () async {
-          final bookingRef = _db
-              .collection(FirestoreCollections.bookings)
-              .doc(bookingId);
-          await bookingRef.set({
-            BookingFields.operatorLat: operatorLat,
-            BookingFields.operatorLng: operatorLng,
-            BookingFields.updatedAt: FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
+      await _runWithRetry(() async {
+        final bookingRef = _db
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId);
+        await bookingRef.set({
+          BookingFields.operatorLat: operatorLat,
+          BookingFields.operatorLng: operatorLng,
+          BookingFields.updatedAt: FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
-          await _db.collection(FirestoreCollections.tracking).doc(bookingId).set({
-            TrackingFields.bookingId: bookingId,
-            TrackingFields.operatorUid: operatorId,
-            TrackingFields.operatorLat: operatorLat,
-            TrackingFields.operatorLng: operatorLng,
-            TrackingFields.updatedAt: FieldValue.serverTimestamp(),
-          }, SetOptions(merge: true));
-        },
-      );
+        await _db.collection(FirestoreCollections.tracking).doc(bookingId).set({
+          TrackingFields.bookingId: bookingId,
+          TrackingFields.operatorUid: operatorId,
+          TrackingFields.operatorLat: operatorLat,
+          TrackingFields.operatorLng: operatorLng,
+          TrackingFields.updatedAt: FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      });
 
       return const OperationSuccess('Location updated.');
     } catch (e) {
@@ -565,10 +566,19 @@ class BookingRepository {
   Future<BookingModel> _fromDoc(String id, Map<String, dynamic> data) async {
     final origin = data[BookingFields.originCoords] as GeoPoint?;
     final dest = data[BookingFields.destinationCoords] as GeoPoint?;
-    final routePolyline = await _resolveRoutePolyline(data);
-    final routeToOriginPolyline = await _resolveRouteToOriginPolyline(data);
+    final routeResolution = await _resolveRoutePolyline(data);
+    final routePolyline = routeResolution.points;
+    final routeToOriginPolyline = await _resolveRouteToOriginPolyline(
+      data,
+      sharedRouteFallback: routeResolution.isUsableForPhaseFallback
+          ? routePolyline
+          : null,
+    );
     final routeToDestinationPolyline = await _resolveRouteToDestinationPolyline(
       data,
+      sharedRouteFallback: routeResolution.isUsableForPhaseFallback
+          ? routePolyline
+          : null,
     );
     final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
     final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
@@ -580,6 +590,10 @@ class BookingRepository {
     data = {
       ...data,
       if (data[BookingFields.bookingId] == null) BookingFields.bookingId: id,
+      if ((data[BookingFields.routePolylineId] == null ||
+              data[BookingFields.routePolylineId].toString().trim().isEmpty) &&
+          routeResolution.sourceId != null)
+        BookingFields.routePolylineId: routeResolution.sourceId,
       if (routePolyline != null) BookingFields.routePolyline: routePolyline,
       if (routeToOriginPolyline != null)
         BookingFields.routeToOriginPolyline: routeToOriginPolyline,
@@ -602,8 +616,9 @@ class BookingRepository {
   }
 
   Future<List<Map<String, double>>?> _resolveRouteToOriginPolyline(
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> data, {
+    List<Map<String, double>>? sharedRouteFallback,
+  }) async {
     final direct = _normaliseRoutePolyline(
       _extractPhaseRouteRaw(data, const [
         BookingFields.routeToOriginPolyline,
@@ -662,12 +677,17 @@ class BookingRepository {
       return byId;
     }
 
+    if (sharedRouteFallback != null && sharedRouteFallback.length >= 2) {
+      return sharedRouteFallback;
+    }
+
     return null;
   }
 
   Future<List<Map<String, double>>?> _resolveRouteToDestinationPolyline(
-    Map<String, dynamic> data,
-  ) async {
+    Map<String, dynamic> data, {
+    List<Map<String, double>>? sharedRouteFallback,
+  }) async {
     final direct = _normaliseRoutePolyline(
       _extractPhaseRouteRaw(data, const [
         BookingFields.routeToDestinationPolyline,
@@ -725,6 +745,10 @@ class BookingRepository {
       return byId;
     }
 
+    if (sharedRouteFallback != null && sharedRouteFallback.length >= 2) {
+      return sharedRouteFallback;
+    }
+
     return null;
   }
 
@@ -778,39 +802,152 @@ class BookingRepository {
     );
   }
 
-  Future<List<Map<String, double>>?> _resolveRoutePolyline(
+  Future<_ResolvedRoutePolyline> _resolveRoutePolyline(
     Map<String, dynamic> data,
   ) async {
     final embedded = _normaliseRoutePolyline(_extractRoutePolylineRaw(data));
     if (embedded != null && embedded.isNotEmpty) {
-      return embedded;
+      return _ResolvedRoutePolyline(
+        points: embedded,
+        isDirectFallback: embedded.length < 3,
+      );
     }
 
-    final routePolylineId = data[BookingFields.routePolylineId]?.toString();
+    final routePolylineId = data[BookingFields.routePolylineId]
+        ?.toString()
+        .trim();
     if (routePolylineId == null || routePolylineId.isEmpty) {
-      return _directRoutePolyline(data);
+      final matched = await _resolveBestSharedRoutePolyline(data);
+      if (matched != null) {
+        return matched;
+      }
+      return _ResolvedRoutePolyline(
+        points: _directRoutePolyline(data),
+        isDirectFallback: true,
+      );
     }
 
     final snap = await _db
         .collection(FirestoreCollections.polylines)
         .doc(routePolylineId)
         .get();
-    if (!snap.exists || snap.data() == null) {
-      return _directRoutePolyline(data);
+    if (snap.exists && snap.data() != null) {
+      final polyline = _normaliseRoutePolyline(
+        snap.data()!['path'] ??
+            snap.data()!['coordinates'] ??
+            snap.data()!['polyline'] ??
+            snap.data()!['geometry'] ??
+            snap.data()![BookingFields.routePolyline],
+      );
+      if (polyline != null && polyline.isNotEmpty) {
+        return _ResolvedRoutePolyline(
+          points: polyline,
+          sourceId: routePolylineId,
+        );
+      }
     }
 
-    final polyline = _normaliseRoutePolyline(
-      snap.data()!['path'] ??
-          snap.data()!['coordinates'] ??
-          snap.data()!['polyline'] ??
-          snap.data()!['geometry'] ??
-          snap.data()![BookingFields.routePolyline],
+    final matched = await _resolveBestSharedRoutePolyline(data);
+    if (matched != null) {
+      return matched;
+    }
+
+    return _ResolvedRoutePolyline(
+      points: _directRoutePolyline(data),
+      sourceId: routePolylineId,
+      isDirectFallback: true,
     );
-    if (polyline != null && polyline.isNotEmpty) {
-      return polyline;
+  }
+
+  Future<_ResolvedRoutePolyline?> _resolveBestSharedRoutePolyline(
+    Map<String, dynamic> data,
+  ) async {
+    final origin = data[BookingFields.originCoords] as GeoPoint?;
+    final destination = data[BookingFields.destinationCoords] as GeoPoint?;
+    if (origin == null || destination == null) {
+      return null;
     }
 
-    return _directRoutePolyline(data);
+    final originPoint = _LatLngPoint(
+      lat: origin.latitude,
+      lng: origin.longitude,
+    );
+    final destinationPoint = _LatLngPoint(
+      lat: destination.latitude,
+      lng: destination.longitude,
+    );
+    final originJettyId = _normalizeOptionalString(
+      data[BookingFields.originJettyId],
+    );
+    final destinationJettyId = _normalizeOptionalString(
+      data[BookingFields.destinationJettyId],
+    );
+    final sources = await _loadPolylineSources();
+
+    _PolylineMatch? bestMatch;
+    for (final raw in sources) {
+      final supportsPairValidation =
+          raw.originJettyId != null && raw.destinationJettyId != null;
+      if (supportsPairValidation &&
+          (raw.originJettyId != originJettyId ||
+              raw.destinationJettyId != destinationJettyId)) {
+        continue;
+      }
+
+      final parsed = _normaliseRoutePolyline(raw.path);
+      if (parsed == null || parsed.length < 2) {
+        continue;
+      }
+
+      final points = parsed
+          .map((point) => _LatLngPoint(lat: point['lat']!, lng: point['lng']!))
+          .toList(growable: false);
+      final startSnap = _snapPointToPolyline(originPoint, points);
+      final endSnap = _snapPointToPolyline(destinationPoint, points);
+      final candidate = _PolylineMatch(
+        polylineId: raw.id,
+        polyline: points,
+        start: startSnap,
+        end: endSnap,
+        score: 0,
+      );
+      final segment = _extractSegment(candidate);
+      final startOffset = _distanceBetweenPoints(originPoint, startSnap.point);
+      final endOffset = _distanceBetweenPoints(destinationPoint, endSnap.point);
+      final segmentLength = _polylineLength(segment);
+      final directLength = _distanceBetweenPoints(
+        startSnap.point,
+        endSnap.point,
+      );
+      final detourPenalty = directLength <= 1e-9
+          ? 0.0
+          : (segmentLength - directLength).abs();
+      final score =
+          ((startOffset + endOffset) * 2.0) +
+          segmentLength +
+          (detourPenalty * 4.0);
+
+      if (bestMatch == null || score < bestMatch.score) {
+        bestMatch = _PolylineMatch(
+          polylineId: raw.id,
+          polyline: points,
+          start: startSnap,
+          end: endSnap,
+          score: score,
+        );
+      }
+    }
+
+    if (bestMatch == null) {
+      return null;
+    }
+
+    return _ResolvedRoutePolyline(
+      points: bestMatch.polyline
+          .map((point) => <String, double>{'lat': point.lat, 'lng': point.lng})
+          .toList(growable: false),
+      sourceId: bestMatch.polylineId,
+    );
   }
 
   List<Map<String, double>> _directRoutePolyline(Map<String, dynamic> data) {
@@ -999,6 +1136,215 @@ class BookingRepository {
     return double.tryParse(value?.toString() ?? '');
   }
 
+  static String? _normalizeOptionalString(dynamic value) {
+    final normalized = value?.toString().trim();
+    if (normalized == null || normalized.isEmpty) {
+      return null;
+    }
+    return normalized;
+  }
+
+  Future<List<_PolylineSource>> _loadPolylineSources() async {
+    final fetchedAt = _cachedPolylineSourcesAt;
+    if (_cachedPolylineSources != null &&
+        fetchedAt != null &&
+        DateTime.now().difference(fetchedAt) < const Duration(minutes: 2)) {
+      return _cachedPolylineSources!;
+    }
+
+    final sources = <_PolylineSource>[];
+    try {
+      final snap = await _db.collection(FirestoreCollections.polylines).get();
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        sources.add(
+          _PolylineSource(
+            id: doc.id,
+            path:
+                data['path'] ??
+                data['coordinates'] ??
+                data['polyline'] ??
+                data['geometry'] ??
+                data[BookingFields.routePolyline],
+            originJettyId: _normalizeOptionalString(
+              data[BookingFields.originJettyId] ??
+                  (data['properties'] is Map
+                      ? (data['properties'] as Map)[BookingFields.originJettyId]
+                      : null),
+            ),
+            destinationJettyId: _normalizeOptionalString(
+              data[BookingFields.destinationJettyId] ??
+                  (data['properties'] is Map
+                      ? (data['properties']
+                            as Map)[BookingFields.destinationJettyId]
+                      : null),
+            ),
+          ),
+        );
+      }
+    } catch (_) {
+      return _cachedPolylineSources ?? const <_PolylineSource>[];
+    }
+
+    _cachedPolylineSources = sources;
+    _cachedPolylineSourcesAt = DateTime.now();
+    return sources;
+  }
+
+  static _SnapResult _snapPointToPolyline(
+    _LatLngPoint point,
+    List<_LatLngPoint> polyline,
+  ) {
+    var best = _projectPointOntoSegment(point, polyline[0], polyline[1], 0);
+    for (var i = 1; i < polyline.length - 1; i++) {
+      final candidate = _projectPointOntoSegment(
+        point,
+        polyline[i],
+        polyline[i + 1],
+        i,
+      );
+      if (candidate.distanceSquared < best.distanceSquared) {
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
+  static _SnapResult _projectPointOntoSegment(
+    _LatLngPoint point,
+    _LatLngPoint a,
+    _LatLngPoint b,
+    int segmentIndex,
+  ) {
+    final abLat = b.lat - a.lat;
+    final abLng = b.lng - a.lng;
+    final apLat = point.lat - a.lat;
+    final apLng = point.lng - a.lng;
+    final abLenSquared = abLat * abLat + abLng * abLng;
+
+    double t;
+    if (abLenSquared <= 0) {
+      t = 0;
+    } else {
+      t = (apLat * abLat + apLng * abLng) / abLenSquared;
+      if (t < 0) t = 0;
+      if (t > 1) t = 1;
+    }
+
+    final projected = _LatLngPoint(
+      lat: a.lat + (abLat * t),
+      lng: a.lng + (abLng * t),
+    );
+    final dx = projected.lat - point.lat;
+    final dy = projected.lng - point.lng;
+    return _SnapResult(
+      point: projected,
+      segmentIndex: segmentIndex,
+      distanceSquared: (dx * dx) + (dy * dy),
+    );
+  }
+
+  static List<_LatLngPoint> _extractSegment(_PolylineMatch match) {
+    if (match.polyline.length < 2) {
+      return <_LatLngPoint>[match.start.point, match.end.point];
+    }
+
+    if (!_isClosedLoopPolyline(match.polyline)) {
+      return _extractLinearSegment(match);
+    }
+
+    final forward = _extractLoopSegment(match, step: 1);
+    final backward = _extractLoopSegment(match, step: -1);
+    return _polylineLength(backward) < _polylineLength(forward)
+        ? backward
+        : forward;
+  }
+
+  static List<_LatLngPoint> _extractLinearSegment(_PolylineMatch match) {
+    final segment = <_LatLngPoint>[match.start.point];
+    if (match.start.segmentIndex <= match.end.segmentIndex) {
+      for (
+        var i = match.start.segmentIndex + 1;
+        i <= match.end.segmentIndex;
+        i++
+      ) {
+        _addIfDistinct(segment, match.polyline[i]);
+      }
+    } else {
+      for (
+        var i = match.start.segmentIndex;
+        i >= match.end.segmentIndex + 1;
+        i--
+      ) {
+        _addIfDistinct(segment, match.polyline[i]);
+      }
+    }
+    _addIfDistinct(segment, match.end.point);
+    return segment;
+  }
+
+  static List<_LatLngPoint> _extractLoopSegment(
+    _PolylineMatch match, {
+    required int step,
+  }) {
+    final segment = <_LatLngPoint>[match.start.point];
+    final segmentCount = match.polyline.length - 1;
+    var index = match.start.segmentIndex;
+    var guard = 0;
+
+    while (index != match.end.segmentIndex && guard <= segmentCount + 1) {
+      if (step > 0) {
+        final nextIndex = (index + 1) % segmentCount;
+        _addIfDistinct(segment, match.polyline[nextIndex]);
+        index = nextIndex;
+      } else {
+        _addIfDistinct(segment, match.polyline[index]);
+        index = (index - 1 + segmentCount) % segmentCount;
+      }
+      guard++;
+    }
+
+    _addIfDistinct(segment, match.end.point);
+    return segment;
+  }
+
+  static bool _isClosedLoopPolyline(List<_LatLngPoint> points) {
+    if (points.length < 3) {
+      return false;
+    }
+    return _distanceBetweenPoints(points.first, points.last) <= 1e-6;
+  }
+
+  static void _addIfDistinct(List<_LatLngPoint> points, _LatLngPoint next) {
+    if (points.isEmpty) {
+      points.add(next);
+      return;
+    }
+    final last = points.last;
+    if ((last.lat - next.lat).abs() < 1e-9 &&
+        (last.lng - next.lng).abs() < 1e-9) {
+      return;
+    }
+    points.add(next);
+  }
+
+  static double _distanceBetweenPoints(_LatLngPoint a, _LatLngPoint b) {
+    final dLat = a.lat - b.lat;
+    final dLng = a.lng - b.lng;
+    return math.sqrt((dLat * dLat) + (dLng * dLng));
+  }
+
+  static double _polylineLength(List<_LatLngPoint> points) {
+    if (points.length < 2) {
+      return 0;
+    }
+    var length = 0.0;
+    for (var i = 1; i < points.length; i++) {
+      length += _distanceBetweenPoints(points[i - 1], points[i]);
+    }
+    return length;
+  }
+
   void _appendStatusHistory({
     required Transaction tx,
     required DocumentReference<Map<String, dynamic>> ref,
@@ -1014,4 +1360,68 @@ class BookingRepository {
       BookingStatusHistoryFields.timestamp: FieldValue.serverTimestamp(),
     });
   }
+}
+
+class _ResolvedRoutePolyline {
+  const _ResolvedRoutePolyline({
+    this.points,
+    this.sourceId,
+    this.isDirectFallback = false,
+  });
+
+  final List<Map<String, double>>? points;
+  final String? sourceId;
+  final bool isDirectFallback;
+
+  bool get isUsableForPhaseFallback =>
+      !isDirectFallback && points != null && points!.length >= 2;
+}
+
+class _PolylineSource {
+  const _PolylineSource({
+    required this.id,
+    required this.path,
+    this.originJettyId,
+    this.destinationJettyId,
+  });
+
+  final String id;
+  final dynamic path;
+  final String? originJettyId;
+  final String? destinationJettyId;
+}
+
+class _LatLngPoint {
+  const _LatLngPoint({required this.lat, required this.lng});
+
+  final double lat;
+  final double lng;
+}
+
+class _SnapResult {
+  const _SnapResult({
+    required this.point,
+    required this.segmentIndex,
+    required this.distanceSquared,
+  });
+
+  final _LatLngPoint point;
+  final int segmentIndex;
+  final double distanceSquared;
+}
+
+class _PolylineMatch {
+  const _PolylineMatch({
+    required this.polylineId,
+    required this.polyline,
+    required this.start,
+    required this.end,
+    required this.score,
+  });
+
+  final String polylineId;
+  final List<_LatLngPoint> polyline;
+  final _SnapResult start;
+  final _SnapResult end;
+  final double score;
 }

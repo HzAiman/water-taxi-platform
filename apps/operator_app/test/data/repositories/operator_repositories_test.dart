@@ -525,7 +525,10 @@ void main() {
               BookingFields.origin: 'Jetty A',
               BookingFields.destination: 'Jetty B',
               BookingFields.originCoords: const GeoPoint(2.2073978, 102.251349),
-              BookingFields.destinationCoords: const GeoPoint(2.2068474, 102.2509458),
+              BookingFields.destinationCoords: const GeoPoint(
+                2.2068474,
+                102.2509458,
+              ),
               BookingFields.adultCount: 1,
               BookingFields.childCount: 0,
               BookingFields.passengerCount: 1,
@@ -757,6 +760,138 @@ void main() {
         expect(active.first.routePolyline, hasLength(2));
         expect(active.first.routePolyline.first.lat, closeTo(2.205, 0.000001));
         expect(active.first.routePolyline.last.lng, closeTo(102.255, 0.000001));
+      },
+    );
+
+    test(
+      'streamActiveBookings derives missing phase routes from shared routePolylineId',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repository = BookingRepository(firestore: firestore);
+
+        await firestore
+            .collection(FirestoreCollections.polylines)
+            .doc('route_1')
+            .set({
+              'path': const [
+                {'_latitude': 2.2073978, '_longitude': 102.251349},
+                {'_latitude': 2.2070574, '_longitude': 102.2511928},
+                {'_latitude': 2.2068474, '_longitude': 102.2509458},
+                {'_latitude': 2.2067251, '_longitude': 102.2503765},
+              ],
+            });
+
+        await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc('booking-shared-route')
+            .set({
+              BookingFields.bookingId: 'booking-shared-route',
+              BookingFields.userId: 'user-1',
+              BookingFields.userName: 'Passenger One',
+              BookingFields.userPhone: '0123456789',
+              BookingFields.origin: 'Jetty A',
+              BookingFields.destination: 'Jetty B',
+              BookingFields.originCoords: const GeoPoint(2.2073978, 102.251349),
+              BookingFields.destinationCoords: const GeoPoint(
+                2.2067251,
+                102.2503765,
+              ),
+              BookingFields.routePolylineId: 'route_1',
+              BookingFields.adultCount: 1,
+              BookingFields.childCount: 0,
+              BookingFields.passengerCount: 1,
+              BookingFields.totalFare: 10.0,
+              BookingFields.fareSnapshotId: 'fare-snapshot-test',
+              BookingFields.paymentMethod: PaymentMethods.onlineBanking,
+              BookingFields.paymentStatus: 'paid',
+              BookingFields.status: BookingStatus.onTheWay.firestoreValue,
+              BookingFields.operatorUid: 'operator-1',
+              BookingFields.createdAt: Timestamp.now(),
+              BookingFields.updatedAt: Timestamp.now(),
+            });
+
+        final active = await repository
+            .streamActiveBookings('operator-1')
+            .first;
+        final booking = active.single;
+
+        expect(booking.routePolyline, hasLength(4));
+        expect(booking.routeToOriginPolyline, hasLength(4));
+        expect(booking.routeToDestinationPolyline, hasLength(4));
+        expect(
+          booking.routeToOriginPolyline.first.lat,
+          closeTo(2.2073978, 0.000001),
+        );
+        expect(
+          booking.routeToDestinationPolyline.last.lng,
+          closeTo(102.2503765, 0.000001),
+        );
+      },
+    );
+
+    test(
+      'streamActiveBookings auto-selects matching shared polyline when route id is missing',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repository = BookingRepository(firestore: firestore);
+
+        await firestore
+            .collection(FirestoreCollections.polylines)
+            .doc('melaka-route')
+            .set({
+              'path': const [
+                {'lat': 2.2073978, 'lng': 102.251349},
+                {'lat': 2.2070574, 'lng': 102.2511928},
+                {'lat': 2.2067251, 'lng': 102.2503765},
+              ],
+            });
+
+        await firestore
+            .collection(FirestoreCollections.polylines)
+            .doc('far-route')
+            .set({
+              'path': const [
+                {'lat': 3.0, 'lng': 101.0},
+                {'lat': 3.1, 'lng': 101.1},
+              ],
+            });
+
+        await firestore
+            .collection(FirestoreCollections.bookings)
+            .doc('booking-auto-route')
+            .set({
+              BookingFields.bookingId: 'booking-auto-route',
+              BookingFields.userId: 'user-1',
+              BookingFields.userName: 'Passenger One',
+              BookingFields.userPhone: '0123456789',
+              BookingFields.origin: 'Jetty A',
+              BookingFields.destination: 'Jetty B',
+              BookingFields.originCoords: const GeoPoint(2.2073978, 102.251349),
+              BookingFields.destinationCoords: const GeoPoint(
+                2.2067251,
+                102.2503765,
+              ),
+              BookingFields.adultCount: 1,
+              BookingFields.childCount: 0,
+              BookingFields.passengerCount: 1,
+              BookingFields.totalFare: 10.0,
+              BookingFields.fareSnapshotId: 'fare-snapshot-test',
+              BookingFields.paymentMethod: PaymentMethods.onlineBanking,
+              BookingFields.paymentStatus: 'paid',
+              BookingFields.status: BookingStatus.onTheWay.firestoreValue,
+              BookingFields.operatorUid: 'operator-1',
+              BookingFields.createdAt: Timestamp.now(),
+              BookingFields.updatedAt: Timestamp.now(),
+            });
+
+        final active = await repository
+            .streamActiveBookings('operator-1')
+            .first;
+        final booking = active.single;
+
+        expect(booking.routePolylineId, 'melaka-route');
+        expect(booking.routeToOriginPolyline, hasLength(3));
+        expect(booking.routeToDestinationPolyline, hasLength(3));
       },
     );
 
