@@ -48,6 +48,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   String? _trackingBookingId;
   DateTime? _lastLocationPublishAt;
   Position? _lastPublishedPosition;
+  Position? _latestOperatorPosition;
   bool _isPublishingLocation = false;
   OperatorNavigationGuidance? _navigationGuidance;
   DateTime? _lastNavigationSampleAt;
@@ -452,6 +453,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     }
 
     if (initial != null) {
+      _latestOperatorPosition = initial;
       await _publishOperatorPosition(
         bookingId,
         operatorId,
@@ -473,6 +475,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _locationSubscription =
         Geolocator.getPositionStream(locationSettings: settings).listen(
           (position) {
+            _latestOperatorPosition = position;
             _refreshNavigationGuidance(currentPosition: position);
             if (_trackingBookingId == null) return;
             unawaited(
@@ -501,6 +504,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _trackingBookingId = null;
     _lastLocationPublishAt = null;
     _lastPublishedPosition = null;
+    _latestOperatorPosition = null;
     _isPublishingLocation = false;
     _navigationGuidance = null;
     _lastNavigationSampleAt = null;
@@ -572,7 +576,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final canUseLocation = await _canUseLocation();
     if (!canUseLocation) return null;
     try {
-      return await Geolocator.getCurrentPosition();
+      return await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 10),
+      );
     } catch (_) {
       return null;
     }
@@ -704,6 +711,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
       _isUpdatingBooking ? '1' : '0',
       _isRefreshing ? '1' : '0',
       _streamVersion.toString(),
+      _navigationGuidance?.nearestRouteMarker.toString() ?? '-',
+      _navigationGuidance?.nextRouteMarker.toString() ?? '-',
+      _navigationGuidance?.remainingDistanceMeters.toStringAsFixed(0) ?? '-',
+      _navigationGuidance?.isOffRoute == true ? '1' : '0',
+      _navigationGuidance?.progressFraction.toStringAsFixed(3) ?? '-',
     ].join('|');
 
     if (_cachedHomeSnapshotKey == key && _cachedHomeSnapshot != null) {
@@ -733,6 +745,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
   LatLng? _bookingPoint(BookingModel? booking) {
     if (booking == null) {
       return null;
+    }
+
+    final localPosition = _latestOperatorPosition;
+    if (booking.bookingId == _trackingBookingId && localPosition != null) {
+      return LatLng(localPosition.latitude, localPosition.longitude);
     }
 
     final lat = booking.operatorLat;
@@ -1063,11 +1080,16 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   const severeOffRouteCapMeters = 5000.0;
 
   final passengerPickedUp = booking.passengerPickedUpAt != null;
-  final phasePolyline = OperatorMapLayers.resolvedRoutePointsForPhase(
-    booking,
-    passengerPickedUp: passengerPickedUp,
-  ).map((point) => BookingRoutePoint(lat: point.latitude, lng: point.longitude))
-      .toList(growable: false);
+  final phasePolyline =
+      OperatorMapLayers.resolvedRoutePointsForPhase(
+            booking,
+            passengerPickedUp: passengerPickedUp,
+          )
+          .map(
+            (point) =>
+                BookingRoutePoint(lat: point.latitude, lng: point.longitude),
+          )
+          .toList(growable: false);
   final startLat = booking.operatorLat ?? currentLat;
   final startLng = booking.operatorLng ?? currentLng;
   final endLat = passengerPickedUp ? booking.destinationLat : booking.originLat;

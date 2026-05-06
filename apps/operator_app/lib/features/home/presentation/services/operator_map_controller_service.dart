@@ -132,11 +132,15 @@ class OperatorMapControllerService {
       activeBooking,
       passengerPickedUp: passengerPickedUp,
     );
-    if (_lastRouteFitPhaseSignature == phaseSignature) {
+    final routeFitSignature = [
+      phaseSignature,
+      OperatorMapLayers.routeGeometrySignature(routePoints),
+    ].join('|');
+    if (_lastRouteFitPhaseSignature == routeFitSignature) {
       return;
     }
 
-    _lastRouteFitPhaseSignature = phaseSignature;
+    _lastRouteFitPhaseSignature = routeFitSignature;
     _shouldFitRouteBeforeFollow = true;
   }
 
@@ -193,6 +197,7 @@ class OperatorMapControllerService {
         return _navigationMode;
       case OperatorMapNavigationMode.tracking:
         if (operatorPoint != null) {
+          await _ensureTrackingTilt(operatorPoint);
           await followOperatorWithPolicy(
             operatorPoint,
             forceFollow: forceFollow,
@@ -336,6 +341,33 @@ class OperatorMapControllerService {
     } catch (e) {
       _log('camera_follow_failed', data: {'error': e.toString()});
     }
+  }
+
+  Future<void> _ensureTrackingTilt(LatLng operatorPoint) async {
+    if ((_lastTilt ?? _overviewTilt) == _trackingTilt) {
+      return;
+    }
+
+    final target = _lastCameraTarget ?? operatorPoint;
+    final zoom = _lastZoom ?? 16.8;
+    final bearing = _lastBearing ?? 0.0;
+
+    await animateCameraSafely(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: target,
+          zoom: zoom,
+          bearing: bearing,
+          tilt: _trackingTilt,
+        ),
+      ),
+      allowIfBusy: true,
+    );
+
+    _lastCameraTarget = target;
+    _lastZoom = zoom;
+    _lastBearing = bearing;
+    _lastTilt = _trackingTilt;
   }
 
   Future<void> _ensureTilt(double tilt) async {

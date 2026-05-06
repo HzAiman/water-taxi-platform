@@ -28,7 +28,13 @@ class OperatorLocationCoordinator {
     return OperatorLocationAccess.denied;
   }
 
-  Future<Position> getCurrentPosition() {
-    return Geolocator.getCurrentPosition();
+  Future<Position> getCurrentPosition({
+    LocationAccuracy accuracy = LocationAccuracy.high,
+    Duration timeLimit = const Duration(seconds: 10),
+  }) {
+    return Geolocator.getCurrentPosition(
+      desiredAccuracy: accuracy,
+      timeLimit: timeLimit,
+    );
   }
 }

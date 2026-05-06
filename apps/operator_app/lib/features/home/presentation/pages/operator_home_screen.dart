@@ -192,8 +192,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: snapshot.passengerPickedUp,
-      operatorPoint: snapshot.operatorPoint,
-      destinationPoint: snapshot.destinationPoint,
     );
 
     _mapCameraService.prepareRouteFitBeforeFollow(
@@ -770,9 +768,20 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final activeBooking = snapshot.activeBooking;
     final operatorPoint = snapshot.operatorPoint;
     final destinationPoint = snapshot.destinationPoint;
+    final routePoints = activeBooking == null
+        ? const <LatLng>[]
+        : OperatorMapLayers.resolvedRoutePointsForPhase(
+            activeBooking,
+            passengerPickedUp: snapshot.passengerPickedUp,
+          );
     return [
       activeBooking?.bookingId ?? '-',
       activeBooking?.status.firestoreValue ?? '-',
+      OperatorMapLayers.routePhaseSignature(
+        activeBooking,
+        passengerPickedUp: snapshot.passengerPickedUp,
+      ),
+      OperatorMapLayers.routeGeometrySignature(routePoints),
       snapshot.passengerPickedUp ? '1' : '0',
       operatorPoint?.latitude.toStringAsFixed(5) ?? '-',
       operatorPoint?.longitude.toStringAsFixed(5) ?? '-',
@@ -1006,8 +1015,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
       activeBooking,
       passengerPickedUp: snapshot.passengerPickedUp,
-      operatorPoint: snapshot.operatorPoint,
-      destinationPoint: snapshot.destinationPoint,
     );
     final isLoading = _isInitializingViewModel;
 

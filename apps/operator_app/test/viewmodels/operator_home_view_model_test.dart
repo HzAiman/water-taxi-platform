@@ -268,11 +268,11 @@ void main() {
             status: BookingStatus.onTheWay,
             operatorLat: 2.2015,
             operatorLng: 102.2515,
-            routePolyline: const [
+            routeToOriginPolyline: const [
               BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-              BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-              BookingRoutePoint(lat: 2.2020, lng: 102.2520),
-              BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+              BookingRoutePoint(lat: 1.8000, lng: 101.8000),
+              BookingRoutePoint(lat: 1.4000, lng: 101.4000),
+              BookingRoutePoint(lat: 1.0000, lng: 101.0000),
             ],
           ),
         ]);
@@ -351,11 +351,11 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2012,
           operatorLng: 102.2512,
-          routePolyline: const [
-            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
-            BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+          routeToOriginPolyline: const [
+            BookingRoutePoint(lat: 2.2012, lng: 102.2512),
+            BookingRoutePoint(lat: 1.8000, lng: 101.8000),
+            BookingRoutePoint(lat: 1.4000, lng: 101.4000),
+            BookingRoutePoint(lat: 1.0000, lng: 101.0000),
           ],
         ),
       ]);
@@ -369,11 +369,11 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2013,
           operatorLng: 102.2513,
-          routePolyline: const [
-            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
-            BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+          routeToOriginPolyline: const [
+            BookingRoutePoint(lat: 2.2013, lng: 102.2513),
+            BookingRoutePoint(lat: 1.8000, lng: 101.8000),
+            BookingRoutePoint(lat: 1.4000, lng: 101.4000),
+            BookingRoutePoint(lat: 1.0000, lng: 101.0000),
           ],
         ),
       ]);
@@ -662,11 +662,11 @@ void main() {
         originLng: 102.2500,
         destinationLat: 2.2030,
         destinationLng: 102.2530,
-        routePolyline: const [
-          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        routeToOriginPolyline: const [
           BookingRoutePoint(lat: 2.2030, lng: 102.2530),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
         ],
         adultCount: 1,
         childCount: 0,
@@ -722,13 +722,15 @@ void main() {
         paymentStatus: 'paid',
         status: BookingStatus.onTheWay,
         operatorUid: 'operator-1',
+        operatorLat: 2.2020,
+        operatorLng: 102.2520,
         rejectedBy: const [],
       );
 
       final guidance = computeOperatorNavigationGuidance(
         booking: booking,
-        currentLat: 2.2002,
-        currentLng: 102.2502,
+        currentLat: 2.2020,
+        currentLng: 102.2520,
         now: DateTime(2026, 3, 19, 10, 0, 0),
         lastResolvedRouteMarker: 3,
       );
@@ -785,45 +787,48 @@ void main() {
       expect(guidance.offRouteDistanceMeters, lessThan(80));
     });
 
-    test('navigation helper phase 2 fallback starts from operator position', () {
-      final booking = BookingModel(
-        bookingId: 'nav-phase-2-fallback',
-        userId: 'user-1',
-        userName: 'Passenger One',
-        userPhone: '0123456789',
-        origin: 'Jetty A',
-        destination: 'Jetty B',
-        originLat: 2.2010,
-        originLng: 102.2490,
-        destinationLat: 2.1930,
-        destinationLng: 102.2460,
-        routeToDestinationPolyline: const [],
-        adultCount: 1,
-        childCount: 0,
-        passengerCount: 1,
-        totalFare: 12,
-        paymentMethod: PaymentMethods.creditCard,
-        paymentStatus: 'paid',
-        status: BookingStatus.onTheWay,
-        operatorUid: 'operator-1',
-        operatorLat: 2.1960,
-        operatorLng: 102.2472,
-        passengerPickedUpAt: DateTime(2026, 3, 19, 10, 0, 0),
-        rejectedBy: const [],
-      );
+    test(
+      'navigation helper phase 2 fallback starts from operator position',
+      () {
+        final booking = BookingModel(
+          bookingId: 'nav-phase-2-fallback',
+          userId: 'user-1',
+          userName: 'Passenger One',
+          userPhone: '0123456789',
+          origin: 'Jetty A',
+          destination: 'Jetty B',
+          originLat: 2.2010,
+          originLng: 102.2490,
+          destinationLat: 2.1930,
+          destinationLng: 102.2460,
+          routeToDestinationPolyline: const [],
+          adultCount: 1,
+          childCount: 0,
+          passengerCount: 1,
+          totalFare: 12,
+          paymentMethod: PaymentMethods.creditCard,
+          paymentStatus: 'paid',
+          status: BookingStatus.onTheWay,
+          operatorUid: 'operator-1',
+          operatorLat: 2.1960,
+          operatorLng: 102.2472,
+          passengerPickedUpAt: DateTime(2026, 3, 19, 10, 0, 0),
+          rejectedBy: const [],
+        );
 
-      final guidance = computeOperatorNavigationGuidance(
-        booking: booking,
-        currentLat: 2.1960,
-        currentLng: 102.2472,
-        now: DateTime(2026, 3, 19, 10, 5, 0),
-        reportedSpeedMps: 4.0,
-      );
+        final guidance = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.1960,
+          currentLng: 102.2472,
+          now: DateTime(2026, 3, 19, 10, 5, 0),
+          reportedSpeedMps: 4.0,
+        );
 
-      expect(guidance, isNotNull);
-      expect(guidance!.remainingDistanceMeters, lessThan(400));
-      expect(guidance.eta, isNotNull);
-    });
+        expect(guidance, isNotNull);
+        expect(guidance!.remainingDistanceMeters, lessThan(400));
+        expect(guidance.eta, isNotNull);
+      },
+    );
 
     test('navigation helper flags off-route when far from segment', () {
       final booking = BookingModel(
@@ -837,6 +842,11 @@ void main() {
         originLng: 102.2500,
         destinationLat: 2.2050,
         destinationLng: 102.2500,
+        routeToOriginPolyline: const [
+          BookingRoutePoint(lat: 2.2050, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2030, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+        ],
         adultCount: 1,
         childCount: 0,
         passengerCount: 1,
@@ -845,12 +855,14 @@ void main() {
         paymentStatus: 'paid',
         status: BookingStatus.onTheWay,
         operatorUid: 'operator-1',
+        operatorLat: 2.2050,
+        operatorLng: 102.2500,
         rejectedBy: const [],
       );
 
       final guidance = computeOperatorNavigationGuidance(
         booking: booking,
-        currentLat: 2.2000,
+        currentLat: 2.2020,
         currentLng: 102.2550,
         now: DateTime(2026, 3, 19, 10, 0, 0),
         offRouteToleranceMeters: 50,
@@ -1101,6 +1113,8 @@ BookingModel _sampleBooking({
   required BookingStatus status,
   List<String> rejectedBy = const [],
   List<BookingRoutePoint> routePolyline = const [],
+  List<BookingRoutePoint> routeToOriginPolyline = const [],
+  List<BookingRoutePoint> routeToDestinationPolyline = const [],
   double? operatorLat,
   double? operatorLng,
   DateTime? updatedAt,
@@ -1117,6 +1131,8 @@ BookingModel _sampleBooking({
     destinationLat: 2.0,
     destinationLng: 102.0,
     routePolyline: routePolyline,
+    routeToOriginPolyline: routeToOriginPolyline,
+    routeToDestinationPolyline: routeToDestinationPolyline,
     adultCount: 1,
     childCount: 0,
     passengerCount: 1,

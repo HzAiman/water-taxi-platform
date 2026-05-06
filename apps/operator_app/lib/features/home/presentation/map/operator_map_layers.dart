@@ -12,6 +12,10 @@ class OperatorMapLayers {
   static const double _closedLoopToleranceMeters = 12.0;
 
   static bool isActiveNavigationBooking(BookingModel booking) {
+    return booking.status == BookingStatus.onTheWay;
+  }
+
+  static bool shouldShowOperatorMarker(BookingModel booking) {
     return booking.status == BookingStatus.accepted ||
         booking.status == BookingStatus.onTheWay;
   }
@@ -30,6 +34,29 @@ class OperatorMapLayers {
       passengerPickedUp ? '1' : '0',
       booking.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ?? '-',
     ].join('|');
+  }
+
+  static String routeGeometrySignature(List<LatLng> routePoints) {
+    if (routePoints.isEmpty) {
+      return 'empty';
+    }
+
+    var latChecksum = 0;
+    var lngChecksum = 0;
+    for (final point in routePoints) {
+      latChecksum += (point.latitude * 100000).round();
+      lngChecksum += (point.longitude * 100000).round();
+    }
+
+    return [
+      routePoints.length.toString(),
+      routePoints.first.latitude.toStringAsFixed(5),
+      routePoints.first.longitude.toStringAsFixed(5),
+      routePoints.last.latitude.toStringAsFixed(5),
+      routePoints.last.longitude.toStringAsFixed(5),
+      latChecksum.toString(),
+      lngChecksum.toString(),
+    ].join(',');
   }
 
   static LatLngBounds boundsFromPoints(List<LatLng> points) {
@@ -58,8 +85,6 @@ class OperatorMapLayers {
   static List<LatLng> trimmedRoutePointsForCamera(
     BookingModel? booking, {
     required bool passengerPickedUp,
-    required LatLng? operatorPoint,
-    required LatLng? destinationPoint,
   }) {
     if (booking == null) {
       return const <LatLng>[];
@@ -128,7 +153,7 @@ class OperatorMapLayers {
       );
     }
 
-    if (isActiveNavigationBooking(activeBooking)) {
+    if (shouldShowOperatorMarker(activeBooking)) {
       final opLat = activeBooking.operatorLat;
       final opLng = activeBooking.operatorLng;
       if (opLat != null && opLng != null) {
@@ -358,7 +383,10 @@ class OperatorMapLayers {
     // location to the drop-off jetty. Never anchor the rendered segment at the
     // pickup jetty once the passenger has been picked up.
     final startPoint = switch (phase) {
-      _RoutePhase.toPickup => _latLngOrNull(booking.operatorLat, booking.operatorLng),
+      _RoutePhase.toPickup => _latLngOrNull(
+        booking.operatorLat,
+        booking.operatorLng,
+      ),
       _RoutePhase.toDestination =>
         _latLngOrNull(booking.operatorLat, booking.operatorLng) ??
             LatLng(booking.originLat, booking.originLng),

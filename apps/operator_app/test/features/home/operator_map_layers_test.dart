@@ -46,6 +46,32 @@ BookingModel _bookingFixture({
 }
 
 void main() {
+  group('OperatorMapLayers navigation state', () {
+    test('true navigation starts only when booking is on the way', () {
+      final acceptedBooking = _bookingFixture(
+        bookingId: 'state-accepted',
+        status: BookingStatus.accepted,
+      );
+      final onTheWayBooking = _bookingFixture(
+        bookingId: 'state-on-the-way',
+        status: BookingStatus.onTheWay,
+      );
+
+      expect(
+        OperatorMapLayers.isActiveNavigationBooking(acceptedBooking),
+        isFalse,
+      );
+      expect(
+        OperatorMapLayers.isActiveNavigationBooking(onTheWayBooking),
+        isTrue,
+      );
+      expect(
+        OperatorMapLayers.shouldShowOperatorMarker(acceptedBooking),
+        isTrue,
+      );
+    });
+  });
+
   group('OperatorMapLayers.buildMarkers', () {
     test('shows operator marker from accepted onward', () {
       final acceptedBooking = _bookingFixture(
@@ -97,7 +123,10 @@ void main() {
 
       final markers = OperatorMapLayers.buildMarkers(booking);
 
-      expect(markers.any((marker) => marker.markerId.value == 'origin'), isFalse);
+      expect(
+        markers.any((marker) => marker.markerId.value == 'origin'),
+        isFalse,
+      );
       expect(
         markers.any((marker) => marker.markerId.value == 'destination'),
         isTrue,
@@ -137,12 +166,11 @@ void main() {
     test('trims the active route from the current operator position', () {
       final booking = _bookingFixture(
         bookingId: 'b1a',
-        operatorLat: 2.2030,
+        operatorLat: 2.201667,
         operatorLng: 102.2450,
         routeToOriginPolyline: const <BookingRoutePoint>[
-          BookingRoutePoint(lat: 2.2000, lng: 102.2400),
-          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-          BookingRoutePoint(lat: 2.2000, lng: 102.2600),
+          BookingRoutePoint(lat: 2.201667, lng: 102.2400),
+          BookingRoutePoint(lat: 2.201667, lng: 102.249444),
         ],
       );
 
@@ -153,18 +181,17 @@ void main() {
       expect(polylines, hasLength(1));
 
       final polyline = polylines.first;
-      expect(polyline.points.first.latitude, closeTo(2.2000, 0.00001));
+      expect(polyline.points.first.latitude, closeTo(2.201667, 0.00001));
       expect(polyline.points.first.longitude, closeTo(102.2450, 0.00001));
-      expect(polyline.points.last, const LatLng(2.2000, 102.2600));
+      expect(polyline.points.last, const LatLng(2.201667, 102.249444));
 
       final movedBooking = _bookingFixture(
         bookingId: 'b1b',
-        operatorLat: 2.2030,
+        operatorLat: 2.201667,
         operatorLng: 102.2450,
         routeToOriginPolyline: const <BookingRoutePoint>[
-          BookingRoutePoint(lat: 2.2000, lng: 102.2400),
-          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-          BookingRoutePoint(lat: 2.2000, lng: 102.2600),
+          BookingRoutePoint(lat: 2.201667, lng: 102.2400),
+          BookingRoutePoint(lat: 2.201667, lng: 102.249444),
         ],
       );
 
@@ -174,9 +201,8 @@ void main() {
       );
       expect(movedPolylines, hasLength(1));
       expect(movedPolylines.first.points, const <LatLng>[
-        LatLng(2.2000, 102.2450),
-        LatLng(2.2000, 102.2500),
-        LatLng(2.2000, 102.2600),
+        LatLng(2.201667, 102.2450),
+        LatLng(2.201667, 102.249444),
       ]);
     });
 
@@ -268,63 +294,67 @@ void main() {
     test(
       'post-pickup does not use generic routePolyline fallback and draws operator to dropoff line',
       () {
-      final booking = _bookingFixture(
-        bookingId: 'b2-routepolyline-fallback',
-        operatorLat: 2.2001006,
-        operatorLng: 102.2479594,
-        passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
-        routeToDestinationPolyline: const <BookingRoutePoint>[],
-        routePolyline: const <BookingRoutePoint>[
-          BookingRoutePoint(lat: 2.2010520, lng: 102.2483375),
-          BookingRoutePoint(lat: 2.2007938, lng: 102.2480053),
-          BookingRoutePoint(lat: 2.2005186, lng: 102.2478974),
-          BookingRoutePoint(lat: 2.2001006, lng: 102.2479594),
-          BookingRoutePoint(lat: 2.1994408, lng: 102.2483514),
-          BookingRoutePoint(lat: 2.1983528, lng: 102.2483828),
-          BookingRoutePoint(lat: 2.1977739, lng: 102.2485790),
-        ],
-      );
+        final booking = _bookingFixture(
+          bookingId: 'b2-routepolyline-fallback',
+          operatorLat: 2.2001006,
+          operatorLng: 102.2479594,
+          passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+          routeToDestinationPolyline: const <BookingRoutePoint>[],
+          routePolyline: const <BookingRoutePoint>[
+            BookingRoutePoint(lat: 2.2010520, lng: 102.2483375),
+            BookingRoutePoint(lat: 2.2007938, lng: 102.2480053),
+            BookingRoutePoint(lat: 2.2005186, lng: 102.2478974),
+            BookingRoutePoint(lat: 2.2001006, lng: 102.2479594),
+            BookingRoutePoint(lat: 2.1994408, lng: 102.2483514),
+            BookingRoutePoint(lat: 2.1983528, lng: 102.2483828),
+            BookingRoutePoint(lat: 2.1977739, lng: 102.2485790),
+          ],
+        );
 
-      final polylines = OperatorMapLayers.buildPolylines(
-        booking,
-        passengerPickedUp: true,
-      );
+        final polylines = OperatorMapLayers.buildPolylines(
+          booking,
+          passengerPickedUp: true,
+        );
 
-      expect(polylines, hasLength(1));
-      expect(polylines.first.points, const <LatLng>[
-        LatLng(2.2001006, 102.2479594),
-        LatLng(2.193056, 102.246111),
-      ]);
-    });
+        expect(polylines, hasLength(1));
+        expect(polylines.first.points, const <LatLng>[
+          LatLng(2.2001006, 102.2479594),
+          LatLng(2.193056, 102.246111),
+        ]);
+      },
+    );
 
-    test('pre-pickup uses routePolyline river path when pickup phase route is missing', () {
-      final booking = _bookingFixture(
-        bookingId: 'b3',
-        operatorLat: 2.2001006,
-        operatorLng: 102.2479594,
-        routeToOriginPolyline: const <BookingRoutePoint>[],
-        routeToDestinationPolyline: const <BookingRoutePoint>[],
-        routePolyline: const <BookingRoutePoint>[
-          BookingRoutePoint(lat: 2.2010520, lng: 102.2483375),
-          BookingRoutePoint(lat: 2.2007938, lng: 102.2480053),
-          BookingRoutePoint(lat: 2.2005186, lng: 102.2478974),
-          BookingRoutePoint(lat: 2.2001006, lng: 102.2479594),
-          BookingRoutePoint(lat: 2.1994408, lng: 102.2483514),
-          BookingRoutePoint(lat: 2.1991486, lng: 102.2484224),
-          BookingRoutePoint(lat: 2.1983528, lng: 102.2483828),
-        ],
-      );
+    test(
+      'pre-pickup uses routePolyline river path when pickup phase route is missing',
+      () {
+        final booking = _bookingFixture(
+          bookingId: 'b3',
+          operatorLat: 2.2001006,
+          operatorLng: 102.2479594,
+          routeToOriginPolyline: const <BookingRoutePoint>[],
+          routeToDestinationPolyline: const <BookingRoutePoint>[],
+          routePolyline: const <BookingRoutePoint>[
+            BookingRoutePoint(lat: 2.2010520, lng: 102.2483375),
+            BookingRoutePoint(lat: 2.2007938, lng: 102.2480053),
+            BookingRoutePoint(lat: 2.2005186, lng: 102.2478974),
+            BookingRoutePoint(lat: 2.2001006, lng: 102.2479594),
+            BookingRoutePoint(lat: 2.1994408, lng: 102.2483514),
+            BookingRoutePoint(lat: 2.1991486, lng: 102.2484224),
+            BookingRoutePoint(lat: 2.1983528, lng: 102.2483828),
+          ],
+        );
 
-      final polylines = OperatorMapLayers.buildPolylines(
-        booking,
-        passengerPickedUp: false,
-      );
-      expect(polylines, hasLength(1));
-      final polyline = polylines.first;
-      expect(polyline.points.length, greaterThan(2));
-      expect(polyline.points.first.longitude, closeTo(102.2479594, 0.00001));
-      expect(polyline.points.last.longitude, closeTo(102.2483828, 0.00001));
-    });
+        final polylines = OperatorMapLayers.buildPolylines(
+          booking,
+          passengerPickedUp: false,
+        );
+        expect(polylines, hasLength(1));
+        final polyline = polylines.first;
+        expect(polyline.points.length, greaterThan(2));
+        expect(polyline.points.first.longitude, closeTo(102.2479594, 0.00001));
+        expect(polyline.points.last.longitude, closeTo(102.2483375, 0.00001));
+      },
+    );
 
     test('routePointsOverride is used only as fallback', () {
       final booking = _bookingFixture(
