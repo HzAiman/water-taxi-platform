@@ -18,6 +18,8 @@ class OperatorNavigationGuidance {
     required this.speedMetersPerSecond,
     required this.eta,
     required this.headingDegrees,
+    required this.offRouteSeverity,
+    required this.rejoinPoint,
     required this.routeHealth,
   });
 
@@ -32,8 +34,19 @@ class OperatorNavigationGuidance {
   final double? speedMetersPerSecond;
   final Duration? eta;
   final double? headingDegrees;
+  final OperatorOffRouteSeverity offRouteSeverity;
+  final BookingRoutePoint? rejoinPoint;
   final OperatorRouteHealth routeHealth;
+
+  bool get shouldPauseProgress =>
+      offRouteSeverity == OperatorOffRouteSeverity.severe;
+  bool get shouldPauseEta =>
+      offRouteSeverity == OperatorOffRouteSeverity.severe;
+  bool get isEtaLowConfidence =>
+      offRouteSeverity == OperatorOffRouteSeverity.moderate;
 }
+
+enum OperatorOffRouteSeverity { onRoute, mild, moderate, severe }
 
 OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   required BookingModel booking,
@@ -82,6 +95,10 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   var progressFraction = projection.progressFraction;
   var remainingDistanceMeters = projection.remainingDistanceMeters;
   var offRouteDistanceMeters = projection.offRouteDistanceMeters;
+  final offRouteSeverity = _resolveOffRouteSeverity(
+    offRouteDistanceMeters,
+    offRouteToleranceMeters,
+  );
 
   if (offRouteDistanceMeters > severeOffRouteCapMeters) {
     final floorMarker = lastResolvedRouteMarker ?? 1;
@@ -97,6 +114,13 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
       routePolyline: polyline,
     );
     offRouteDistanceMeters = severeOffRouteCapMeters;
+  }
+
+  if (offRouteSeverity == OperatorOffRouteSeverity.severe &&
+      lastResolvedRouteMarker != null &&
+      totalRouteMarkers > 1) {
+    progressFraction = ((lastResolvedRouteMarker - 1) / (totalRouteMarkers - 1))
+        .clamp(0.0, 1.0);
   }
 
   var nearestRouteMarker =
@@ -128,7 +152,10 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
       : instantSpeed;
 
   Duration? eta;
-  if (etaSpeed != null && etaSpeed >= 0.5 && remainingDistanceMeters > 0) {
+  if (etaSpeed != null &&
+      etaSpeed >= 0.5 &&
+      remainingDistanceMeters > 0 &&
+      offRouteSeverity != OperatorOffRouteSeverity.severe) {
     eta = Duration(seconds: (remainingDistanceMeters / etaSpeed).round());
   }
 
@@ -151,6 +178,8 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
       routePolyline: polyline,
       nearestSegmentIndex: projection.nearestSegmentIndex,
     ),
+    offRouteSeverity: offRouteSeverity,
+    rejoinPoint: projection.rejoinPoint,
     routeHealth: routeHealth,
   );
 }
@@ -194,6 +223,10 @@ _RouteProjection _projectProgressOnRoute({
       remainingDistanceMeters: directRemaining,
       offRouteDistanceMeters: offRoute,
       nearestSegmentIndex: 0,
+      rejoinPoint: BookingRoutePoint(
+        lat: _lerp(originLat, destinationLat, progress),
+        lng: _lerp(originLng, destinationLng, progress),
+      ),
     );
   }
 
@@ -255,7 +288,35 @@ _RouteProjection _projectProgressOnRoute({
     remainingDistanceMeters: remaining,
     offRouteDistanceMeters: minDistance,
     nearestSegmentIndex: nearestSegmentIndex,
+    rejoinPoint: BookingRoutePoint(
+      lat:
+          pathPoints[nearestSegmentIndex].lat +
+          ((pathPoints[nearestSegmentIndex + 1].lat -
+                  pathPoints[nearestSegmentIndex].lat) *
+              nearestProjectionT),
+      lng:
+          pathPoints[nearestSegmentIndex].lng +
+          ((pathPoints[nearestSegmentIndex + 1].lng -
+                  pathPoints[nearestSegmentIndex].lng) *
+              nearestProjectionT),
+    ),
   );
+}
+
+OperatorOffRouteSeverity _resolveOffRouteSeverity(
+  double offRouteDistanceMeters,
+  double offRouteToleranceMeters,
+) {
+  if (offRouteDistanceMeters <= offRouteToleranceMeters) {
+    return OperatorOffRouteSeverity.onRoute;
+  }
+  if (offRouteDistanceMeters <= 150) {
+    return OperatorOffRouteSeverity.mild;
+  }
+  if (offRouteDistanceMeters <= 300) {
+    return OperatorOffRouteSeverity.moderate;
+  }
+  return OperatorOffRouteSeverity.severe;
 }
 
 double? _resolveEffectiveSpeedMps({
@@ -463,12 +524,14 @@ class _RouteProjection {
     required this.remainingDistanceMeters,
     required this.offRouteDistanceMeters,
     required this.nearestSegmentIndex,
+    required this.rejoinPoint,
   });
 
   final double progressFraction;
   final double remainingDistanceMeters;
   final double offRouteDistanceMeters;
   final int nearestSegmentIndex;
+  final BookingRoutePoint rejoinPoint;
 }
 
 class _SegmentProjection {
@@ -477,3 +540,5 @@ class _SegmentProjection {
   final double t;
   final double distanceMeters;
 }
+
+double _lerp(double from, double to, double t) => from + ((to - from) * t);

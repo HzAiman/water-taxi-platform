@@ -794,6 +794,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
       _navigationGuidance?.remainingDistanceMeters.toStringAsFixed(0) ?? '-',
       _navigationGuidance?.isOffRoute == true ? '1' : '0',
       _navigationGuidance?.progressFraction.toStringAsFixed(3) ?? '-',
+      _navigationGuidance?.offRouteSeverity.name ?? '-',
+      _navigationGuidance?.headingDegrees?.toStringAsFixed(1) ?? '-',
+      _navigationGuidance?.rejoinPoint?.lat.toStringAsFixed(5) ?? '-',
+      _navigationGuidance?.rejoinPoint?.lng.toStringAsFixed(5) ?? '-',
     ].join('|');
 
     if (_cachedHomeSnapshotKey == key && _cachedHomeSnapshot != null) {

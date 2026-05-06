@@ -872,6 +872,10 @@ void main() {
       expect(guidance, isNotNull);
       expect(guidance!.isOffRoute, isTrue);
       expect(guidance.offRouteDistanceMeters, greaterThan(50));
+      expect(guidance.offRouteSeverity, OperatorOffRouteSeverity.severe);
+      expect(guidance.shouldPauseProgress, isTrue);
+      expect(guidance.shouldPauseEta, isTrue);
+      expect(guidance.rejoinPoint, isNotNull);
     });
 
     test('navigation helper does not flag off-route at exact tolerance', () {
@@ -921,6 +925,55 @@ void main() {
       );
       expect(guidance.isOffRoute, isFalse);
     });
+
+    test(
+      'navigation helper marks moderate off-route ETA as low confidence',
+      () {
+        final booking = BookingModel(
+          bookingId: 'nav-4b',
+          userId: 'user-1',
+          userName: 'Passenger One',
+          userPhone: '0123456789',
+          origin: 'Jetty A',
+          destination: 'Jetty B',
+          originLat: 2.2000,
+          originLng: 102.2500,
+          destinationLat: 2.2050,
+          destinationLng: 102.2500,
+          routeToOriginPolyline: const [
+            BookingRoutePoint(lat: 2.2050, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          ],
+          adultCount: 1,
+          childCount: 0,
+          passengerCount: 1,
+          totalFare: 12,
+          paymentMethod: PaymentMethods.creditCard,
+          paymentStatus: 'paid',
+          status: BookingStatus.onTheWay,
+          operatorUid: 'operator-1',
+          operatorLat: 2.2050,
+          operatorLng: 102.2500,
+          rejectedBy: const [],
+        );
+
+        final guidance = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.2040,
+          currentLng: 102.2518,
+          now: DateTime(2026, 3, 19, 10, 0, 0),
+          smoothedSpeedMps: 3.5,
+        );
+
+        expect(guidance, isNotNull);
+        expect(guidance!.offRouteSeverity, OperatorOffRouteSeverity.moderate);
+        expect(guidance.isEtaLowConfidence, isTrue);
+        expect(guidance.shouldPauseEta, isFalse);
+        expect(guidance.eta, isNotNull);
+        expect(guidance.rejoinPoint, isNotNull);
+      },
+    );
 
     test(
       'navigation helper derives ETA from sample speed and gates low speed',

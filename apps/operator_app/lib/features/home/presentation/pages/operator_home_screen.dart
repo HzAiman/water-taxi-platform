@@ -584,25 +584,42 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     required bool isLiveLocationStale,
     required OperatorHomeViewModel viewModel,
   }) {
-    final progressPercent = guidance == null || isLiveLocationStale
+    final hasPausedRecoveryState =
+        guidance != null && guidance.shouldPauseProgress;
+    final progressPercent =
+        guidance == null || isLiveLocationStale || hasPausedRecoveryState
         ? null
         : (guidance.progressFraction * 100).round();
     final remaining = isLiveLocationStale
         ? 'Waiting for live location'
+        : hasPausedRecoveryState
+        ? 'Rejoin river route'
         : guidance == null
         ? 'N/A'
         : _formatDistanceMeters(guidance.remainingDistanceMeters);
     final offRoute = guidance == null || isLiveLocationStale
         ? 'N/A'
         : _formatDistanceMeters(guidance.offRouteDistanceMeters);
-    final eta = isLiveLocationStale ? 'N/A' : _formatEta(guidance?.eta);
+    final eta = isLiveLocationStale || guidance?.shouldPauseEta == true
+        ? 'N/A'
+        : guidance?.isEtaLowConfidence == true
+        ? '~ ${_formatEta(guidance?.eta)}'
+        : _formatEta(guidance?.eta);
 
     return OperatorCollapsibleNavigationCard(
-      progressLabel: progressPercent == null ? '...' : '$progressPercent%',
+      progressLabel: hasPausedRecoveryState
+          ? 'Paused'
+          : progressPercent == null
+          ? '...'
+          : '$progressPercent%',
       remaining: remaining,
       eta: eta,
       nextMarkerText: isLiveLocationStale
           ? 'Waiting for live location...'
+          : guidance?.offRouteSeverity == OperatorOffRouteSeverity.severe
+          ? 'Return to the highlighted river rejoin point to resume guidance.'
+          : guidance?.offRouteSeverity == OperatorOffRouteSeverity.moderate
+          ? 'Rejoin the river route near marker ${guidance?.nextRouteMarker}.'
           : guidance == null
           ? 'Getting navigation guidance...'
           : 'Next marker: ${guidance.nextRouteMarker} / ${guidance.totalRouteMarkers}',
@@ -613,10 +630,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       primaryActionLabel: passengerPickedUp
           ? 'Complete Trip'
           : 'Passenger Picked Up',
-      routeStatusText: routeHealth.label,
+      routeStatusText: _routeStatusText(routeHealth, guidance),
       routeWarningText: isLiveLocationStale
           ? 'Live GPS is stale. Progress and ETA are paused until a fresh location arrives.'
-          : routeHealth.warning,
+          : _routeWarningText(routeHealth, guidance),
       onPrimaryAction: () async {
         final result = passengerPickedUp
             ? await viewModel.completeTrip(booking.bookingId)
@@ -727,16 +744,82 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   Set<Polyline> _buildMapPolylines(
     BookingModel? activeBooking, {
     required bool passengerPickedUp,
+    required OperatorNavigationGuidance? guidance,
+    required LatLng? operatorPoint,
   }) {
-    return OperatorMapLayers.buildPolylines(
+    final polylines = OperatorMapLayers.buildPolylines(
       activeBooking,
       passengerPickedUp: passengerPickedUp,
       opacity: 1,
-    );
+    ).toSet();
+
+    final rejoinPoint = guidance?.rejoinPoint;
+    if (guidance != null &&
+        operatorPoint != null &&
+        rejoinPoint != null &&
+        guidance.offRouteSeverity.index >=
+            OperatorOffRouteSeverity.moderate.index) {
+      final rejoinLatLng = LatLng(rejoinPoint.lat, rejoinPoint.lng);
+      final distanceToRejoin = Geolocator.distanceBetween(
+        operatorPoint.latitude,
+        operatorPoint.longitude,
+        rejoinLatLng.latitude,
+        rejoinLatLng.longitude,
+      );
+      if (distanceToRejoin >= 5) {
+        polylines.add(
+          Polyline(
+            polylineId: const PolylineId('route_rejoin_connector'),
+            points: <LatLng>[operatorPoint, rejoinLatLng],
+            color: const Color(0xFFF97316),
+            width: 3,
+            patterns: <PatternItem>[PatternItem.dash(18), PatternItem.gap(10)],
+          ),
+        );
+      }
+    }
+
+    return polylines;
   }
 
   bool _isPassengerPickedUp(BookingModel booking) {
     return booking.passengerPickedUpAt != null;
+  }
+
+  String _routeStatusText(
+    OperatorRouteHealth routeHealth,
+    OperatorNavigationGuidance? guidance,
+  ) {
+    if (guidance == null) {
+      return routeHealth.label;
+    }
+
+    return switch (guidance.offRouteSeverity) {
+      OperatorOffRouteSeverity.onRoute => routeHealth.label,
+      OperatorOffRouteSeverity.mild =>
+        '${routeHealth.label} • slight route deviation',
+      OperatorOffRouteSeverity.moderate => 'Return to river route',
+      OperatorOffRouteSeverity.severe => 'Away from river route',
+    };
+  }
+
+  String? _routeWarningText(
+    OperatorRouteHealth routeHealth,
+    OperatorNavigationGuidance? guidance,
+  ) {
+    if (guidance == null) {
+      return routeHealth.warning;
+    }
+
+    return switch (guidance.offRouteSeverity) {
+      OperatorOffRouteSeverity.onRoute => routeHealth.warning,
+      OperatorOffRouteSeverity.mild =>
+        'You are drifting from the planned river route. Guidance remains active.',
+      OperatorOffRouteSeverity.moderate =>
+        'Please rejoin the river route. ETA is lower-confidence until you are back on path.',
+      OperatorOffRouteSeverity.severe =>
+        'Too far from the planned river route. Progress is paused and ETA is hidden until you rejoin.',
+    };
   }
 
   Future<void> _animateCameraSafely(
@@ -800,6 +883,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       snapshot.navigationGuidance?.nearestRouteMarker.toString() ?? '-',
       snapshot.navigationGuidance?.isOffRoute == true ? '1' : '0',
       snapshot.navigationGuidance?.progressFraction.toStringAsFixed(2) ?? '-',
+      snapshot.navigationGuidance?.offRouteSeverity.name ?? '-',
+      snapshot.navigationGuidance?.headingDegrees?.toStringAsFixed(1) ?? '-',
+      snapshot.navigationGuidance?.rejoinPoint?.lat.toStringAsFixed(5) ?? '-',
+      snapshot.navigationGuidance?.rejoinPoint?.lng.toStringAsFixed(5) ?? '-',
     ].join('|');
   }
 
@@ -839,6 +926,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             polylines: _buildMapPolylines(
               activeBooking,
               passengerPickedUp: snapshot.passengerPickedUp,
+              guidance: snapshot.navigationGuidance,
+              operatorPoint: operatorPoint,
             ),
             onMapCreated: onMapCreated,
             onCameraMoveStarted: () {
