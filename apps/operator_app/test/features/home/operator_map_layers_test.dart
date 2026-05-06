@@ -205,6 +205,45 @@ void main() {
       expect(polyline.points.last, const LatLng(2.193056, 102.246111));
     });
 
+    test(
+      'IMPORTANT: post-pickup phase 2 polyline starts at operator location and ends at dropoff',
+      () {
+        final booking = _bookingFixture(
+          bookingId: 'b2-segmented',
+          operatorLat: 2.2005186,
+          operatorLng: 102.2478974,
+          passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+          routeToDestinationPolyline: const <BookingRoutePoint>[
+            BookingRoutePoint(lat: 2.2010520, lng: 102.2483375),
+            BookingRoutePoint(lat: 2.2007938, lng: 102.2480053),
+            BookingRoutePoint(lat: 2.2005186, lng: 102.2478974),
+            BookingRoutePoint(lat: 2.2001006, lng: 102.2479594),
+            BookingRoutePoint(lat: 2.1994408, lng: 102.2483514),
+          ],
+        );
+
+        final polylines = OperatorMapLayers.buildPolylines(
+          booking,
+          passengerPickedUp: true,
+        );
+
+        expect(polylines, hasLength(1));
+        expect(polylines.first.points.length, greaterThan(2));
+        expect(
+          polylines.first.points.first.longitude,
+          closeTo(102.2478974, 0.00001),
+        );
+        expect(
+          polylines.first.points.first.latitude,
+          closeTo(2.2005186, 0.00001),
+        );
+        expect(
+          polylines.first.points.last,
+          const LatLng(2.1994408, 102.2483514),
+        );
+      },
+    );
+
     test('post-pickup fallback uses operator to destination', () {
       final booking = _bookingFixture(
         bookingId: 'b2-fallback',
@@ -226,14 +265,53 @@ void main() {
       ]);
     });
 
-    test('does not use routePolyline for phase selection', () {
+    test(
+      'post-pickup does not use generic routePolyline fallback and draws operator to dropoff line',
+      () {
+      final booking = _bookingFixture(
+        bookingId: 'b2-routepolyline-fallback',
+        operatorLat: 2.2001006,
+        operatorLng: 102.2479594,
+        passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+        routeToDestinationPolyline: const <BookingRoutePoint>[],
+        routePolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.2010520, lng: 102.2483375),
+          BookingRoutePoint(lat: 2.2007938, lng: 102.2480053),
+          BookingRoutePoint(lat: 2.2005186, lng: 102.2478974),
+          BookingRoutePoint(lat: 2.2001006, lng: 102.2479594),
+          BookingRoutePoint(lat: 2.1994408, lng: 102.2483514),
+          BookingRoutePoint(lat: 2.1983528, lng: 102.2483828),
+          BookingRoutePoint(lat: 2.1977739, lng: 102.2485790),
+        ],
+      );
+
+      final polylines = OperatorMapLayers.buildPolylines(
+        booking,
+        passengerPickedUp: true,
+      );
+
+      expect(polylines, hasLength(1));
+      expect(polylines.first.points, const <LatLng>[
+        LatLng(2.2001006, 102.2479594),
+        LatLng(2.193056, 102.246111),
+      ]);
+    });
+
+    test('pre-pickup uses routePolyline river path when pickup phase route is missing', () {
       final booking = _bookingFixture(
         bookingId: 'b3',
+        operatorLat: 2.2001006,
+        operatorLng: 102.2479594,
         routeToOriginPolyline: const <BookingRoutePoint>[],
         routeToDestinationPolyline: const <BookingRoutePoint>[],
         routePolyline: const <BookingRoutePoint>[
-          BookingRoutePoint(lat: 9.0, lng: 9.0),
-          BookingRoutePoint(lat: 8.0, lng: 8.0),
+          BookingRoutePoint(lat: 2.2010520, lng: 102.2483375),
+          BookingRoutePoint(lat: 2.2007938, lng: 102.2480053),
+          BookingRoutePoint(lat: 2.2005186, lng: 102.2478974),
+          BookingRoutePoint(lat: 2.2001006, lng: 102.2479594),
+          BookingRoutePoint(lat: 2.1994408, lng: 102.2483514),
+          BookingRoutePoint(lat: 2.1991486, lng: 102.2484224),
+          BookingRoutePoint(lat: 2.1983528, lng: 102.2483828),
         ],
       );
 
@@ -243,10 +321,9 @@ void main() {
       );
       expect(polylines, hasLength(1));
       final polyline = polylines.first;
-      // fallback line for phase 1 should be operator -> pickup, not routePolyline
-      expect(polyline.points.first, const LatLng(2.2100, 102.2500));
-      expect(polyline.points.last, const LatLng(2.201667, 102.249444));
-      expect(polyline.points.first, isNot(const LatLng(9.0, 9.0)));
+      expect(polyline.points.length, greaterThan(2));
+      expect(polyline.points.first.longitude, closeTo(102.2479594, 0.00001));
+      expect(polyline.points.last.longitude, closeTo(102.2483828, 0.00001));
     });
 
     test('routePointsOverride is used only as fallback', () {

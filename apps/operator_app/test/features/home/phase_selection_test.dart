@@ -150,7 +150,7 @@ void main() {
     });
 
     test(
-      'Missing phase 1 polyline stays empty so renderer can use operator to pickup fallback',
+      'Missing phase 1 polyline can still fall back to the generic route polyline',
       () {
       final mockFullPolyline = [
         BookingRoutePoint(lat: 3.1350, lng: 101.6870),
@@ -184,7 +184,7 @@ void main() {
       expect(
         booking.routePolyline,
         mockFullPolyline,
-        reason: 'Generic route may still exist for passenger tracking',
+        reason: 'Generic route can be used to derive a river-following fallback',
       );
     });
 

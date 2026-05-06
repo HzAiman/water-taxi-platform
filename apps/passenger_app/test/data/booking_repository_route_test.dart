@@ -125,6 +125,44 @@ void main() {
       expect(hydrated!.routePolyline, hasLength(3));
     });
 
+    test('parses firestore-exported underscore coordinate keys', () async {
+      final firestore = FakeFirebaseFirestore();
+      await firestore.collection('polylines').doc('route_exported').set({
+        'path': const [
+          {'_latitude': 2.2073978, '_longitude': 102.251349},
+          {'_latitude': 2.2070574, '_longitude': 102.2511928},
+          {'_latitude': 2.2068474, '_longitude': 102.2509458},
+        ],
+      });
+
+      final repo = BookingRepository(firestore: firestore);
+      final bookingId = await repo.createBooking(
+        _params(
+          originLat: 2.20730,
+          originLng: 102.25130,
+          destinationLat: 2.20690,
+          destinationLng: 102.25100,
+        ),
+      );
+
+      final bookingDoc = await firestore
+          .collection(FirestoreCollections.bookings)
+          .doc(bookingId)
+          .get();
+      final data = bookingDoc.data();
+
+      expect(data, isNotNull);
+      expect(data![BookingFields.routePolylineId], 'route_exported');
+
+      final hydrated = await repo.streamBooking(bookingId).firstWhere(
+        (booking) => booking != null,
+      );
+      expect(hydrated, isNotNull);
+      expect(hydrated!.routePolyline, hasLength(3));
+      expect(hydrated.routePolyline.first.lat, closeTo(2.2073978, 0.000001));
+      expect(hydrated.routePolyline.last.lng, closeTo(102.2509458, 0.000001));
+    });
+
     test('records cancellation status history', () async {
       final firestore = FakeFirebaseFirestore();
       final repo = BookingRepository(firestore: firestore);

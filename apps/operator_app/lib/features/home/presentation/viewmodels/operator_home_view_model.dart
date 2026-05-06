@@ -10,6 +10,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
 import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
 
 /// ViewModel for [OperatorHomeScreen].
@@ -1062,15 +1063,13 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   const severeOffRouteCapMeters = 5000.0;
 
   final passengerPickedUp = booking.passengerPickedUpAt != null;
-  final phasePolyline = passengerPickedUp
-      ? booking.routeToDestinationPolyline
-      : booking.routeToOriginPolyline;
-  final startLat = passengerPickedUp
-      ? booking.originLat
-      : (booking.operatorLat ?? currentLat);
-  final startLng = passengerPickedUp
-      ? booking.originLng
-      : (booking.operatorLng ?? currentLng);
+  final phasePolyline = OperatorMapLayers.resolvedRoutePointsForPhase(
+    booking,
+    passengerPickedUp: passengerPickedUp,
+  ).map((point) => BookingRoutePoint(lat: point.latitude, lng: point.longitude))
+      .toList(growable: false);
+  final startLat = booking.operatorLat ?? currentLat;
+  final startLng = booking.operatorLng ?? currentLng;
   final endLat = passengerPickedUp ? booking.destinationLat : booking.originLat;
   final endLng = passengerPickedUp ? booking.destinationLng : booking.originLng;
   final polyline = phasePolyline;

@@ -785,6 +785,46 @@ void main() {
       expect(guidance.offRouteDistanceMeters, lessThan(80));
     });
 
+    test('navigation helper phase 2 fallback starts from operator position', () {
+      final booking = BookingModel(
+        bookingId: 'nav-phase-2-fallback',
+        userId: 'user-1',
+        userName: 'Passenger One',
+        userPhone: '0123456789',
+        origin: 'Jetty A',
+        destination: 'Jetty B',
+        originLat: 2.2010,
+        originLng: 102.2490,
+        destinationLat: 2.1930,
+        destinationLng: 102.2460,
+        routeToDestinationPolyline: const [],
+        adultCount: 1,
+        childCount: 0,
+        passengerCount: 1,
+        totalFare: 12,
+        paymentMethod: PaymentMethods.creditCard,
+        paymentStatus: 'paid',
+        status: BookingStatus.onTheWay,
+        operatorUid: 'operator-1',
+        operatorLat: 2.1960,
+        operatorLng: 102.2472,
+        passengerPickedUpAt: DateTime(2026, 3, 19, 10, 0, 0),
+        rejectedBy: const [],
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.1960,
+        currentLng: 102.2472,
+        now: DateTime(2026, 3, 19, 10, 5, 0),
+        reportedSpeedMps: 4.0,
+      );
+
+      expect(guidance, isNotNull);
+      expect(guidance!.remainingDistanceMeters, lessThan(400));
+      expect(guidance.eta, isNotNull);
+    });
+
     test('navigation helper flags off-route when far from segment', () {
       final booking = BookingModel(
         bookingId: 'nav-3',

@@ -9,6 +9,8 @@ enum _RoutePhase { toPickup, toDestination, none }
 class OperatorMapLayers {
   const OperatorMapLayers._();
 
+  static const double _closedLoopToleranceMeters = 12.0;
+
   static bool isActiveNavigationBooking(BookingModel booking) {
     return booking.status == BookingStatus.accepted ||
         booking.status == BookingStatus.onTheWay;
@@ -63,14 +65,27 @@ class OperatorMapLayers {
       return const <LatLng>[];
     }
 
-    final phase = _resolveRoutePhase(booking, passengerPickedUp);
-    var routePoints = _routePointsForPhase(booking, phase);
+    var routePoints = resolvedRoutePointsForPhase(
+      booking,
+      passengerPickedUp: passengerPickedUp,
+    );
 
     if (routePoints.length < 2) {
-      routePoints = _phaseFallbackLine(booking, phase);
+      routePoints = _phaseFallbackLine(
+        booking,
+        _resolveRoutePhase(booking, passengerPickedUp),
+      );
     }
 
     return _trimRouteFromOperatorPosition(routePoints, booking);
+  }
+
+  static List<LatLng> resolvedRoutePointsForPhase(
+    BookingModel booking, {
+    required bool passengerPickedUp,
+  }) {
+    final phase = _resolveRoutePhase(booking, passengerPickedUp);
+    return _routePointsForPhase(booking, phase);
   }
 
   static Set<Marker> buildMarkers(BookingModel? activeBooking) {
@@ -147,7 +162,10 @@ class OperatorMapLayers {
     }
 
     final phase = _resolveRoutePhase(activeBooking, passengerPickedUp);
-    var routePoints = _routePointsForPhase(activeBooking, phase);
+    var routePoints = resolvedRoutePointsForPhase(
+      activeBooking,
+      passengerPickedUp: passengerPickedUp,
+    );
 
     // Use routePointsOverride only as a fallback/debug hook.
     if (routePoints.length < 2 && routePointsOverride != null) {
@@ -215,10 +233,31 @@ class OperatorMapLayers {
       _RoutePhase.none => const <BookingRoutePoint>[],
     };
 
-    return route
+    final phasePoints = route
         .map((p) => LatLng(p.lat, p.lng))
         .where((p) => _isValidLatLng(p.latitude, p.longitude))
         .toList(growable: false);
+
+    if (phasePoints.length >= 2) {
+      final segmentedPhasePoints = _segmentFromRoutePoints(
+        phasePoints,
+        booking,
+        phase,
+      );
+      if (segmentedPhasePoints.length >= 2) {
+        return segmentedPhasePoints;
+      }
+      return phasePoints;
+    }
+
+    if (phase == _RoutePhase.toDestination) {
+      // Important: never fall back to a generic pickup->dropoff polyline for
+      // phase 2. If there is no true destination-phase route, draw the direct
+      // operator->dropoff line instead.
+      return const <LatLng>[];
+    }
+
+    return _segmentFromGenericRoutePolyline(booking, phase);
   }
 
   static List<LatLng> _trimRouteFromOperatorPosition(
@@ -294,6 +333,200 @@ class OperatorMapLayers {
     }
   }
 
+  static List<LatLng> _segmentFromGenericRoutePolyline(
+    BookingModel booking,
+    _RoutePhase phase,
+  ) {
+    final genericPoints = booking.routePolyline
+        .map((p) => LatLng(p.lat, p.lng))
+        .where((p) => _isValidLatLng(p.latitude, p.longitude))
+        .toList(growable: false);
+    return _segmentFromRoutePoints(genericPoints, booking, phase);
+  }
+
+  static List<LatLng> _segmentFromRoutePoints(
+    List<LatLng> routePoints,
+    BookingModel booking,
+    _RoutePhase phase,
+  ) {
+    final genericPoints = routePoints;
+    if (genericPoints.length < 2) {
+      return const <LatLng>[];
+    }
+
+    // Important: phase 2 must always resolve from the operator's current
+    // location to the drop-off jetty. Never anchor the rendered segment at the
+    // pickup jetty once the passenger has been picked up.
+    final startPoint = switch (phase) {
+      _RoutePhase.toPickup => _latLngOrNull(booking.operatorLat, booking.operatorLng),
+      _RoutePhase.toDestination =>
+        _latLngOrNull(booking.operatorLat, booking.operatorLng) ??
+            LatLng(booking.originLat, booking.originLng),
+      _RoutePhase.none => null,
+    };
+    final endPoint = switch (phase) {
+      _RoutePhase.toPickup => LatLng(booking.originLat, booking.originLng),
+      _RoutePhase.toDestination => LatLng(
+        booking.destinationLat,
+        booking.destinationLng,
+      ),
+      _RoutePhase.none => null,
+    };
+
+    if (startPoint == null ||
+        endPoint == null ||
+        !_isValidLatLng(startPoint.latitude, startPoint.longitude) ||
+        !_isValidLatLng(endPoint.latitude, endPoint.longitude)) {
+      return const <LatLng>[];
+    }
+
+    final startSnap = _snapPointToRoute(startPoint, genericPoints);
+    final endSnap = _snapPointToRoute(endPoint, genericPoints);
+    if (startSnap == null || endSnap == null) {
+      return const <LatLng>[];
+    }
+
+    return _isClosedLoopPolyline(genericPoints)
+        ? _extractShortestLoopSegment(genericPoints, startSnap, endSnap)
+        : _extractLinearSegment(genericPoints, startSnap, endSnap);
+  }
+
+  static _SnappedRoutePoint? _snapPointToRoute(
+    LatLng point,
+    List<LatLng> routePoints,
+  ) {
+    if (routePoints.length < 2) {
+      return null;
+    }
+
+    var bestSegmentIndex = 0;
+    var bestProjectedPoint = routePoints.first;
+    var bestDistance = double.infinity;
+
+    for (var i = 0; i < routePoints.length - 1; i++) {
+      final projectedPoint = _projectPointOntoSegment(
+        point,
+        routePoints[i],
+        routePoints[i + 1],
+      );
+      final distance = _distanceMeters(point, projectedPoint);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestProjectedPoint = projectedPoint;
+        bestSegmentIndex = i;
+      }
+    }
+
+    return _SnappedRoutePoint(
+      point: bestProjectedPoint,
+      segmentIndex: bestSegmentIndex,
+    );
+  }
+
+  static List<LatLng> _extractLinearSegment(
+    List<LatLng> routePoints,
+    _SnappedRoutePoint startSnap,
+    _SnappedRoutePoint endSnap,
+  ) {
+    final segment = <LatLng>[startSnap.point];
+
+    if (startSnap.segmentIndex <= endSnap.segmentIndex) {
+      for (var i = startSnap.segmentIndex + 1; i <= endSnap.segmentIndex; i++) {
+        _addIfDistinct(segment, routePoints[i]);
+      }
+    } else {
+      for (var i = startSnap.segmentIndex; i >= endSnap.segmentIndex + 1; i--) {
+        _addIfDistinct(segment, routePoints[i]);
+      }
+    }
+
+    _addIfDistinct(segment, endSnap.point);
+    return segment;
+  }
+
+  static List<LatLng> _extractShortestLoopSegment(
+    List<LatLng> routePoints,
+    _SnappedRoutePoint startSnap,
+    _SnappedRoutePoint endSnap,
+  ) {
+    final forward = _extractLoopSegment(
+      routePoints,
+      startSnap,
+      endSnap,
+      step: 1,
+    );
+    final backward = _extractLoopSegment(
+      routePoints,
+      startSnap,
+      endSnap,
+      step: -1,
+    );
+    return _polylineLengthMeters(backward) < _polylineLengthMeters(forward)
+        ? backward
+        : forward;
+  }
+
+  static List<LatLng> _extractLoopSegment(
+    List<LatLng> routePoints,
+    _SnappedRoutePoint startSnap,
+    _SnappedRoutePoint endSnap, {
+    required int step,
+  }) {
+    final segment = <LatLng>[startSnap.point];
+    final segmentCount = routePoints.length - 1;
+    var index = startSnap.segmentIndex;
+    var guard = 0;
+
+    while (index != endSnap.segmentIndex && guard <= segmentCount + 1) {
+      if (step > 0) {
+        final nextIndex = (index + 1) % segmentCount;
+        _addIfDistinct(segment, routePoints[nextIndex]);
+        index = nextIndex;
+      } else {
+        _addIfDistinct(segment, routePoints[index]);
+        index = (index - 1 + segmentCount) % segmentCount;
+      }
+      guard++;
+    }
+
+    _addIfDistinct(segment, endSnap.point);
+    return segment;
+  }
+
+  static bool _isClosedLoopPolyline(List<LatLng> points) {
+    if (points.length < 3) {
+      return false;
+    }
+    return _distanceMeters(points.first, points.last) <=
+        _closedLoopToleranceMeters;
+  }
+
+  static void _addIfDistinct(List<LatLng> points, LatLng next) {
+    if (points.isEmpty) {
+      points.add(next);
+      return;
+    }
+
+    final last = points.last;
+    if ((last.latitude - next.latitude).abs() < 1e-9 &&
+        (last.longitude - next.longitude).abs() < 1e-9) {
+      return;
+    }
+    points.add(next);
+  }
+
+  static double _polylineLengthMeters(List<LatLng> points) {
+    if (points.length < 2) {
+      return 0;
+    }
+
+    var total = 0.0;
+    for (var i = 0; i < points.length - 1; i++) {
+      total += _distanceMeters(points[i], points[i + 1]);
+    }
+    return total;
+  }
+
   static bool _isValidLatLng(double lat, double lng) {
     return lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
   }
@@ -348,4 +581,11 @@ class OperatorMapLayers {
   }
 
   static double _degreesToRadians(double degrees) => degrees * (math.pi / 180);
+}
+
+class _SnappedRoutePoint {
+  const _SnappedRoutePoint({required this.point, required this.segmentIndex});
+
+  final LatLng point;
+  final int segmentIndex;
 }

@@ -715,8 +715,15 @@ class BookingRepository {
     }
 
     if (entry is Map) {
-      final lat = _asDouble(entry['lat'] ?? entry['latitude']);
-      final lng = _asDouble(entry['lng'] ?? entry['longitude'] ?? entry['lon']);
+      final lat = _asDouble(
+        entry['lat'] ?? entry['latitude'] ?? entry['_latitude'],
+      );
+      final lng = _asDouble(
+        entry['lng'] ??
+            entry['longitude'] ??
+            entry['lon'] ??
+            entry['_longitude'],
+      );
       if (lat != null && lng != null) {
         return {'lat': lat, 'lng': lng};
       }
