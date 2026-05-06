@@ -189,6 +189,8 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
     required this.offRouteText,
     required this.isUpdating,
     required this.primaryActionLabel,
+    required this.routeStatusText,
+    required this.routeWarningText,
     required this.onPrimaryAction,
   });
 
@@ -199,6 +201,8 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
   final String? offRouteText;
   final bool isUpdating;
   final String primaryActionLabel;
+  final String routeStatusText;
+  final String? routeWarningText;
   final Future<void> Function() onPrimaryAction;
 
   @override
@@ -278,6 +282,12 @@ class _OperatorCollapsibleNavigationCardState
               fontWeight: FontWeight.w600,
             ),
           ),
+          const SizedBox(height: 8),
+          _buildRouteStatus(),
+          if (widget.routeWarningText != null) ...[
+            const SizedBox(height: 8),
+            _buildWarning(widget.routeWarningText!),
+          ],
           if (_isExpanded) ...[
             const SizedBox(height: 10),
             Row(
@@ -351,6 +361,52 @@ class _OperatorCollapsibleNavigationCardState
             ),
           ],
         ],
+      ),
+    );
+  }
+
+  Widget _buildRouteStatus() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEFF6FF),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.alt_route, size: 16, color: Color(0xFF0066CC)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              widget.routeStatusText,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF075985),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWarning(String text) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize: 12,
+          color: Color(0xFF9A3412),
+          fontWeight: FontWeight.w700,
+        ),
       ),
     );
   }

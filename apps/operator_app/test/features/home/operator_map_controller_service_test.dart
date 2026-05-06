@@ -6,6 +6,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 BookingModel _bookingFixture({
   required String bookingId,
   required BookingStatus status,
+  DateTime? passengerPickedUpAt,
 }) {
   return BookingModel(
     bookingId: bookingId,
@@ -31,6 +32,7 @@ BookingModel _bookingFixture({
     rejectedBy: const <String>[],
     createdAt: DateTime(2024, 1, 1),
     updatedAt: DateTime(2024, 1, 1),
+    passengerPickedUpAt: passengerPickedUpAt,
   );
 }
 
@@ -82,6 +84,59 @@ void main() {
       );
 
       expect(mode, OperatorMapNavigationMode.overview);
+    });
+
+    test('completed bookings resolve back to overview mode', () {
+      final service = OperatorMapControllerService(enableDebugLogging: false);
+      addTearDown(service.dispose);
+
+      final mode = service.resolveNavigationMode(
+        activeBooking: _bookingFixture(
+          bookingId: 'completed-trip',
+          status: BookingStatus.completed,
+        ),
+        operatorPoint: const LatLng(2.2100, 102.2500),
+      );
+
+      expect(mode, OperatorMapNavigationMode.overview);
+    });
+  });
+
+  group('OperatorMapControllerService phase route fitting', () {
+    test('passenger pickup phase transition forces an overview refit', () {
+      final service = OperatorMapControllerService(enableDebugLogging: false);
+      addTearDown(service.dispose);
+
+      service.prepareRouteFitBeforeFollow(
+        _bookingFixture(
+          bookingId: 'phase-trip',
+          status: BookingStatus.onTheWay,
+        ),
+        routePoints: const <LatLng>[
+          LatLng(2.2100, 102.2500),
+          LatLng(2.201667, 102.249444),
+        ],
+        passengerPickedUp: false,
+      );
+
+      expect(service.debugHasPendingRouteFit, isTrue);
+      expect(service.debugHasForcedRouteFit, isFalse);
+
+      service.prepareRouteFitBeforeFollow(
+        _bookingFixture(
+          bookingId: 'phase-trip',
+          status: BookingStatus.onTheWay,
+          passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+        ),
+        routePoints: const <LatLng>[
+          LatLng(2.2000, 102.2400),
+          LatLng(2.193056, 102.246111),
+        ],
+        passengerPickedUp: true,
+      );
+
+      expect(service.debugHasPendingRouteFit, isTrue);
+      expect(service.debugHasForcedRouteFit, isTrue);
     });
   });
 }

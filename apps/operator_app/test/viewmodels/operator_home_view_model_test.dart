@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:operator_app/features/home/presentation/services/operator_navigation_guidance_service.dart';
 import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
 import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -457,7 +458,7 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2010,
           operatorLng: 102.2500,
-          routePolyline: const [
+          routeToOriginPolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2500),
             BookingRoutePoint(lat: 2.2020, lng: 102.2500),
@@ -473,7 +474,7 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2010,
           operatorLng: 102.2550,
-          routePolyline: const [
+          routeToOriginPolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2500),
             BookingRoutePoint(lat: 2.2020, lng: 102.2500),
@@ -489,7 +490,7 @@ void main() {
           status: BookingStatus.onTheWay,
           operatorLat: 2.2020,
           operatorLng: 102.2500,
-          routePolyline: const [
+          routeToOriginPolyline: const [
             BookingRoutePoint(lat: 2.2000, lng: 102.2500),
             BookingRoutePoint(lat: 2.2010, lng: 102.2500),
             BookingRoutePoint(lat: 2.2020, lng: 102.2500),
@@ -708,7 +709,7 @@ void main() {
         originLng: 102.2500,
         destinationLat: 2.2030,
         destinationLng: 102.2530,
-        routePolyline: const [
+        routeToOriginPolyline: const [
           BookingRoutePoint(lat: 2.2000, lng: 102.2500),
           BookingRoutePoint(lat: 2.2010, lng: 102.2510),
           BookingRoutePoint(lat: 2.2020, lng: 102.2520),

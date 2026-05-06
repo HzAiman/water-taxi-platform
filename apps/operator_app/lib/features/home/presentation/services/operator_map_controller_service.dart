@@ -53,7 +53,9 @@ class OperatorMapControllerService {
   OperatorMapNavigationMode _navigationMode =
       OperatorMapNavigationMode.overview;
   bool _shouldFitRouteBeforeFollow = false;
+  bool _forceRouteFitBeforeFollow = false;
   String? _lastRouteFitPhaseSignature;
+  String? _lastRouteFitPhaseOnlySignature;
   DateTime? _lastFollowAt;
   LatLng? _lastFollowOperatorPoint;
   double? _lastBearing;
@@ -69,6 +71,10 @@ class OperatorMapControllerService {
   bool get isProgrammaticCameraMove => _isProgrammaticCameraMove;
   OperatorMapNavigationMode get navigationMode => _navigationMode;
   MapCameraState get currentState => state.value;
+  @visibleForTesting
+  bool get debugHasPendingRouteFit => _shouldFitRouteBeforeFollow;
+  @visibleForTesting
+  bool get debugHasForcedRouteFit => _forceRouteFitBeforeFollow;
 
   void attachMapController(GoogleMapController controller) {
     _mapController = controller;
@@ -97,7 +103,9 @@ class OperatorMapControllerService {
     _lastZoom = null;
     _lastTilt = null;
     _lastRouteFitPhaseSignature = null;
+    _lastRouteFitPhaseOnlySignature = null;
     _shouldFitRouteBeforeFollow = false;
+    _forceRouteFitBeforeFollow = false;
     _emitState();
   }
 
@@ -132,6 +140,9 @@ class OperatorMapControllerService {
       activeBooking,
       passengerPickedUp: passengerPickedUp,
     );
+    final isPhaseTransition =
+        _lastRouteFitPhaseOnlySignature != null &&
+        _lastRouteFitPhaseOnlySignature != phaseSignature;
     final routeFitSignature = [
       phaseSignature,
       OperatorMapLayers.routeGeometrySignature(routePoints),
@@ -140,8 +151,13 @@ class OperatorMapControllerService {
       return;
     }
 
+    _lastRouteFitPhaseOnlySignature = phaseSignature;
     _lastRouteFitPhaseSignature = routeFitSignature;
     _shouldFitRouteBeforeFollow = true;
+    _forceRouteFitBeforeFollow = isPhaseTransition;
+    if (isPhaseTransition) {
+      _navigationMode = OperatorMapNavigationMode.overview;
+    }
   }
 
   Future<OperatorMapNavigationMode> syncNavigationCamera(
@@ -166,7 +182,8 @@ class OperatorMapControllerService {
     }
 
     if (_shouldFitRouteBeforeFollow &&
-        _navigationMode != OperatorMapNavigationMode.userControlled) {
+        (_navigationMode != OperatorMapNavigationMode.userControlled ||
+            _forceRouteFitBeforeFollow)) {
       await runOverviewCamera(
         activeBooking,
         routePoints: routePoints,
@@ -174,6 +191,7 @@ class OperatorMapControllerService {
         destinationPoint: destinationPoint,
       );
       _shouldFitRouteBeforeFollow = false;
+      _forceRouteFitBeforeFollow = false;
       if (_navigationMode == OperatorMapNavigationMode.tracking &&
           operatorPoint != null) {
         await followOperatorWithPolicy(operatorPoint, forceFollow: true);

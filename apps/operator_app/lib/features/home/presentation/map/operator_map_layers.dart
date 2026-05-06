@@ -4,7 +4,34 @@ import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
-enum _RoutePhase { toPickup, toDestination, none }
+enum OperatorRoutePhase { toPickup, toDestination, none }
+
+enum OperatorRouteSource {
+  routeToOriginPolyline,
+  routeToDestinationPolyline,
+  straightLineFallback,
+  none,
+}
+
+class OperatorRouteHealth {
+  const OperatorRouteHealth({
+    required this.phase,
+    required this.source,
+    required this.routePoints,
+    required this.label,
+    this.warning,
+  });
+
+  final OperatorRoutePhase phase;
+  final OperatorRouteSource source;
+  final List<LatLng> routePoints;
+  final String label;
+  final String? warning;
+
+  bool get usesFallback => source == OperatorRouteSource.straightLineFallback;
+  bool get isReady =>
+      source != OperatorRouteSource.none && routePoints.length >= 2;
+}
 
 class OperatorMapLayers {
   const OperatorMapLayers._();
@@ -90,30 +117,80 @@ class OperatorMapLayers {
       return const <LatLng>[];
     }
 
-    var routePoints = resolvedRoutePointsForPhase(
-      booking,
-      passengerPickedUp: passengerPickedUp,
-    );
-
-    if (routePoints.length < 2) {
-      routePoints = _phaseFallbackLine(
+    return _trimRouteFromOperatorPosition(
+      resolveRouteHealth(
         booking,
-        _resolveRoutePhase(booking, passengerPickedUp),
-      );
-    }
-
-    return _trimRouteFromOperatorPosition(routePoints, booking);
+        passengerPickedUp: passengerPickedUp,
+      ).routePoints,
+      booking,
+    );
   }
 
   static List<LatLng> resolvedRoutePointsForPhase(
     BookingModel booking, {
     required bool passengerPickedUp,
   }) {
-    final phase = _resolveRoutePhase(booking, passengerPickedUp);
-    return _routePointsForPhase(booking, phase);
+    return resolveRouteHealth(
+      booking,
+      passengerPickedUp: passengerPickedUp,
+    ).routePoints;
   }
 
-  static Set<Marker> buildMarkers(BookingModel? activeBooking) {
+  static OperatorRouteHealth resolveRouteHealth(
+    BookingModel? booking, {
+    required bool passengerPickedUp,
+  }) {
+    if (booking == null) {
+      return const OperatorRouteHealth(
+        phase: OperatorRoutePhase.none,
+        source: OperatorRouteSource.none,
+        routePoints: <LatLng>[],
+        label: 'No active route',
+      );
+    }
+
+    final phase = _resolveRoutePhase(booking, passengerPickedUp);
+    if (phase == OperatorRoutePhase.none) {
+      return const OperatorRouteHealth(
+        phase: OperatorRoutePhase.none,
+        source: OperatorRouteSource.none,
+        routePoints: <LatLng>[],
+        label: 'No active route',
+      );
+    }
+
+    final phaseRoute = _phaseRoutePoints(booking, phase);
+    if (phaseRoute.length >= 2) {
+      final segmented = _segmentFromRoutePoints(phaseRoute, booking, phase);
+      final routePoints = segmented.length >= 2 ? segmented : phaseRoute;
+      return OperatorRouteHealth(
+        phase: phase,
+        source: phase == OperatorRoutePhase.toPickup
+            ? OperatorRouteSource.routeToOriginPolyline
+            : OperatorRouteSource.routeToDestinationPolyline,
+        routePoints: routePoints,
+        label: phase == OperatorRoutePhase.toPickup
+            ? 'Using operator-to-pickup route'
+            : 'Using operator-to-dropoff route',
+      );
+    }
+
+    final fallback = _phaseFallbackLine(booking, phase);
+    return OperatorRouteHealth(
+      phase: phase,
+      source: OperatorRouteSource.straightLineFallback,
+      routePoints: fallback,
+      label: 'Using straight-line fallback',
+      warning: phase == OperatorRoutePhase.toPickup
+          ? 'Missing routeToOriginPolyline. Showing straight line to pickup.'
+          : 'Missing routeToDestinationPolyline. Showing straight line to dropoff.',
+    );
+  }
+
+  static Set<Marker> buildMarkers(
+    BookingModel? activeBooking, {
+    double? operatorHeading,
+  }) {
     final markers = <Marker>{};
     if (activeBooking == null) {
       return markers;
@@ -164,6 +241,8 @@ class OperatorMapLayers {
             icon: BitmapDescriptor.defaultMarkerWithHue(
               BitmapDescriptor.hueGreen,
             ),
+            rotation: operatorHeading ?? 0,
+            flat: operatorHeading != null,
             infoWindow: const InfoWindow(
               title: 'Your Location',
               snippet: 'Current operator position',
@@ -178,7 +257,6 @@ class OperatorMapLayers {
 
   static Set<Polyline> buildPolylines(
     BookingModel? activeBooking, {
-    List<LatLng>? routePointsOverride,
     required bool passengerPickedUp,
     double opacity = 1,
   }) {
@@ -186,103 +264,78 @@ class OperatorMapLayers {
       return const <Polyline>{};
     }
 
-    final phase = _resolveRoutePhase(activeBooking, passengerPickedUp);
-    var routePoints = resolvedRoutePointsForPhase(
+    final routeHealth = resolveRouteHealth(
       activeBooking,
       passengerPickedUp: passengerPickedUp,
     );
-
-    // Use routePointsOverride only as a fallback/debug hook.
-    if (routePoints.length < 2 && routePointsOverride != null) {
-      routePoints = routePointsOverride
-          .where((p) => _isValidLatLng(p.latitude, p.longitude))
-          .toList(growable: false);
-    }
+    var routePoints = routeHealth.routePoints;
 
     // Trim the live route so it visually progresses forward from the current
     // operator position instead of staying static.
     routePoints = _trimRouteFromOperatorPosition(routePoints, activeBooking);
-
-    // Final fallback: if the phase route is missing, do not draw the old
-    // origin->destination route. Use only a minimal phase-appropriate line.
-    if (routePoints.length < 2) {
-      routePoints = _phaseFallbackLine(activeBooking, phase);
-    }
 
     if (routePoints.length < 2) {
       return const <Polyline>{};
     }
 
     final isPreview =
-        phase == _RoutePhase.toPickup &&
+        routeHealth.phase == OperatorRoutePhase.toPickup &&
         activeBooking.status == BookingStatus.accepted;
+    final isFallback = routeHealth.usesFallback;
 
     return {
       Polyline(
         polylineId: const PolylineId('route'),
         points: routePoints,
-        color: (isPreview ? const Color(0xFF94A3B8) : const Color(0xFF0066CC))
-            .withValues(alpha: opacity.clamp(0, 1)),
-        width: isPreview ? 3 : 5,
+        color:
+            (isFallback
+                    ? const Color(0xFFF59E0B)
+                    : isPreview
+                    ? const Color(0xFF94A3B8)
+                    : const Color(0xFF0066CC))
+                .withValues(alpha: opacity.clamp(0, 1)),
+        width: isFallback ? 4 : (isPreview ? 3 : 5),
+        patterns: isFallback
+            ? <PatternItem>[PatternItem.dash(24), PatternItem.gap(12)]
+            : const <PatternItem>[],
       ),
     };
   }
 
-  static _RoutePhase _resolveRoutePhase(
+  static OperatorRoutePhase _resolveRoutePhase(
     BookingModel booking,
     bool passengerPickedUp,
   ) {
     switch (booking.status) {
       case BookingStatus.accepted:
-        return _RoutePhase.toPickup;
+        return OperatorRoutePhase.toPickup;
       case BookingStatus.onTheWay:
         return passengerPickedUp || booking.passengerPickedUpAt != null
-            ? _RoutePhase.toDestination
-            : _RoutePhase.toPickup;
+            ? OperatorRoutePhase.toDestination
+            : OperatorRoutePhase.toPickup;
       case BookingStatus.pending:
       case BookingStatus.completed:
       case BookingStatus.cancelled:
       case BookingStatus.rejected:
       case BookingStatus.unknown:
-        return _RoutePhase.none;
+        return OperatorRoutePhase.none;
     }
   }
 
-  static List<LatLng> _routePointsForPhase(
+  static List<LatLng> _phaseRoutePoints(
     BookingModel booking,
-    _RoutePhase phase,
+    OperatorRoutePhase phase,
   ) {
     final route = switch (phase) {
-      _RoutePhase.toPickup => booking.routeToOriginPolyline,
-      _RoutePhase.toDestination => booking.routeToDestinationPolyline,
-      _RoutePhase.none => const <BookingRoutePoint>[],
+      OperatorRoutePhase.toPickup => booking.routeToOriginPolyline,
+      OperatorRoutePhase.toDestination => booking.routeToDestinationPolyline,
+      OperatorRoutePhase.none => const <BookingRoutePoint>[],
     };
 
-    final phasePoints = route
+    return route
         .map((p) => LatLng(p.lat, p.lng))
         .where((p) => _isValidLatLng(p.latitude, p.longitude))
         .toList(growable: false);
-
-    if (phasePoints.length >= 2) {
-      final segmentedPhasePoints = _segmentFromRoutePoints(
-        phasePoints,
-        booking,
-        phase,
-      );
-      if (segmentedPhasePoints.length >= 2) {
-        return segmentedPhasePoints;
-      }
-      return phasePoints;
-    }
-
-    if (phase == _RoutePhase.toDestination) {
-      // Important: never fall back to a generic pickup->dropoff polyline for
-      // phase 2. If there is no true destination-phase route, draw the direct
-      // operator->dropoff line instead.
-      return const <LatLng>[];
-    }
-
-    return _segmentFromGenericRoutePolyline(booking, phase);
   }
 
   static List<LatLng> _trimRouteFromOperatorPosition(
@@ -326,14 +379,14 @@ class OperatorMapLayers {
 
   static List<LatLng> _phaseFallbackLine(
     BookingModel booking,
-    _RoutePhase phase,
+    OperatorRoutePhase phase,
   ) {
     final operatorPoint = _latLngOrNull(
       booking.operatorLat,
       booking.operatorLng,
     );
     switch (phase) {
-      case _RoutePhase.toPickup:
+      case OperatorRoutePhase.toPickup:
         if (operatorPoint != null &&
             _isValidLatLng(operatorPoint.latitude, operatorPoint.longitude) &&
             _isValidLatLng(booking.originLat, booking.originLng)) {
@@ -343,7 +396,7 @@ class OperatorMapLayers {
           ];
         }
         return const <LatLng>[];
-      case _RoutePhase.toDestination:
+      case OperatorRoutePhase.toDestination:
         if (operatorPoint != null &&
             _isValidLatLng(operatorPoint.latitude, operatorPoint.longitude) &&
             _isValidLatLng(booking.destinationLat, booking.destinationLng)) {
@@ -353,26 +406,15 @@ class OperatorMapLayers {
           ];
         }
         return const <LatLng>[];
-      case _RoutePhase.none:
+      case OperatorRoutePhase.none:
         return const <LatLng>[];
     }
-  }
-
-  static List<LatLng> _segmentFromGenericRoutePolyline(
-    BookingModel booking,
-    _RoutePhase phase,
-  ) {
-    final genericPoints = booking.routePolyline
-        .map((p) => LatLng(p.lat, p.lng))
-        .where((p) => _isValidLatLng(p.latitude, p.longitude))
-        .toList(growable: false);
-    return _segmentFromRoutePoints(genericPoints, booking, phase);
   }
 
   static List<LatLng> _segmentFromRoutePoints(
     List<LatLng> routePoints,
     BookingModel booking,
-    _RoutePhase phase,
+    OperatorRoutePhase phase,
   ) {
     final genericPoints = routePoints;
     if (genericPoints.length < 2) {
@@ -383,22 +425,25 @@ class OperatorMapLayers {
     // location to the drop-off jetty. Never anchor the rendered segment at the
     // pickup jetty once the passenger has been picked up.
     final startPoint = switch (phase) {
-      _RoutePhase.toPickup => _latLngOrNull(
+      OperatorRoutePhase.toPickup => _latLngOrNull(
         booking.operatorLat,
         booking.operatorLng,
       ),
-      _RoutePhase.toDestination =>
+      OperatorRoutePhase.toDestination =>
         _latLngOrNull(booking.operatorLat, booking.operatorLng) ??
             LatLng(booking.originLat, booking.originLng),
-      _RoutePhase.none => null,
+      OperatorRoutePhase.none => null,
     };
     final endPoint = switch (phase) {
-      _RoutePhase.toPickup => LatLng(booking.originLat, booking.originLng),
-      _RoutePhase.toDestination => LatLng(
+      OperatorRoutePhase.toPickup => LatLng(
+        booking.originLat,
+        booking.originLng,
+      ),
+      OperatorRoutePhase.toDestination => LatLng(
         booking.destinationLat,
         booking.destinationLng,
       ),
-      _RoutePhase.none => null,
+      OperatorRoutePhase.none => null,
     };
 
     if (startPoint == null ||

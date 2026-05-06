@@ -9,6 +9,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/home/presentation/location/operator_location_coordinator.dart';
 import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
+import 'package:operator_app/features/home/presentation/services/operator_navigation_guidance_service.dart';
 import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
 import 'package:operator_app/features/home/presentation/widgets/operator_booking_panels.dart';
 import 'package:operator_app/features/home/presentation/widgets/operator_info_card.dart';
@@ -447,6 +448,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final pendingCount = pendingBookings.length;
     final activeCount = activeBooking == null ? 0 : 1;
     final guidance = viewModel.navigationGuidance;
+    final snapshot = viewModel.homeSnapshot;
     final isOnTheWay =
         activeBooking != null && activeBooking.status == BookingStatus.onTheWay;
     final passengerPickedUp =
@@ -537,6 +539,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     booking: activeBooking,
                     guidance: bookingGuidance,
                     passengerPickedUp: passengerPickedUp,
+                    routeHealth: snapshot.routeHealth,
+                    isLiveLocationStale: snapshot.isLiveLocationStale,
                     viewModel: viewModel,
                   ),
                 ),
@@ -576,24 +580,30 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     required BookingModel booking,
     required OperatorNavigationGuidance? guidance,
     required bool passengerPickedUp,
+    required OperatorRouteHealth routeHealth,
+    required bool isLiveLocationStale,
     required OperatorHomeViewModel viewModel,
   }) {
-    final progressPercent = guidance == null
+    final progressPercent = guidance == null || isLiveLocationStale
         ? null
         : (guidance.progressFraction * 100).round();
-    final remaining = guidance == null
+    final remaining = isLiveLocationStale
+        ? 'Waiting for live location'
+        : guidance == null
         ? 'N/A'
         : _formatDistanceMeters(guidance.remainingDistanceMeters);
-    final offRoute = guidance == null
+    final offRoute = guidance == null || isLiveLocationStale
         ? 'N/A'
         : _formatDistanceMeters(guidance.offRouteDistanceMeters);
-    final eta = _formatEta(guidance?.eta);
+    final eta = isLiveLocationStale ? 'N/A' : _formatEta(guidance?.eta);
 
     return OperatorCollapsibleNavigationCard(
       progressLabel: progressPercent == null ? '...' : '$progressPercent%',
       remaining: remaining,
       eta: eta,
-      nextMarkerText: guidance == null
+      nextMarkerText: isLiveLocationStale
+          ? 'Waiting for live location...'
+          : guidance == null
           ? 'Getting navigation guidance...'
           : 'Next marker: ${guidance.nextRouteMarker} / ${guidance.totalRouteMarkers}',
       offRouteText: guidance?.isOffRoute == true
@@ -603,6 +613,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       primaryActionLabel: passengerPickedUp
           ? 'Complete Trip'
           : 'Passenger Picked Up',
+      routeStatusText: routeHealth.label,
+      routeWarningText: isLiveLocationStale
+          ? 'Live GPS is stale. Progress and ETA are paused until a fresh location arrives.'
+          : routeHealth.warning,
       onPrimaryAction: () async {
         final result = passengerPickedUp
             ? await viewModel.completeTrip(booking.bookingId)
@@ -712,14 +726,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
   Set<Polyline> _buildMapPolylines(
     BookingModel? activeBooking, {
-    required List<LatLng> routePoints,
-    required LatLng? operatorPoint,
-    required LatLng? destinationPoint,
     required bool passengerPickedUp,
   }) {
     return OperatorMapLayers.buildPolylines(
       activeBooking,
-      routePointsOverride: routePoints,
       passengerPickedUp: passengerPickedUp,
       opacity: 1,
     );
@@ -768,12 +778,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final activeBooking = snapshot.activeBooking;
     final operatorPoint = snapshot.operatorPoint;
     final destinationPoint = snapshot.destinationPoint;
-    final routePoints = activeBooking == null
-        ? const <LatLng>[]
-        : OperatorMapLayers.resolvedRoutePointsForPhase(
-            activeBooking,
-            passengerPickedUp: snapshot.passengerPickedUp,
-          );
+    final routePoints = snapshot.routeHealth.routePoints;
     return [
       activeBooking?.bookingId ?? '-',
       activeBooking?.status.firestoreValue ?? '-',
@@ -782,6 +787,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         passengerPickedUp: snapshot.passengerPickedUp,
       ),
       OperatorMapLayers.routeGeometrySignature(routePoints),
+      snapshot.routeHealth.source.name,
+      snapshot.routeHealth.warning ?? '-',
+      snapshot.isLiveLocationStale ? '1' : '0',
       snapshot.passengerPickedUp ? '1' : '0',
       operatorPoint?.latitude.toStringAsFixed(5) ?? '-',
       operatorPoint?.longitude.toStringAsFixed(5) ?? '-',
@@ -824,12 +832,12 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             compassEnabled: true,
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,
-            markers: OperatorMapLayers.buildMarkers(activeBooking),
+            markers: OperatorMapLayers.buildMarkers(
+              activeBooking,
+              operatorHeading: snapshot.navigationGuidance?.headingDegrees,
+            ),
             polylines: _buildMapPolylines(
               activeBooking,
-              routePoints: trimmedRoutePoints,
-              operatorPoint: operatorPoint,
-              destinationPoint: destinationPoint,
               passengerPickedUp: snapshot.passengerPickedUp,
             ),
             onMapCreated: onMapCreated,

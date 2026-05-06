@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
@@ -325,7 +326,7 @@ void main() {
     );
 
     test(
-      'pre-pickup uses routePolyline river path when pickup phase route is missing',
+      'pre-pickup uses straight-line fallback when pickup phase route is missing',
       () {
         final booking = _bookingFixture(
           bookingId: 'b3',
@@ -350,33 +351,97 @@ void main() {
         );
         expect(polylines, hasLength(1));
         final polyline = polylines.first;
-        expect(polyline.points.length, greaterThan(2));
-        expect(polyline.points.first.longitude, closeTo(102.2479594, 0.00001));
-        expect(polyline.points.last.longitude, closeTo(102.2483375, 0.00001));
+        expect(polyline.points, const <LatLng>[
+          LatLng(2.2001006, 102.2479594),
+          LatLng(2.201667, 102.249444),
+        ]);
       },
     );
 
-    test('routePointsOverride is used only as fallback', () {
+    test('fallback polyline is styled amber and dashed', () {
       final booking = _bookingFixture(
         bookingId: 'b4',
-        operatorLat: null,
-        operatorLng: null,
+        operatorLat: 2.2000,
+        operatorLng: 102.2400,
         routeToOriginPolyline: const <BookingRoutePoint>[],
       );
 
-      final override = <LatLng>[
-        const LatLng(2.3000, 102.3000),
-        const LatLng(2.3100, 102.3100),
-      ];
-
       final polylines = OperatorMapLayers.buildPolylines(
         booking,
-        routePointsOverride: override,
         passengerPickedUp: false,
       );
+
       expect(polylines, hasLength(1));
       final polyline = polylines.first;
-      expect(polyline.points, override);
+      expect(polyline.color, const Color(0xFFF59E0B));
+      expect(polyline.patterns, isNotEmpty);
+    });
+  });
+
+  group('OperatorMapLayers.resolveRouteHealth', () {
+    test('reports routeToOriginPolyline for phase 1 readiness', () {
+      final booking = _bookingFixture(
+        bookingId: 'health-origin',
+        routeToOriginPolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.2100, lng: 102.2500),
+          BookingRoutePoint(lat: 2.201667, lng: 102.249444),
+        ],
+      );
+
+      final health = OperatorMapLayers.resolveRouteHealth(
+        booking,
+        passengerPickedUp: false,
+      );
+
+      expect(health.source, OperatorRouteSource.routeToOriginPolyline);
+      expect(health.warning, isNull);
+      expect(health.usesFallback, isFalse);
+    });
+
+    test('reports routeToDestinationPolyline for phase 2 readiness', () {
+      final booking = _bookingFixture(
+        bookingId: 'health-destination',
+        passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+        routeToDestinationPolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.2000, lng: 102.2400),
+          BookingRoutePoint(lat: 2.193056, lng: 102.246111),
+        ],
+      );
+
+      final health = OperatorMapLayers.resolveRouteHealth(
+        booking,
+        passengerPickedUp: true,
+      );
+
+      expect(health.source, OperatorRouteSource.routeToDestinationPolyline);
+      expect(health.warning, isNull);
+      expect(health.usesFallback, isFalse);
+    });
+
+    test('phase 2 never uses generic pickup-to-dropoff route as fallback', () {
+      final booking = _bookingFixture(
+        bookingId: 'health-fallback',
+        operatorLat: 2.2001006,
+        operatorLng: 102.2479594,
+        passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+        routeToDestinationPolyline: const <BookingRoutePoint>[],
+        routePolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.201667, lng: 102.249444),
+          BookingRoutePoint(lat: 2.193056, lng: 102.246111),
+        ],
+      );
+
+      final health = OperatorMapLayers.resolveRouteHealth(
+        booking,
+        passengerPickedUp: true,
+      );
+
+      expect(health.source, OperatorRouteSource.straightLineFallback);
+      expect(health.warning, contains('routeToDestinationPolyline'));
+      expect(health.routePoints, const <LatLng>[
+        LatLng(2.2001006, 102.2479594),
+        LatLng(2.193056, 102.246111),
+      ]);
     });
   });
 }
