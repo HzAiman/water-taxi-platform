@@ -70,8 +70,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
   static const double _locationPublishMinDistanceMeters = 20;
-  static const Duration _liveLocationRefreshInterval = Duration(seconds: 3);
-  static const Duration _liveLocationStaleThreshold = Duration(seconds: 30);
+  static const Duration _liveLocationRefreshInterval = Duration(seconds: 2);
+  static const Duration _liveLocationStaleThreshold = Duration(seconds: 45);
   static const int _maxSpeedSamples = 6;
 
   // ── Getters ──────────────────────────────────────────────────────────────
@@ -246,7 +246,14 @@ class OperatorHomeViewModel extends ChangeNotifier {
   Future<OperationResult> acceptBooking(String bookingId) async {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
-    return _withBusy(
+    BookingModel? pendingBooking;
+    for (final booking in _pendingBookings) {
+      if (booking.bookingId == bookingId) {
+        pendingBooking = booking;
+        break;
+      }
+    }
+    final result = await _withBusy(
       () => _bookingRepo.acceptBooking(
         bookingId: bookingId,
         operatorId: operatorId,
@@ -254,6 +261,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
       actionName: 'accept_booking',
       bookingId: bookingId,
     );
+
+    if (result is OperationSuccess && pendingBooking != null) {
+      _promoteAcceptedBookingLocally(pendingBooking, operatorId);
+    }
+
+    return result;
   }
 
   Future<OperationResult> rejectBooking(String bookingId) async {
@@ -291,24 +304,27 @@ class OperatorHomeViewModel extends ChangeNotifier {
   Future<OperationResult> startTrip(String bookingId) async {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
-    final initial = await _currentPositionOrNull();
 
-    final result = await _withBusy(
-      () => _bookingRepo.startTrip(
-        bookingId: bookingId,
-        operatorId: operatorId,
-        operatorLat: initial?.latitude,
-        operatorLng: initial?.longitude,
-      ),
+    return _withBusy(
+      () async {
+        final initial = await _currentPositionOrNull();
+        final result = await _bookingRepo.startTrip(
+          bookingId: bookingId,
+          operatorId: operatorId,
+          operatorLat: initial?.latitude,
+          operatorLng: initial?.longitude,
+        );
+
+        if (result is OperationSuccess) {
+          _markTripStartedLocally(bookingId, initial);
+          await _startLocationSharing(bookingId, operatorId, initial: initial);
+        }
+
+        return result;
+      },
       actionName: 'start_trip',
       bookingId: bookingId,
     );
-
-    if (result is OperationSuccess) {
-      await _startLocationSharing(bookingId, operatorId, initial: initial);
-    }
-
-    return result;
   }
 
   Future<OperationResult> completeTrip(String bookingId) async {
@@ -439,6 +455,54 @@ class OperatorHomeViewModel extends ChangeNotifier {
     );
   }
 
+  void _promoteAcceptedBookingLocally(BookingModel booking, String operatorId) {
+    final acceptedBooking = booking.copyWith(
+      status: BookingStatus.accepted,
+      operatorUid: operatorId,
+      updatedAt: DateTime.now(),
+    );
+
+    _pendingBookings = _pendingBookings
+        .where((item) => item.bookingId != booking.bookingId)
+        .toList(growable: false);
+
+    final existingIndex = _activeBookings.indexWhere(
+      (item) => item.bookingId == booking.bookingId,
+    );
+    if (existingIndex == -1) {
+      _activeBookings = <BookingModel>[acceptedBooking, ..._activeBookings];
+    } else {
+      final updated = [..._activeBookings];
+      updated[existingIndex] = acceptedBooking;
+      _activeBookings = updated;
+    }
+
+    _refreshNavigationGuidance(notify: false);
+    notifyListeners();
+  }
+
+  void _markTripStartedLocally(String bookingId, Position? initial) {
+    final index = _activeBookings.indexWhere(
+      (booking) => booking.bookingId == bookingId,
+    );
+    if (index == -1) {
+      return;
+    }
+
+    final current = _activeBookings[index];
+    final startedBooking = current.copyWith(
+      status: BookingStatus.onTheWay,
+      operatorLat: initial?.latitude,
+      operatorLng: initial?.longitude,
+      updatedAt: DateTime.now(),
+    );
+    final updated = [..._activeBookings];
+    updated[index] = startedBooking;
+    _activeBookings = updated;
+    _refreshNavigationGuidance(currentPosition: initial, notify: false);
+    notifyListeners();
+  }
+
   void _stopStreams() {
     _activeSubscription?.cancel();
     _pendingSubscription?.cancel();
@@ -454,22 +518,34 @@ class OperatorHomeViewModel extends ChangeNotifier {
     String operatorId, {
     Position? initial,
   }) async {
+    final previousTrackingBookingId = _trackingBookingId;
+    final preservedPosition = initial ?? _latestOperatorPosition;
+    final preservedPositionAt = initial != null
+        ? DateTime.now()
+        : _latestOperatorPositionAt;
+    final preservedGuidance = previousTrackingBookingId == bookingId
+        ? _navigationGuidance
+        : null;
+
     _stopLocationSharing();
     _trackingBookingId = bookingId;
+    _latestOperatorPosition = preservedPosition;
+    _latestOperatorPositionAt = preservedPositionAt;
+    _navigationGuidance = preservedGuidance;
 
     if (!_isOnline) {
       return;
     }
 
-    if (initial != null) {
-      _latestOperatorPosition = initial;
-      _latestOperatorPositionAt = DateTime.now();
+    if (preservedPosition != null) {
       await _publishOperatorPosition(
         bookingId,
         operatorId,
-        initial,
-        force: true,
+        preservedPosition,
+        force: initial != null,
       );
+    } else {
+      _refreshNavigationGuidance(notify: false);
     }
 
     final canTrack = await _canUseLocation();
@@ -504,8 +580,22 @@ class OperatorHomeViewModel extends ChangeNotifier {
                 'Location permission revoked',
                 'Navigation guidance has paused. Re-enable location permission to resume tracking.',
               );
+              _stopLocationSharing();
+              notifyListeners();
+              return;
             }
-            _stopLocationSharing();
+
+            developer.log(
+              'live_location_stream_failed',
+              name: 'operator_home_vm',
+              error: error,
+              stackTrace: stackTrace,
+            );
+            unawaited(_locationSubscription?.cancel());
+            _locationSubscription = null;
+            _startLiveLocationRefreshTimer();
+            notifyListeners();
+            unawaited(_syncNavigationLifecycle(operatorId));
           },
         );
   }
@@ -541,12 +631,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
         notifyListeners();
       }
     });
-    _liveLocationRefreshTimer = Timer.periodic(
-      _liveLocationRefreshInterval,
-      (_) {
-        unawaited(_refreshLiveLocationHeartbeat());
-      },
-    );
+    _liveLocationRefreshTimer = Timer.periodic(_liveLocationRefreshInterval, (
+      _,
+    ) {
+      unawaited(_refreshLiveLocationHeartbeat());
+    });
   }
 
   Future<void> _refreshLiveLocationHeartbeat() async {
@@ -570,7 +659,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     try {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 4),
+        timeLimit: const Duration(seconds: 8),
       );
       if (_trackingBookingId != bookingId) {
         return;
@@ -581,13 +670,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
       _refreshNavigationGuidance(currentPosition: position, notify: false);
       notifyListeners();
 
-      unawaited(
-        _publishOperatorPosition(
-          bookingId,
-          operatorId,
-          position,
-        ),
-      );
+      unawaited(_publishOperatorPosition(bookingId, operatorId, position));
     } catch (e) {
       developer.log(
         'live_location_heartbeat_failed',
@@ -616,11 +699,17 @@ class OperatorHomeViewModel extends ChangeNotifier {
       return;
     }
 
-    if (_trackingBookingId == tracked.bookingId) {
+    if (_trackingBookingId == tracked.bookingId &&
+        _locationSubscription != null &&
+        _liveLocationRefreshTimer != null) {
       return;
     }
 
-    await _startLocationSharing(tracked.bookingId, operatorId);
+    await _startLocationSharing(
+      tracked.bookingId,
+      operatorId,
+      initial: _latestOperatorPosition,
+    );
   }
 
   Future<bool> _canUseLocation() async {

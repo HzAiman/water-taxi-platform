@@ -52,6 +52,14 @@ void main() {
         return <String, dynamic>{'injected': true, 'preview': 'test'};
       },
     );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('operator_app/screen_awake'),
+      (MethodCall call) async => null,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('operator_app/phone'),
+      (MethodCall call) async => true,
+    );
   });
 
   setUp(() async {
@@ -66,6 +74,14 @@ void main() {
     }
     messenger.setMockMethodCallHandler(
       const MethodChannel('operator_app/maps_config'),
+      null,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('operator_app/screen_awake'),
+      null,
+    );
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('operator_app/phone'),
       null,
     );
   });
@@ -208,7 +224,8 @@ void main() {
     await tester.tap(find.text('Pending Queue'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Next Pending Booking'), findsOneWidget);
+    expect(find.text('Passenger One'), findsOneWidget);
+    expect(find.text('Pending'), findsOneWidget);
     expect(find.text('Accept Booking'), findsOneWidget);
     expect(find.text('Reject'), findsOneWidget);
 
@@ -217,6 +234,14 @@ void main() {
 
     expect(bookingRepo.lastAcceptedBookingId, 'pending-1');
     expect(bookingRepo.lastAcceptedOperatorId, 'operator-1');
+    expect(find.text('0'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+
+    await tester.tap(find.text('Active Trip'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Passenger One'), findsOneWidget);
+    expect(find.text('Accepted'), findsOneWidget);
   });
 
   testWidgets('online operator can expand active trip section', (tester) async {
@@ -249,8 +274,10 @@ void main() {
     await tester.tap(find.text('Active Trip'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Current Booking: Accepted'), findsOneWidget);
-    expect(find.text('Start Trip'), findsOneWidget);
+    expect(find.text('Passenger One'), findsOneWidget);
+    expect(find.text('Accepted'), findsOneWidget);
+    expect(find.text('Call'), findsOneWidget);
+    expect(find.text('Start'), findsOneWidget);
     expect(find.text('Release'), findsOneWidget);
   });
 
@@ -286,11 +313,18 @@ void main() {
     await tester.tap(find.text('Active Trip'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Start Trip'));
+    await tester.tap(find.text('Start'));
     await tester.pumpAndSettle();
 
     expect(bookingRepo.lastStartedBookingId, 'active-1');
     expect(bookingRepo.lastStartedOperatorId, 'operator-1');
+    expect(find.text('Start'), findsNothing);
+    expect(find.text('Navigation'), findsOneWidget);
+
+    await tester.tap(find.text('Navigation'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Passenger Picked Up'), findsOneWidget);
   });
 
   testWidgets('online operator pickup then complete delegates to repository', (
@@ -446,9 +480,10 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Navigation'), findsOneWidget);
-    expect(find.textContaining('Next marker:'), findsOneWidget);
-    expect(find.text('Remaining'), findsOneWidget);
-    expect(find.text('ETA'), findsOneWidget);
+    expect(find.textContaining('Next marker:'), findsNothing);
+    expect(find.text('Remaining'), findsNothing);
+    expect(find.text('ETA'), findsNothing);
+    expect(find.text('Passenger Picked Up'), findsOneWidget);
   });
 
   testWidgets('accepted active trip hides navigation guidance details', (
@@ -491,7 +526,7 @@ void main() {
   });
 
   testWidgets(
-    'on-the-way active trip shows off-route warning when applicable',
+    'on-the-way active trip hides non-critical off-route warning copy',
     (tester) async {
       final operatorRepo = _FakeOperatorRepository(
         operator: const OperatorModel(
@@ -536,7 +571,11 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Navigation'), findsOneWidget);
-      expect(find.textContaining('Off-route warning:'), findsOneWidget);
+      expect(find.textContaining('Off-route warning:'), findsNothing);
+      expect(
+        find.textContaining('Too far from the planned river route'),
+        findsNothing,
+      );
     },
   );
 }

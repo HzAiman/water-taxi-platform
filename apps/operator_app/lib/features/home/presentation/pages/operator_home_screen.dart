@@ -46,6 +46,12 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   static const MethodChannel _mapsConfigChannel = MethodChannel(
     'operator_app/maps_config',
   );
+  static const MethodChannel _screenAwakeChannel = MethodChannel(
+    'operator_app/screen_awake',
+  );
+  static const MethodChannel _phoneChannel = MethodChannel(
+    'operator_app/phone',
+  );
 
   bool _hasLocationPermission = false;
   bool _hasShownWelcomeAlert = false;
@@ -55,6 +61,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   DateTime? _lastRecoveryAttempt;
   DateTime? _lastLocationLookupAt;
   String? _lastNavigationSyncKey;
+  bool _isScreenAwakeEnabled = false;
   OperatorHomeViewModel? _observedViewModel;
   bool _isActiveSectionExpanded = false;
   bool _isQueueSectionExpanded = false;
@@ -163,12 +170,14 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     _observedViewModel = viewModel;
     _observedViewModel?.addListener(_onViewModelChanged);
     _observedViewModel?.setLocationWarningHandler(_showLocationWarning);
+    _syncScreenAwake(viewModel.homeSnapshot.activeBooking);
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
+    unawaited(_setScreenAwake(false));
     _routeTransitionController.dispose();
     _observedViewModel?.removeListener(_onViewModelChanged);
     _observedViewModel?.setLocationWarningHandler(null);
@@ -183,6 +192,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
 
     final snapshot = viewModel.homeSnapshot;
+    _syncScreenAwake(snapshot.activeBooking);
     final navigationKey = _navigationSyncKey(snapshot);
     if (navigationKey == _lastNavigationSyncKey) {
       return;
@@ -211,6 +221,37 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         forceFollow: false,
       ),
     );
+  }
+
+  void _syncScreenAwake(BookingModel? activeBooking) {
+    final shouldKeepAwake =
+        activeBooking != null && activeBooking.status == BookingStatus.onTheWay;
+    if (shouldKeepAwake == _isScreenAwakeEnabled) {
+      return;
+    }
+
+    unawaited(_setScreenAwake(shouldKeepAwake));
+  }
+
+  Future<void> _setScreenAwake(bool enabled) async {
+    if (_isScreenAwakeEnabled == enabled) {
+      return;
+    }
+
+    _isScreenAwakeEnabled = enabled;
+    try {
+      await _screenAwakeChannel.invokeMethod<void>(
+        'setKeepScreenOn',
+        <String, Object>{'enabled': enabled},
+      );
+    } catch (e) {
+      developer.log(
+        'set_screen_awake_failed',
+        name: 'operator_home_screen',
+        error: e,
+        stackTrace: StackTrace.current,
+      );
+    }
   }
 
   void _showLocationWarning(String title, String message) {
@@ -540,7 +581,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     booking: activeBooking,
                     guidance: bookingGuidance,
                     passengerPickedUp: passengerPickedUp,
-                    routeHealth: snapshot.routeHealth,
                     isLiveLocationStale: snapshot.isLiveLocationStale,
                     viewModel: viewModel,
                   ),
@@ -560,6 +600,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       booking: booking,
       isUpdating: viewModel.isUpdatingBooking,
       detailText: _buildBookingDetailText(booking),
+      onCallCustomer: () => _callCustomer(booking),
       onStartTrip: () async {
         final result = await viewModel.startTrip(booking.bookingId);
         if (!mounted) {
@@ -581,7 +622,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     required BookingModel booking,
     required OperatorNavigationGuidance? guidance,
     required bool passengerPickedUp,
-    required OperatorRouteHealth routeHealth,
     required bool isLiveLocationStale,
     required OperatorHomeViewModel viewModel,
   }) {
@@ -598,9 +638,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : guidance == null
         ? 'N/A'
         : _formatDistanceMeters(guidance.remainingDistanceMeters);
-    final offRoute = guidance == null || isLiveLocationStale
-        ? 'N/A'
-        : _formatDistanceMeters(guidance.offRouteDistanceMeters);
     final eta = isLiveLocationStale || guidance?.shouldPauseEta == true
         ? 'N/A'
         : guidance?.isEtaLowConfidence == true
@@ -615,26 +652,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           : '$progressPercent%',
       remaining: remaining,
       eta: eta,
-      nextMarkerText: isLiveLocationStale
-          ? 'Waiting for live location...'
-          : guidance?.offRouteSeverity == OperatorOffRouteSeverity.severe
-          ? 'Return to the highlighted river rejoin point to resume guidance.'
-          : guidance?.offRouteSeverity == OperatorOffRouteSeverity.moderate
-          ? 'Rejoin the river route near marker ${guidance?.nextRouteMarker}.'
-          : guidance == null
-          ? 'Getting navigation guidance...'
-          : 'Next marker: ${guidance.nextRouteMarker} / ${guidance.totalRouteMarkers}',
-      offRouteText: guidance?.isOffRoute == true
-          ? 'Off-route warning: approx $offRoute away from planned route.'
-          : null,
       isUpdating: viewModel.isUpdatingBooking,
       primaryActionLabel: passengerPickedUp
           ? 'Complete Trip'
           : 'Passenger Picked Up',
-      routeStatusText: _routeStatusText(routeHealth, guidance),
       routeWarningText: isLiveLocationStale
           ? 'Live GPS is stale. Progress and ETA are paused until a fresh location arrives.'
-          : _routeWarningText(routeHealth, guidance),
+          : _criticalRouteWarningText(guidance),
       onPrimaryAction: () async {
         final result = passengerPickedUp
             ? await viewModel.completeTrip(booking.bookingId)
@@ -677,11 +701,49 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   String _buildBookingDetailText(BookingModel booking) {
     final fareValue = booking.totalFare;
 
-    return 'Booking ID: ${booking.bookingId}\n'
-        'Route: ${booking.origin} -> ${booking.destination}\n'
+    return 'Route: ${booking.origin} → ${booking.destination}\n'
         'Passengers: ${booking.passengerCount}\n'
         'Fare: ${fareValue > 0 ? formatCurrency(fareValue) : 'N/A'}\n'
         'Created: ${formatBookingTimestamp(booking.createdAt)}';
+  }
+
+  Future<void> _callCustomer(BookingModel booking) async {
+    final phone = booking.userPhone.trim();
+    if (phone.isEmpty) {
+      showTopInfo(
+        context,
+        title: 'No phone number',
+        message: 'This booking does not include a customer phone number.',
+      );
+      return;
+    }
+
+    try {
+      final didOpenDialer =
+          await _phoneChannel.invokeMethod<bool>('dial', <String, Object>{
+            'phone': phone,
+          }) ??
+          false;
+      if (!mounted) {
+        return;
+      }
+      if (!didOpenDialer) {
+        showTopInfo(
+          context,
+          title: 'Unable to open dialer',
+          message: 'Please call the customer manually: $phone',
+        );
+      }
+    } catch (e) {
+      if (!mounted) {
+        return;
+      }
+      showTopInfo(
+        context,
+        title: 'Unable to open dialer',
+        message: 'Please call the customer manually: $phone',
+      );
+    }
   }
 
   String _formatDistanceMeters(double meters) {
@@ -788,40 +850,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     return booking.passengerPickedUpAt != null;
   }
 
-  String _routeStatusText(
-    OperatorRouteHealth routeHealth,
-    OperatorNavigationGuidance? guidance,
-  ) {
-    if (guidance == null) {
-      return routeHealth.label;
+  String? _criticalRouteWarningText(OperatorNavigationGuidance? guidance) {
+    if (guidance?.offRouteSeverity == OperatorOffRouteSeverity.severe) {
+      return 'Too far from the planned river route. Progress is paused and ETA is hidden until you rejoin.';
     }
-
-    return switch (guidance.offRouteSeverity) {
-      OperatorOffRouteSeverity.onRoute => routeHealth.label,
-      OperatorOffRouteSeverity.mild =>
-        '${routeHealth.label} • slight route deviation',
-      OperatorOffRouteSeverity.moderate => 'Return to river route',
-      OperatorOffRouteSeverity.severe => 'Away from river route',
-    };
-  }
-
-  String? _routeWarningText(
-    OperatorRouteHealth routeHealth,
-    OperatorNavigationGuidance? guidance,
-  ) {
-    if (guidance == null) {
-      return routeHealth.warning;
-    }
-
-    return switch (guidance.offRouteSeverity) {
-      OperatorOffRouteSeverity.onRoute => routeHealth.warning,
-      OperatorOffRouteSeverity.mild =>
-        'You are drifting from the planned river route. Guidance remains active.',
-      OperatorOffRouteSeverity.moderate =>
-        'Please rejoin the river route. ETA is lower-confidence until you are back on path.',
-      OperatorOffRouteSeverity.severe =>
-        'Too far from the planned river route. Progress is paused and ETA is hidden until you rejoin.',
-    };
+    return null;
   }
 
   Future<void> _animateCameraSafely(
@@ -933,6 +966,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
               operatorPoint: operatorPoint,
             ),
             onMapCreated: onMapCreated,
+            onCameraMove: _mapCameraService.handleCameraMove,
             onCameraMoveStarted: () {
               if (_mapCameraService.currentState.isProgrammaticCameraMove ||
                   activeBooking == null ||
@@ -1065,36 +1099,61 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       child: ValueListenableBuilder<MapCameraState>(
         valueListenable: _mapCameraService.state,
         builder: (context, cameraState, _) {
+          final isActiveNavigation =
+              activeBooking != null &&
+              OperatorMapLayers.isActiveNavigationBooking(activeBooking);
           return Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (cameraState.showRecenterButton && operatorPoint != null)
+              if (isActiveNavigation)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
+                  padding: EdgeInsets.only(
+                    bottom: cameraState.showRecenterButton ? 8 : 0,
+                  ),
                   child: FloatingActionButton.small(
-                    heroTag: 'resume_follow',
-                    backgroundColor: const Color(0xFF0066CC),
-                    foregroundColor: Colors.white,
+                    heroTag: 'toggle_camera_tilt',
+                    backgroundColor: Colors.white,
+                    foregroundColor: const Color(0xFF0066CC),
                     onPressed: () {
-                      unawaited(
-                        _syncNavigationCamera(
-                          activeBooking,
-                          routePoints: trimmedRoutePoints,
-                          operatorPoint: operatorPoint,
-                          destinationPoint: destinationPoint,
-                          forceFollow: true,
-                        ),
-                      );
+                      unawaited(_mapCameraService.toggleNavigationTilt());
                     },
-                    child: const Icon(Icons.my_location),
+                    child: Text(
+                      cameraState.isNavigationTilt3d ? '2D' : '3D',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ),
-              FloatingActionButton(
-                backgroundColor: Colors.white,
-                foregroundColor: Colors.black87,
-                onPressed: _centerOnUser,
-                child: const Icon(Icons.near_me),
-              ),
+              if (isActiveNavigation &&
+                  cameraState.showRecenterButton &&
+                  operatorPoint != null)
+                FloatingActionButton(
+                  heroTag: 'resume_navigation',
+                  backgroundColor: const Color(0xFF0066CC),
+                  foregroundColor: Colors.white,
+                  onPressed: () {
+                    unawaited(
+                      _syncNavigationCamera(
+                        activeBooking,
+                        routePoints: trimmedRoutePoints,
+                        operatorPoint: operatorPoint,
+                        destinationPoint: destinationPoint,
+                        forceFollow: true,
+                      ),
+                    );
+                  },
+                  child: const Icon(Icons.near_me),
+                ),
+              if (!isActiveNavigation)
+                FloatingActionButton(
+                  heroTag: 'center_on_user',
+                  backgroundColor: Colors.white,
+                  foregroundColor: Colors.black87,
+                  onPressed: _centerOnUser,
+                  child: const Icon(Icons.near_me),
+                ),
             ],
           );
         },

@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
-import 'package:operator_app/features/home/presentation/widgets/operator_info_card.dart';
 import 'package:operator_app/features/home/presentation/widgets/operator_stat_tile.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -85,6 +84,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
     required this.detailText,
     required this.onStartTrip,
     required this.onRelease,
+    required this.onCallCustomer,
   });
 
   final BookingModel booking;
@@ -92,6 +92,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
   final String detailText;
   final Future<void> Function() onStartTrip;
   final Future<void> Function() onRelease;
+  final Future<void> Function() onCallCustomer;
 
   @override
   Widget build(BuildContext context) {
@@ -101,33 +102,147 @@ class OperatorActiveBookingCard extends StatelessWidget {
     final isStale = isAcceptedBookingStale(booking);
     final actionColor = isAccepted ? const Color(0xFF0066CC) : Colors.green;
 
-    var subtitle = detailText;
+    final passengerSummary = booking.passengerCount == 1
+        ? '1 passenger'
+        : '${booking.passengerCount} passengers';
+    final fareSummary = booking.totalFare > 0
+        ? formatCurrency(booking.totalFare)
+        : 'Fare N/A';
+    var subtitle = isOnTheWay
+        ? '${booking.origin} → ${booking.destination}\n$passengerSummary - $fareSummary'
+        : detailText;
     if (isStale) {
       subtitle =
           '$subtitle\n\nThis accepted booking looks stale. Start the trip or release it back to the queue.';
     }
 
-    return OperatorInfoCard(
-      icon: isAccepted ? Icons.directions_boat : Icons.route,
-      iconColor: actionColor,
-      title: 'Current Booking: ${formatStatusLabel(status.firestoreValue)}',
-      subtitle: subtitle,
-      actionLabel: isAccepted ? 'Start Trip' : null,
-      actionColor: actionColor,
-      secondaryActionLabel: isAccepted ? 'Release' : null,
-      secondaryActionColor: const Color(0xFFFFF1F1),
-      secondaryActionTextColor: const Color(0xFFB42318),
-      showActionLoading: isUpdating,
-      onAction: isUpdating || isOnTheWay
-          ? null
-          : () async {
-              await onStartTrip();
-            },
-      onSecondaryAction: isUpdating || !isAccepted
-          ? null
-          : () async {
-              await onRelease();
-            },
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                isAccepted ? Icons.directions_boat : Icons.route,
+                color: actionColor,
+                size: 24,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  booking.userName.trim().isEmpty
+                      ? 'Current Trip'
+                      : booking.userName,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey[850],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: actionColor.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  formatStatusLabel(status.firestoreValue),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: actionColor,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  onPressed: isUpdating
+                      ? null
+                      : () => unawaited(onCallCustomer()),
+                  icon: const Icon(Icons.call, size: 18),
+                  label: const Text('Call'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0066CC),
+                    side: const BorderSide(color: Color(0x330066CC)),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                ),
+              ),
+              if (isAccepted) ...[
+                const SizedBox(width: 8),
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: isUpdating ? null : () => unawaited(onRelease()),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFF1F1),
+                      foregroundColor: const Color(0xFFB42318),
+                      side: const BorderSide(color: Color(0x33B42318)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    child: const Text('Release'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: isUpdating
+                        ? null
+                        : () => unawaited(onStartTrip()),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: actionColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    child: isUpdating
+                        ? const SizedBox(
+                            height: 18,
+                            width: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                Colors.white,
+                              ),
+                            ),
+                          )
+                        : const Text('Start'),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -152,29 +267,126 @@ class OperatorPendingBookingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return OperatorInfoCard(
-      icon: Icons.notifications_active,
-      iconColor: Colors.orange,
-      title: pendingCount > 1
-          ? 'Next Pending Booking ($pendingCount in queue)'
-          : 'Next Pending Booking',
-      subtitle: detailText,
-      actionLabel: 'Accept Booking',
-      actionColor: const Color(0xFF0066CC),
-      secondaryActionLabel: 'Reject',
-      secondaryActionColor: Colors.orange.shade50,
-      secondaryActionTextColor: Colors.orange.shade900,
-      showActionLoading: isUpdating,
-      onAction: isUpdating
-          ? null
-          : () async {
-              await onAccept();
-            },
-      onSecondaryAction: isUpdating
-          ? null
-          : () async {
-              await onReject();
-            },
+    final passengerSummary = booking.passengerCount == 1
+        ? '1 passenger'
+        : '${booking.passengerCount} passengers';
+    final fareSummary = booking.totalFare > 0
+        ? formatCurrency(booking.totalFare)
+        : 'Fare N/A';
+    final title = booking.userName.trim().isEmpty
+        ? 'Pending Booking'
+        : booking.userName.trim();
+    final subtitle =
+        '${booking.origin} → ${booking.destination}\n$passengerSummary - $fareSummary';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.1),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.notifications_active,
+                color: Colors.orange,
+                size: 24,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey[850],
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  pendingCount > 1 ? '$pendingCount in queue' : 'Pending',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.orange.shade900,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            subtitle,
+            style: TextStyle(
+              fontSize: 13,
+              color: Colors.grey[700],
+              height: 1.35,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: isUpdating ? null : () => unawaited(onReject()),
+                  style: OutlinedButton.styleFrom(
+                    backgroundColor: Colors.orange.shade50,
+                    foregroundColor: Colors.orange.shade900,
+                    side: BorderSide(
+                      color: Colors.orange.shade900.withValues(alpha: 0.2),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: const Text('Reject'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton(
+                  onPressed: isUpdating ? null : () => unawaited(onAccept()),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0066CC),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                  ),
+                  child: isUpdating
+                      ? const SizedBox(
+                          height: 18,
+                          width: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
+                      : const Text('Accept Booking'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 }
@@ -185,11 +397,8 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
     required this.progressLabel,
     required this.remaining,
     required this.eta,
-    required this.nextMarkerText,
-    required this.offRouteText,
     required this.isUpdating,
     required this.primaryActionLabel,
-    required this.routeStatusText,
     required this.routeWarningText,
     required this.onPrimaryAction,
   });
@@ -197,11 +406,8 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
   final String progressLabel;
   final String remaining;
   final String eta;
-  final String nextMarkerText;
-  final String? offRouteText;
   final bool isUpdating;
   final String primaryActionLabel;
-  final String routeStatusText;
   final String? routeWarningText;
   final Future<void> Function() onPrimaryAction;
 
@@ -275,61 +481,18 @@ class _OperatorCollapsibleNavigationCardState
           ),
           const SizedBox(height: 8),
           Text(
-            '${widget.remaining}  •  ETA ${widget.eta}',
+            '${widget.remaining} - ETA ${widget.eta}',
             style: TextStyle(
               fontSize: 13,
               color: Colors.grey[700],
               fontWeight: FontWeight.w600,
             ),
           ),
-          const SizedBox(height: 8),
-          _buildRouteStatus(),
           if (widget.routeWarningText != null) ...[
             const SizedBox(height: 8),
             _buildWarning(widget.routeWarningText!),
           ],
           if (_isExpanded) ...[
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: _buildNavigationMetric('Remaining', widget.remaining),
-                ),
-                const SizedBox(width: 10),
-                Expanded(child: _buildNavigationMetric('ETA', widget.eta)),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.nextMarkerText,
-              style: TextStyle(
-                fontSize: 13,
-                color: Colors.grey[700],
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            if (widget.offRouteText != null) ...[
-              const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFFF4E5),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  widget.offRouteText!,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF9A3412),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
             const SizedBox(height: 10),
             SizedBox(
               width: double.infinity,
@@ -365,33 +528,6 @@ class _OperatorCollapsibleNavigationCardState
     );
   }
 
-  Widget _buildRouteStatus() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFEFF6FF),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          const Icon(Icons.alt_route, size: 16, color: Color(0xFF0066CC)),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              widget.routeStatusText,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF075985),
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildWarning(String text) {
     return Container(
       width: double.infinity,
@@ -407,38 +543,6 @@ class _OperatorCollapsibleNavigationCardState
           color: Color(0xFF9A3412),
           fontWeight: FontWeight.w700,
         ),
-      ),
-    );
-  }
-
-  Widget _buildNavigationMetric(String label, String value) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 11,
-              color: Colors.grey[600],
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF0F172A),
-            ),
-          ),
-        ],
       ),
     );
   }

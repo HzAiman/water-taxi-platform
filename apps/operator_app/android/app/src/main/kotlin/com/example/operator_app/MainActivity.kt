@@ -1,12 +1,17 @@
 package com.example.operator_app
 
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.view.WindowManager
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
 	private val mapsChannel = "operator_app/maps_config"
+	private val screenAwakeChannel = "operator_app/screen_awake"
+	private val phoneChannel = "operator_app/phone"
 
 	override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
 		super.configureFlutterEngine(flutterEngine)
@@ -44,6 +49,46 @@ class MainActivity : FlutterActivity() {
 							"error" to (e.message ?: "Unable to read manifest meta-data"),
 						),
 					)
+				}
+			}
+
+		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, screenAwakeChannel)
+			.setMethodCallHandler { call, result ->
+				if (call.method != "setKeepScreenOn") {
+					result.notImplemented()
+					return@setMethodCallHandler
+				}
+
+				val enabled = call.argument<Boolean>("enabled") ?: false
+				runOnUiThread {
+					if (enabled) {
+						window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+					} else {
+						window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+					}
+					result.success(null)
+				}
+			}
+
+		MethodChannel(flutterEngine.dartExecutor.binaryMessenger, phoneChannel)
+			.setMethodCallHandler { call, result ->
+				if (call.method != "dial") {
+					result.notImplemented()
+					return@setMethodCallHandler
+				}
+
+				val phone = call.argument<String>("phone")?.trim().orEmpty()
+				if (phone.isEmpty()) {
+					result.success(false)
+					return@setMethodCallHandler
+				}
+
+				try {
+					val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$phone"))
+					startActivity(intent)
+					result.success(true)
+				} catch (e: Exception) {
+					result.success(false)
 				}
 			}
 	}

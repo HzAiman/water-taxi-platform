@@ -20,6 +20,7 @@ class MapCameraState {
     required this.showRecenterButton,
     required this.isMapReady,
     required this.isProgrammaticCameraMove,
+    required this.isNavigationTilt3d,
   });
 
   const MapCameraState.initial()
@@ -29,6 +30,7 @@ class MapCameraState {
         showRecenterButton: false,
         isMapReady: false,
         isProgrammaticCameraMove: false,
+        isNavigationTilt3d: true,
       );
 
   final OperatorMapNavigationMode navigationMode;
@@ -36,6 +38,7 @@ class MapCameraState {
   final bool showRecenterButton;
   final bool isMapReady;
   final bool isProgrammaticCameraMove;
+  final bool isNavigationTilt3d;
 }
 
 class OperatorMapControllerService {
@@ -62,7 +65,9 @@ class OperatorMapControllerService {
   LatLng? _lastCameraTarget;
   double? _lastZoom;
   double? _lastTilt;
+  CameraPosition? _visibleCameraPosition;
   double _cameraBoundsPadding = 180;
+  bool _use3dNavigationTilt = true;
   static const double _trackingTilt = 45.0;
   static const double _overviewTilt = 0.0;
 
@@ -75,6 +80,8 @@ class OperatorMapControllerService {
   bool get debugHasPendingRouteFit => _shouldFitRouteBeforeFollow;
   @visibleForTesting
   bool get debugHasForcedRouteFit => _forceRouteFitBeforeFollow;
+  @visibleForTesting
+  bool get debugUses3dNavigationTilt => _use3dNavigationTilt;
 
   void attachMapController(GoogleMapController controller) {
     _mapController = controller;
@@ -102,10 +109,47 @@ class OperatorMapControllerService {
     _lastCameraTarget = null;
     _lastZoom = null;
     _lastTilt = null;
+    _visibleCameraPosition = null;
     _lastRouteFitPhaseSignature = null;
     _lastRouteFitPhaseOnlySignature = null;
     _shouldFitRouteBeforeFollow = false;
     _forceRouteFitBeforeFollow = false;
+    _use3dNavigationTilt = true;
+    _emitState();
+  }
+
+  Future<void> toggleNavigationTilt() async {
+    _use3dNavigationTilt = !_use3dNavigationTilt;
+    final targetTilt = _desiredTrackingTilt;
+    final visibleCamera = _visibleCameraPosition;
+
+    if (_isMapReady && visibleCamera != null) {
+      await animateCameraSafely(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: visibleCamera.target,
+            zoom: visibleCamera.zoom,
+            bearing: visibleCamera.bearing,
+            tilt: targetTilt,
+          ),
+        ),
+        allowIfBusy: true,
+      );
+    } else if (_isMapReady && _lastCameraTarget != null && _lastZoom != null) {
+      await animateCameraSafely(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: _lastCameraTarget!,
+            zoom: _lastZoom!,
+            bearing: _lastBearing ?? 0.0,
+            tilt: targetTilt,
+          ),
+        ),
+        allowIfBusy: true,
+      );
+    }
+
+    _lastTilt = targetTilt;
     _emitState();
   }
 
@@ -171,6 +215,13 @@ class OperatorMapControllerService {
       return _navigationMode;
     }
 
+    if (forceFollow &&
+        activeBooking != null &&
+        OperatorMapLayers.isActiveNavigationBooking(activeBooking) &&
+        operatorPoint != null) {
+      _navigationMode = OperatorMapNavigationMode.tracking;
+    }
+
     _navigationMode = resolveNavigationMode(
       activeBooking: activeBooking,
       operatorPoint: operatorPoint,
@@ -233,6 +284,10 @@ class OperatorMapControllerService {
       _log('camera_yield_to_user');
       _emitState();
     }
+  }
+
+  void handleCameraMove(CameraPosition position) {
+    _visibleCameraPosition = position;
   }
 
   void handleCameraIdle() {
@@ -309,7 +364,7 @@ class OperatorMapControllerService {
                 math.max(elapsed.inMilliseconds / 1000, 0.001);
       final aheadMeters = (18 + (speedMps * 5)).clamp(18.0, 55.0);
       final targetZoom = (17.8 - (speedMps * 0.14)).clamp(16.1, 17.8);
-      final targetTilt = _trackingTilt;
+      final targetTilt = _desiredTrackingTilt;
       final smoothing = _cameraSmoothingFactor(speedMps);
       final rawTarget = _offsetPoint(operatorPoint, bearing, aheadMeters);
       final predictedTarget = lastPoint == null
@@ -362,7 +417,8 @@ class OperatorMapControllerService {
   }
 
   Future<void> _ensureTrackingTilt(LatLng operatorPoint) async {
-    if ((_lastTilt ?? _overviewTilt) == _trackingTilt) {
+    final desiredTilt = _desiredTrackingTilt;
+    if ((_lastTilt ?? _overviewTilt) == desiredTilt) {
       return;
     }
 
@@ -376,7 +432,7 @@ class OperatorMapControllerService {
           target: target,
           zoom: zoom,
           bearing: bearing,
-          tilt: _trackingTilt,
+          tilt: desiredTilt,
         ),
       ),
       allowIfBusy: true,
@@ -385,8 +441,11 @@ class OperatorMapControllerService {
     _lastCameraTarget = target;
     _lastZoom = zoom;
     _lastBearing = bearing;
-    _lastTilt = _trackingTilt;
+    _lastTilt = desiredTilt;
   }
+
+  double get _desiredTrackingTilt =>
+      _use3dNavigationTilt ? _trackingTilt : _overviewTilt;
 
   Future<void> _ensureTilt(double tilt) async {
     if (_lastCameraTarget == null || _lastZoom == null) {
@@ -589,6 +648,7 @@ class OperatorMapControllerService {
           _navigationMode == OperatorMapNavigationMode.userControlled,
       isMapReady: _isMapReady,
       isProgrammaticCameraMove: _isProgrammaticCameraMove,
+      isNavigationTilt3d: _use3dNavigationTilt,
     );
   }
 }
