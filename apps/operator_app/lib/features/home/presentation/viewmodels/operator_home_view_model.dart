@@ -40,6 +40,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   List<BookingModel> _activeBookings = [];
   List<BookingModel> _pendingBookings = [];
   final Set<String> _locallyCompletedBookingIds = <String>{};
+  final Set<String> _offRouteAlertedBookingIds = <String>{};
 
   StreamSubscription<List<BookingModel>>? _activeSubscription;
   StreamSubscription<List<BookingModel>>? _pendingSubscription;
@@ -1119,15 +1120,17 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
     if (guidance.isOffRoute && !_wasOffRoute) {
       _wasOffRoute = true;
-      OperatorNavigationAlertBus.publish(
-        OperatorNavigationAlert(
-          eventId: bookingId.hashCode ^ 0x0F01,
-          bookingId: bookingId,
-          title: 'Off-route detected',
-          body:
-              'Booking $bookingId is off-route by about ${guidance.offRouteDistanceMeters.round()} m. Please rejoin the planned route.',
-        ),
-      );
+      if (_offRouteAlertedBookingIds.add(bookingId)) {
+        OperatorNavigationAlertBus.publish(
+          OperatorNavigationAlert(
+            eventId: bookingId.hashCode ^ 0x0F01,
+            bookingId: bookingId,
+            title: 'Off-route detected',
+            body:
+                'Booking $bookingId is off-route by about ${guidance.offRouteDistanceMeters.round()} m. Please rejoin the planned route.',
+          ),
+        );
+      }
       return;
     }
 

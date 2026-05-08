@@ -22,14 +22,18 @@ class AppActionButton extends StatelessWidget {
   final Color? borderColor;
   final Widget? icon;
 
+  static const Color _brandOrange = Color(0xFFFF7A00);
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+
   @override
   Widget build(BuildContext context) {
+    final effectiveForeground = foregroundColor ?? Colors.white;
     final text = Text(
       label,
       style: TextStyle(
         fontSize: 16,
         fontWeight: FontWeight.w600,
-        color: foregroundColor,
+        color: outlined ? foregroundColor : effectiveForeground,
       ),
     );
 
@@ -57,22 +61,47 @@ class AppActionButton extends StatelessWidget {
         ? OutlinedButton(
             onPressed: isLoading ? null : onPressed,
             style: OutlinedButton.styleFrom(
-              foregroundColor: foregroundColor,
-              side: BorderSide(
-                color: borderColor ?? const Color(0xFF0066CC),
-                width: 1.5,
-              ),
+              foregroundColor: foregroundColor ?? _brandMagenta,
+              side: BorderSide(color: borderColor ?? _brandMagenta, width: 1.5),
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: child,
           )
-        : ElevatedButton(
-            onPressed: isLoading ? null : onPressed,
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-              padding: const EdgeInsets.symmetric(vertical: 14),
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: onPressed == null || isLoading
+                  ? null
+                  : const LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [_brandOrange, _brandMagenta],
+                    ),
+              color: onPressed == null || isLoading
+                  ? Colors.grey.shade300
+                  : null,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: onPressed == null || isLoading
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: _brandMagenta.withValues(alpha: 0.24),
+                        blurRadius: 14,
+                        offset: const Offset(0, 6),
+                      ),
+                    ],
             ),
-            child: child,
+            child: ElevatedButton(
+              onPressed: isLoading ? null : onPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                disabledBackgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                minimumSize: const Size.fromHeight(48),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: child,
+            ),
           );
 
     return Semantics(

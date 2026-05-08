@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:operator_app/core/widgets/gradient_app_bar.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
 import 'package:operator_app/features/profile/presentation/widgets/operator_transaction_summary_widgets.dart';
@@ -18,6 +19,9 @@ class OperatorTransactionSummaryPage extends StatefulWidget {
 
 class _OperatorTransactionSummaryPageState
     extends State<OperatorTransactionSummaryPage> {
+  static const Color _brandOrange = Color(0xFFFF7A00);
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+
   @override
   void initState() {
     super.initState();
@@ -70,10 +74,7 @@ class _OperatorTransactionSummaryPageState
     final vm = context.watch<OperatorTransactionSummaryViewModel>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Ride / Transaction Summary'),
-        centerTitle: true,
-      ),
+      appBar: const GradientAppBar(title: 'Ride / Transaction Summary'),
       body: vm.isLoading
           ? const Center(child: CircularProgressIndicator())
           : vm.error != null
@@ -120,10 +121,36 @@ class _OperatorTransactionSummaryPageState
                               (p) => ChoiceChip(
                                 label: Text(p.label),
                                 selected: vm.selectedPeriod == p,
+                                selectedColor: _brandMagenta.withValues(
+                                  alpha: 0.16,
+                                ),
+                                checkmarkColor: _brandMagenta,
                                 onSelected: (_) => vm.selectPeriod(p),
                               ),
                             )
                             .toList(),
+                      ),
+                      const SizedBox(height: 10),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _brandMagenta.withValues(alpha: 0.07),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: _brandMagenta.withValues(alpha: 0.14),
+                          ),
+                        ),
+                        child: Text(
+                          vm.selectedPeriodRangeLabel,
+                          style: const TextStyle(
+                            color: Color(0xFF4B5B73),
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 12),
                       OperatorSummaryInfoRow(
@@ -140,26 +167,57 @@ class _OperatorTransactionSummaryPageState
                         value: vm.selectedPeriodCancelled.toString(),
                       ),
                       const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: vm.isExporting ? null : _export,
-                          icon: vm.isExporting
-                              ? const SizedBox(
-                                  width: 16,
-                                  height: 16,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    valueColor: AlwaysStoppedAnimation<Color>(
-                                      Colors.white,
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: vm.isExporting
+                              ? null
+                              : const LinearGradient(
+                                  begin: Alignment.centerLeft,
+                                  end: Alignment.centerRight,
+                                  colors: [_brandOrange, _brandMagenta],
+                                ),
+                          color: vm.isExporting ? Colors.grey.shade300 : null,
+                          borderRadius: BorderRadius.circular(12),
+                          boxShadow: vm.isExporting
+                              ? null
+                              : [
+                                  BoxShadow(
+                                    color: _brandMagenta.withValues(
+                                      alpha: 0.24,
                                     ),
+                                    blurRadius: 14,
+                                    offset: const Offset(0, 6),
                                   ),
-                                )
-                              : const Icon(Icons.picture_as_pdf),
-                          label: Text(
-                            vm.isExporting
-                                ? 'Generating Statement...'
-                                : 'Export ${vm.selectedPeriod.label} Statement (PDF)',
+                                ],
+                        ),
+                        child: SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: vm.isExporting ? null : _export,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.transparent,
+                              disabledBackgroundColor: Colors.transparent,
+                              shadowColor: Colors.transparent,
+                              surfaceTintColor: Colors.transparent,
+                              foregroundColor: Colors.white,
+                            ),
+                            icon: vm.isExporting
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.picture_as_pdf),
+                            label: Text(
+                              vm.isExporting
+                                  ? 'Generating Statement...'
+                                  : 'Export ${vm.selectedPeriod.label} Statement (PDF)',
+                            ),
                           ),
                         ),
                       ),
@@ -180,6 +238,10 @@ class _OperatorTransactionSummaryPageState
                               (f) => ChoiceChip(
                                 label: Text(f.label),
                                 selected: vm.selectedHistoryFilter == f,
+                                selectedColor: _brandOrange.withValues(
+                                  alpha: 0.14,
+                                ),
+                                checkmarkColor: _brandMagenta,
                                 onSelected: (_) => vm.selectHistoryFilter(f),
                               ),
                             )
@@ -188,7 +250,7 @@ class _OperatorTransactionSummaryPageState
                       const SizedBox(height: 10),
                       TextField(
                         decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search),
+                          prefixIcon: Icon(Icons.search, color: _brandMagenta),
                           hintText:
                               'Search by booking ID, route, status, or passenger',
                         ),

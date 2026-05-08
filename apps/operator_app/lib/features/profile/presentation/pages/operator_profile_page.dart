@@ -145,6 +145,14 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                                   OperatorTransactionSummaryViewModel(
                                     bookingRepository: bookingRepo,
                                     operatorId: user.uid,
+                                    operatorName:
+                                        _nameController.text.trim().isNotEmpty
+                                        ? _nameController.text.trim()
+                                        : 'Operator',
+                                    displayOperatorId:
+                                        _idController.text.trim().isNotEmpty
+                                        ? _idController.text.trim()
+                                        : user.uid,
                                   ),
                               child: const OperatorTransactionSummaryPage(),
                             ),

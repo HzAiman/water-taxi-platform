@@ -25,6 +25,8 @@ class OperatorAccountForm extends StatelessWidget {
   final VoidCallback onSave;
   final Future<void> Function() onCancel;
 
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+
   @override
   Widget build(BuildContext context) {
     return Form(
@@ -46,7 +48,7 @@ class OperatorAccountForm extends StatelessWidget {
             enabled: isEditing,
             decoration: const InputDecoration(
               hintText: 'Enter your full name',
-              prefixIcon: Icon(Icons.person),
+              prefixIcon: Icon(Icons.person, color: _brandMagenta),
             ),
             validator: (value) {
               if (isEditing && (value == null || value.trim().isEmpty)) {
@@ -70,7 +72,7 @@ class OperatorAccountForm extends StatelessWidget {
             enabled: isEditing,
             decoration: const InputDecoration(
               hintText: 'Enter your operator ID',
-              prefixIcon: Icon(Icons.badge_outlined),
+              prefixIcon: Icon(Icons.badge_outlined, color: _brandMagenta),
             ),
             validator: (value) {
               if (isEditing && (value == null || value.trim().isEmpty)) {
@@ -93,7 +95,7 @@ class OperatorAccountForm extends StatelessWidget {
             controller: emailController,
             enabled: false,
             decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.email),
+              prefixIcon: Icon(Icons.email, color: _brandMagenta),
               hintText: 'Email address',
             ),
           ),

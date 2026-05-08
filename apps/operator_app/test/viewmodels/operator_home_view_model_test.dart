@@ -596,6 +596,22 @@ void main() {
       ]);
       await Future<void>.delayed(const Duration(milliseconds: 20));
 
+      bookingRepo.emitActive([
+        _sampleBooking(
+          id: 'trip-alert-2',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2020,
+          operatorLng: 102.2550,
+          routeToOriginPolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2030, lng: 102.2500),
+          ],
+        ),
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+
       await sub.cancel();
 
       final alertTitles = alerts
@@ -605,6 +621,10 @@ void main() {
 
       expect(alertTitles, contains('Off-route detected'));
       expect(alertTitles, contains('Route resumed'));
+      expect(
+        alertTitles.where((title) => title == 'Off-route detected'),
+        hasLength(1),
+      );
     });
 
     test('navigation guidance follows booking status transitions', () async {

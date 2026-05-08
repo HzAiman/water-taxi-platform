@@ -2,11 +2,14 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+const Color _brandOrange = Color(0xFFFF7A00);
+const Color _brandMagenta = Color(0xFFCA4B8C);
+
 void showTopAlert(
   BuildContext context, {
   required String message,
   String? title,
-  Color iconColor = const Color(0xFF0066CC),
+  Color iconColor = _brandMagenta,
   IconData icon = Icons.info_outline,
   Duration duration = const Duration(seconds: 4),
   String? actionLabel,
@@ -63,7 +66,7 @@ void showTopSuccess(
     context,
     message: message,
     title: title,
-    iconColor: const Color(0xFF0066CC),
+    iconColor: _brandMagenta,
     icon: Icons.verified_rounded,
     duration: duration,
   );
@@ -81,7 +84,7 @@ void showTopInfo(
     context,
     message: message,
     title: title,
-    iconColor: const Color(0xFF0066CC),
+    iconColor: _brandMagenta,
     icon: Icons.info_outline,
     duration: duration,
     actionLabel: actionLabel,
@@ -98,7 +101,7 @@ void showTopWelcomeCard(
     context,
     title: 'Welcome back, Operator!',
     message: operatorLabel,
-    iconColor: const Color(0xFF0066CC),
+    iconColor: _brandMagenta,
     icon: Icons.verified_user,
     duration: duration,
   );
@@ -215,55 +218,99 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                     ),
                   ],
                 ),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+                child: Stack(
                   children: [
-                    Icon(widget.icon, color: widget.iconColor, size: 28),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          if (widget.title != null) ...[
-                            Text(
-                              widget.title!,
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                color: Color(0xFF1A1A1A),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                          ],
-                          Text(
-                            widget.message,
-                            style: const TextStyle(
-                              fontSize: 14,
-                              color: Color(0xFF666666),
-                            ),
+                    Positioned(
+                      top: -16,
+                      left: -16,
+                      right: -16,
+                      child: Container(
+                        height: 4,
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [_brandOrange, _brandMagenta],
                           ),
-                          if (widget.actionLabel != null && widget.onAction != null) ...[
-                            const SizedBox(height: 10),
-                            TextButton(
-                              onPressed: () {
-                                widget.onAction!.call();
-                                _dismiss();
-                              },
-                              style: TextButton.styleFrom(
-                                padding: EdgeInsets.zero,
-                                minimumSize: Size.zero,
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                foregroundColor: widget.iconColor,
-                              ),
-                              child: Text(
-                                widget.actionLabel!,
-                                style: const TextStyle(fontWeight: FontWeight.w700),
-                              ),
-                            ),
-                          ],
-                        ],
+                        ),
                       ),
+                    ),
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Container(
+                          width: 34,
+                          height: 34,
+                          decoration: BoxDecoration(
+                            gradient: const LinearGradient(
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                              colors: [_brandOrange, _brandMagenta],
+                            ),
+                            borderRadius: BorderRadius.circular(10),
+                            boxShadow: [
+                              BoxShadow(
+                                color: widget.iconColor.withValues(alpha: 0.16),
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            widget.icon,
+                            color: Colors.white,
+                            size: 22,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (widget.title != null) ...[
+                                Text(
+                                  widget.title!,
+                                  style: const TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1A1A1A),
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                              ],
+                              Text(
+                                widget.message,
+                                style: const TextStyle(
+                                  fontSize: 14,
+                                  color: Color(0xFF666666),
+                                ),
+                              ),
+                              if (widget.actionLabel != null &&
+                                  widget.onAction != null) ...[
+                                const SizedBox(height: 10),
+                                TextButton(
+                                  onPressed: () {
+                                    widget.onAction!.call();
+                                    _dismiss();
+                                  },
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                    foregroundColor: _brandMagenta,
+                                  ),
+                                  child: Text(
+                                    widget.actionLabel!,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),

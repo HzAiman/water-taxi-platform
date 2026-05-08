@@ -14,6 +14,9 @@ class OperatorSummarySectionCard extends StatelessWidget {
   final String title;
   final Widget child;
 
+  static const Color _brandOrange = Color(0xFFFF7A00);
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -26,13 +29,32 @@ class OperatorSummarySectionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: const TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1A1A1A),
-            ),
+          Row(
+            children: [
+              Container(
+                width: 4,
+                height: 20,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [_brandOrange, _brandMagenta],
+                  ),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF1A1A1A),
+                  ),
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 12),
           child,
@@ -52,12 +74,22 @@ class OperatorSummaryMetricChip extends StatelessWidget {
   final String label;
   final String value;
 
+  static const Color _brandOrange = Color(0xFFFF7A00);
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF3FF),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            _brandOrange.withValues(alpha: 0.12),
+            _brandMagenta.withValues(alpha: 0.14),
+          ],
+        ),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Column(
@@ -68,7 +100,7 @@ class OperatorSummaryMetricChip extends StatelessWidget {
             style: const TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF0066CC),
+              color: _brandMagenta,
             ),
           ),
           const SizedBox(height: 2),
@@ -155,7 +187,7 @@ class RideHistoryTile extends StatelessWidget {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFEAF3FF),
+                  color: const Color(0xFFCA4B8C).withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -163,14 +195,14 @@ class RideHistoryTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF0066CC),
+                    color: Color(0xFFCA4B8C),
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 6),
-          Text('${booking.origin} -> ${booking.destination}'),
+          Text('${booking.origin} → ${booking.destination}'),
           const SizedBox(height: 4),
           Text('Fare: RM ${fare.toStringAsFixed(2)}'),
           const SizedBox(height: 4),
@@ -234,7 +266,10 @@ class StatementTile extends StatelessWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => unawaited(onShare()),
-                  icon: const Icon(Icons.share_outlined),
+                  icon: const Icon(
+                    Icons.share_outlined,
+                    color: Color(0xFFCA4B8C),
+                  ),
                   label: const Text('Share'),
                 ),
               ),
@@ -242,7 +277,10 @@ class StatementTile extends StatelessWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => unawaited(onDelete()),
-                  icon: const Icon(Icons.delete_outline),
+                  icon: const Icon(
+                    Icons.delete_outline,
+                    color: Color(0xFFCA4B8C),
+                  ),
                   label: const Text('Delete'),
                 ),
               ),

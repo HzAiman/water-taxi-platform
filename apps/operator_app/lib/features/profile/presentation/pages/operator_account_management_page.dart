@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/widgets/gradient_app_bar.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
 import 'package:operator_app/features/profile/presentation/widgets/operator_account_form.dart';
@@ -110,10 +111,7 @@ class _OperatorAccountManagementPageState
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Account Management'),
-        centerTitle: true,
-      ),
+      appBar: const GradientAppBar(title: 'Account Management'),
       body: ListView(
         padding: const EdgeInsets.all(24.0),
         children: [

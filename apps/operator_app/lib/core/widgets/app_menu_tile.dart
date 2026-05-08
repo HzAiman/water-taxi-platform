@@ -16,6 +16,9 @@ class AppMenuTile extends StatelessWidget {
   final VoidCallback onTap;
   final String? semanticLabel;
 
+  static const Color _brandOrange = Color(0xFFFF7A00);
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -39,10 +42,21 @@ class AppMenuTile extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEAF3FF),
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [_brandOrange, _brandMagenta],
+                    ),
                     borderRadius: BorderRadius.circular(12),
+                    boxShadow: [
+                      BoxShadow(
+                        color: _brandMagenta.withValues(alpha: 0.22),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
                   ),
-                  child: Icon(icon, color: const Color(0xFF0066CC)),
+                  child: Icon(icon, color: Colors.white),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -68,7 +82,7 @@ class AppMenuTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: Color(0xFF7A8AA0)),
+                const Icon(Icons.chevron_right, color: _brandMagenta),
               ],
             ),
           ),

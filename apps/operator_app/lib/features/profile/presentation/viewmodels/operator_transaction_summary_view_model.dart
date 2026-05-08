@@ -3,7 +3,9 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,7 +13,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
 
-enum SummaryPeriod { daily, weekly, monthly }
+enum SummaryPeriod { daily, weekly, monthly, yearly }
 
 enum HistoryFilter { all, completed, cancelled, active }
 
@@ -75,6 +77,8 @@ extension SummaryPeriodX on SummaryPeriod {
         return 'Weekly';
       case SummaryPeriod.monthly:
         return 'Monthly';
+      case SummaryPeriod.yearly:
+        return 'Yearly';
     }
   }
 }
@@ -98,13 +102,23 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
   OperatorTransactionSummaryViewModel({
     required BookingRepository bookingRepository,
     required String operatorId,
+    String? operatorName,
+    String? displayOperatorId,
   }) : _bookingRepository = bookingRepository,
-       _operatorId = operatorId;
+       _operatorId = operatorId,
+       _operatorName = operatorName?.trim().isNotEmpty == true
+           ? operatorName!.trim()
+           : 'Operator',
+       _displayOperatorId = displayOperatorId?.trim().isNotEmpty == true
+           ? displayOperatorId!.trim()
+           : operatorId;
 
   static const _statementStoragePrefix = 'operator_statement_records_v1_';
 
   final BookingRepository _bookingRepository;
   final String _operatorId;
+  final String _operatorName;
+  final String _displayOperatorId;
 
   StreamSubscription<List<BookingModel>>? _subscription;
   List<BookingModel> _allBookings = const [];
@@ -120,6 +134,8 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
   String? get error => _error;
   bool get isExporting => _isExporting;
   SummaryPeriod get selectedPeriod => _selectedPeriod;
+  String get selectedPeriodRangeLabel =>
+      _formatPeriodRange(_selectedPeriodRange(DateTime.now()));
   HistoryFilter get selectedHistoryFilter => _selectedHistoryFilter;
   String get historySearchQuery => _historySearchQuery;
   List<StatementRecord> get statements => _statements;
@@ -317,55 +333,189 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
   Future<Uint8List> _buildPdfBytes(List<BookingModel> data) async {
     final doc = pw.Document();
     final now = DateTime.now();
+    final completedTrips = data
+        .where((booking) => booking.status == BookingStatus.completed)
+        .toList(growable: false);
+    final periodRange = _selectedPeriodRange(now);
+    final logo = await _loadStatementLogo();
+    final brandOrange = PdfColor.fromHex('#FF7A00');
+    final brandMagenta = PdfColor.fromHex('#CA4B8C');
+    final ink = PdfColor.fromHex('#1A1A1A');
+    final muted = PdfColor.fromHex('#666666');
+    final softBorder = PdfColor.fromHex('#DDE5F0');
+    final softFill = PdfColor.fromHex('#FFF3EA');
+    final routeHeader = _pdfSafe('Route');
+    final fareHeader = _pdfSafe('Fare');
+    final tripDateHeader = _pdfSafe('Trip Date & Time');
 
     doc.addPage(
       pw.MultiPage(
+        margin: const pw.EdgeInsets.all(36),
         build: (_) => [
+          pw.Row(
+            crossAxisAlignment: pw.CrossAxisAlignment.center,
+            children: [
+              if (logo != null)
+                pw.Container(
+                  width: 44,
+                  height: 44,
+                  margin: const pw.EdgeInsets.only(right: 12),
+                  child: pw.Image(logo),
+                ),
+              pw.Expanded(
+                child: pw.Column(
+                  crossAxisAlignment: pw.CrossAxisAlignment.start,
+                  children: [
+                    pw.Text(
+                      _pdfSafe('Melaka Water Taxi'),
+                      style: pw.TextStyle(
+                        fontSize: 12,
+                        fontWeight: pw.FontWeight.bold,
+                        color: brandMagenta,
+                      ),
+                    ),
+                    pw.Text(
+                      _pdfSafe(
+                        'Operator Income Statement (${selectedPeriod.label})',
+                      ),
+                      style: pw.TextStyle(
+                        fontSize: 20,
+                        fontWeight: pw.FontWeight.bold,
+                        color: ink,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          pw.SizedBox(height: 10),
+          pw.Row(
+            children: [
+              pw.Expanded(child: pw.Container(height: 3, color: brandOrange)),
+              pw.Expanded(child: pw.Container(height: 3, color: brandMagenta)),
+            ],
+          ),
+          pw.SizedBox(height: 14),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: PdfColor.fromHex('#FAFBFE'),
+              border: pw.Border.all(color: softBorder),
+              borderRadius: pw.BorderRadius.circular(10),
+            ),
+            child: pw.Row(
+              crossAxisAlignment: pw.CrossAxisAlignment.start,
+              children: [
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      _pdfMetaLine('Operator', _operatorName, ink, muted),
+                      _pdfMetaLine(
+                        'Operator ID',
+                        _displayOperatorId,
+                        ink,
+                        muted,
+                      ),
+                    ],
+                  ),
+                ),
+                pw.SizedBox(width: 18),
+                pw.Expanded(
+                  child: pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      _pdfMetaLine(
+                        'Statement Period',
+                        _formatPeriodRange(periodRange),
+                        ink,
+                        muted,
+                      ),
+                      _pdfMetaLine('Generated', _fmt(now), ink, muted),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 14),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(12),
+            decoration: pw.BoxDecoration(
+              color: softFill,
+              borderRadius: pw.BorderRadius.circular(10),
+            ),
+            child: pw.Row(
+              children: [
+                _pdfSummaryMetric(
+                  'Completed Rides',
+                  completedTrips.length.toString(),
+                  ink,
+                  muted,
+                ),
+                _pdfSummaryMetric(
+                  'Cancelled Rides',
+                  selectedPeriodCancelled.toString(),
+                  ink,
+                  muted,
+                ),
+                _pdfSummaryMetric(
+                  'Total Earnings',
+                  _currency(selectedPeriodEarnings),
+                  brandMagenta,
+                  muted,
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 18),
           pw.Text(
-            'Operator Income Statement (${selectedPeriod.label})',
-            style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
+            'Trip Details',
+            style: pw.TextStyle(
+              fontSize: 14,
+              fontWeight: pw.FontWeight.bold,
+              color: ink,
+            ),
           ),
           pw.SizedBox(height: 8),
-          pw.Text('Generated: ${_fmt(now)}'),
-          pw.Text('Operator ID: $_operatorId'),
-          pw.SizedBox(height: 12),
-          pw.Text(
-            'Summary',
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-          ),
-          pw.Bullet(
-            text:
-                'Completed rides: ${data.where((b) => b.status == BookingStatus.completed).length}',
-          ),
-          pw.Bullet(
-            text: 'Pending or active rides: $selectedPeriodPendingOrActive',
-          ),
-          pw.Bullet(text: 'Cancelled rides: $selectedPeriodCancelled'),
-          pw.Bullet(
-            text: 'Total earnings: ${_currency(selectedPeriodEarnings)}',
-          ),
-          pw.SizedBox(height: 16),
-          pw.Text(
-            'Detailed Ride History',
-            style: pw.TextStyle(fontWeight: pw.FontWeight.bold),
-          ),
-          pw.SizedBox(height: 8),
-          if (data.isEmpty)
-            pw.Text('No rides found for this period.')
+          if (completedTrips.isEmpty)
+            pw.Text(_pdfSafe('No completed trips found for this period.'))
           else
             pw.TableHelper.fromTextArray(
-              headers: const ['Booking', 'Status', 'Fare', 'Updated'],
-              data: data
+              border: pw.TableBorder.all(color: softBorder, width: 0.6),
+              headerDecoration: pw.BoxDecoration(color: brandMagenta),
+              headerStyle: pw.TextStyle(
+                color: PdfColors.white,
+                fontWeight: pw.FontWeight.bold,
+              ),
+              cellStyle: pw.TextStyle(fontSize: 9, color: ink),
+              cellPadding: const pw.EdgeInsets.symmetric(
+                horizontal: 8,
+                vertical: 7,
+              ),
+              columnWidths: const {
+                0: pw.FlexColumnWidth(3.4),
+                1: pw.FlexColumnWidth(1.2),
+                2: pw.FlexColumnWidth(1.6),
+              },
+              headers: [routeHeader, fareHeader, tripDateHeader],
+              data: completedTrips
                   .map(
                     (b) => [
-                      b.bookingId,
-                      b.status.firestoreValue,
+                      _pdfSafe(_routeLabel(b)),
                       _currency(_fareOf(b)),
                       _fmt(b.updatedAt ?? b.createdAt),
                     ],
                   )
                   .toList(),
             ),
+          pw.Spacer(),
+          pw.Divider(color: softBorder),
+          pw.Text(
+            _pdfSafe('Generated by Melaka Water Taxi Operator App'),
+            style: pw.TextStyle(fontSize: 9, color: muted),
+          ),
         ],
       ),
     );
@@ -435,16 +585,12 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
 
   Iterable<BookingModel> get _bookingsForSelectedPeriod {
     final now = DateTime.now();
-    final start = switch (_selectedPeriod) {
-      SummaryPeriod.daily => _startOfDay(now),
-      SummaryPeriod.weekly => _startOfWeek(now),
-      SummaryPeriod.monthly => _startOfMonth(now),
-    };
+    final range = _selectedPeriodRange(now);
 
     return _allBookings.where((b) {
       final t = b.updatedAt ?? b.createdAt;
       if (t == null) return false;
-      return !t.isBefore(start) && !t.isAfter(now);
+      return !t.isBefore(range.start) && !t.isAfter(range.end);
     });
   }
 
@@ -469,7 +615,58 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
 
   static DateTime _startOfMonth(DateTime dt) => DateTime(dt.year, dt.month, 1);
 
+  static DateTime _startOfYear(DateTime dt) => DateTime(dt.year, 1, 1);
+
+  static DateTime _endOfDay(DateTime dt) =>
+      DateTime(dt.year, dt.month, dt.day, 23, 59, 59, 999, 999);
+
+  static DateTime _endOfMonth(DateTime dt) => DateTime(
+    dt.year,
+    dt.month + 1,
+    1,
+  ).subtract(const Duration(microseconds: 1));
+
+  static DateTime _endOfYear(DateTime dt) =>
+      DateTime(dt.year + 1, 1, 1).subtract(const Duration(microseconds: 1));
+
+  _StatementPeriodRange _selectedPeriodRange(DateTime now) {
+    return switch (_selectedPeriod) {
+      SummaryPeriod.daily => _StatementPeriodRange(
+        start: _startOfDay(now),
+        end: _endOfDay(now),
+      ),
+      SummaryPeriod.weekly => _StatementPeriodRange(
+        start: _startOfWeek(now),
+        end: _endOfDay(_startOfWeek(now).add(const Duration(days: 6))),
+      ),
+      SummaryPeriod.monthly => _StatementPeriodRange(
+        start: _startOfMonth(now),
+        end: _endOfMonth(now),
+      ),
+      SummaryPeriod.yearly => _StatementPeriodRange(
+        start: _startOfYear(now),
+        end: _endOfYear(now),
+      ),
+    };
+  }
+
   static String _currency(double value) => 'RM ${value.toStringAsFixed(2)}';
+
+  static String _routeLabel(BookingModel booking) {
+    final origin = booking.origin.trim().isEmpty ? 'Pickup' : booking.origin;
+    final destination = booking.destination.trim().isEmpty
+        ? 'Dropoff'
+        : booking.destination;
+    return '$origin -> $destination';
+  }
+
+  static String _pdfSafe(String value) {
+    return value
+        .replaceAll('\u2192', '->')
+        .replaceAll('\u2013', '-')
+        .replaceAll('\u2014', '-')
+        .replaceAll('\u2022', '-');
+  }
 
   static String _fmt(DateTime? dt) {
     if (dt == null) return 'Unknown';
@@ -482,9 +679,107 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     return '$y-$m-$d $hh:$mm';
   }
 
+  static String _formatPeriodRange(_StatementPeriodRange range) {
+    final start = _formatStatementDate(range.start);
+    final end = _formatStatementDate(range.end);
+    return start == end ? start : '$start - $end';
+  }
+
+  static String _formatStatementDate(DateTime dt) {
+    final local = dt.toLocal();
+    const months = [
+      'January',
+      'February',
+      'March',
+      'April',
+      'May',
+      'June',
+      'July',
+      'August',
+      'September',
+      'October',
+      'November',
+      'December',
+    ];
+    return '${local.day} ${months[local.month - 1]} ${local.year}';
+  }
+
+  static pw.Widget _pdfMetaLine(
+    String label,
+    String value,
+    PdfColor ink,
+    PdfColor muted,
+  ) {
+    return pw.Padding(
+      padding: const pw.EdgeInsets.only(bottom: 4),
+      child: pw.RichText(
+        text: pw.TextSpan(
+          children: [
+            pw.TextSpan(
+              text: '$label: ',
+              style: pw.TextStyle(
+                fontSize: 10,
+                fontWeight: pw.FontWeight.bold,
+                color: muted,
+              ),
+            ),
+            pw.TextSpan(
+              text: _pdfSafe(value),
+              style: pw.TextStyle(fontSize: 10, color: ink),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  static pw.Widget _pdfSummaryMetric(
+    String label,
+    String value,
+    PdfColor valueColor,
+    PdfColor labelColor,
+  ) {
+    return pw.Expanded(
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          pw.Text(
+            value,
+            style: pw.TextStyle(
+              fontSize: 16,
+              fontWeight: pw.FontWeight.bold,
+              color: valueColor,
+            ),
+          ),
+          pw.SizedBox(height: 2),
+          pw.Text(
+            _pdfSafe(label),
+            style: pw.TextStyle(fontSize: 9, color: labelColor),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static Future<pw.MemoryImage?> _loadStatementLogo() async {
+    try {
+      final data = await rootBundle.load('assets/app_icon/icon.png');
+      return pw.MemoryImage(data.buffer.asUint8List());
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   void dispose() {
     _subscription?.cancel();
     super.dispose();
   }
+}
+
+class _StatementPeriodRange {
+  const _StatementPeriodRange({required this.start, required this.end});
+
+  final DateTime start;
+  final DateTime end;
 }
