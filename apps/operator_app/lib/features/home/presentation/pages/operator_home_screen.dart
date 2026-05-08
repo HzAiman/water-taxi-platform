@@ -923,6 +923,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             mapToolbarEnabled: false,
             markers: OperatorMapLayers.buildMarkers(
               activeBooking,
+              operatorPoint: operatorPoint,
               operatorHeading: snapshot.navigationGuidance?.headingDegrees,
             ),
             polylines: _buildMapPolylines(

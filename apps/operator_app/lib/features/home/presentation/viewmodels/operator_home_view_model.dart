@@ -43,6 +43,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   StreamSubscription<List<BookingModel>>? _activeSubscription;
   StreamSubscription<List<BookingModel>>? _pendingSubscription;
   StreamSubscription<Position>? _locationSubscription;
+  Timer? _liveLocationRefreshTimer;
 
   String? _operatorId;
   String? _lastCancelledNoticeBookingId;
@@ -52,6 +53,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   Position? _latestOperatorPosition;
   DateTime? _latestOperatorPositionAt;
   bool _isPublishingLocation = false;
+  bool _isRefreshingLiveLocation = false;
   OperatorNavigationGuidance? _navigationGuidance;
   DateTime? _lastNavigationSampleAt;
   Position? _lastNavigationSample;
@@ -68,7 +70,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   static const Duration _locationPublishMinInterval = Duration(seconds: 6);
   static const double _locationPublishMinDistanceMeters = 20;
-  static const Duration _liveLocationStaleThreshold = Duration(seconds: 15);
+  static const Duration _liveLocationRefreshInterval = Duration(seconds: 3);
+  static const Duration _liveLocationStaleThreshold = Duration(seconds: 30);
   static const int _maxSpeedSamples = 6;
 
   // ── Getters ──────────────────────────────────────────────────────────────
@@ -476,9 +479,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
     const settings = LocationSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: 10,
+      distanceFilter: 0,
     );
-    _startLiveLocationStaleTimer();
+    _startLiveLocationRefreshTimer();
 
     _locationSubscription =
         Geolocator.getPositionStream(locationSettings: settings).listen(
@@ -510,6 +513,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   void _stopLocationSharing() {
     _liveLocationStaleTimer?.cancel();
     _liveLocationStaleTimer = null;
+    _liveLocationRefreshTimer?.cancel();
+    _liveLocationRefreshTimer = null;
     _locationSubscription?.cancel();
     _locationSubscription = null;
     _trackingBookingId = null;
@@ -518,6 +523,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _latestOperatorPosition = null;
     _latestOperatorPositionAt = null;
     _isPublishingLocation = false;
+    _isRefreshingLiveLocation = false;
     _navigationGuidance = null;
     _lastNavigationSampleAt = null;
     _lastNavigationSample = null;
@@ -527,13 +533,71 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _wasOffRoute = false;
   }
 
-  void _startLiveLocationStaleTimer() {
+  void _startLiveLocationRefreshTimer() {
     _liveLocationStaleTimer?.cancel();
-    _liveLocationStaleTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _liveLocationRefreshTimer?.cancel();
+    _liveLocationStaleTimer = Timer.periodic(_liveLocationRefreshInterval, (_) {
       if (_trackingBookingId != null) {
         notifyListeners();
       }
     });
+    _liveLocationRefreshTimer = Timer.periodic(
+      _liveLocationRefreshInterval,
+      (_) {
+        unawaited(_refreshLiveLocationHeartbeat());
+      },
+    );
+  }
+
+  Future<void> _refreshLiveLocationHeartbeat() async {
+    if (_isRefreshingLiveLocation) {
+      return;
+    }
+
+    final bookingId = _trackingBookingId;
+    final operatorId = _operatorId;
+    if (bookingId == null || operatorId == null || !_isOnline) {
+      return;
+    }
+
+    final lastAt = _latestOperatorPositionAt;
+    if (lastAt != null &&
+        DateTime.now().difference(lastAt) < _liveLocationRefreshInterval) {
+      return;
+    }
+
+    _isRefreshingLiveLocation = true;
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+        timeLimit: const Duration(seconds: 4),
+      );
+      if (_trackingBookingId != bookingId) {
+        return;
+      }
+
+      _latestOperatorPosition = position;
+      _latestOperatorPositionAt = DateTime.now();
+      _refreshNavigationGuidance(currentPosition: position, notify: false);
+      notifyListeners();
+
+      unawaited(
+        _publishOperatorPosition(
+          bookingId,
+          operatorId,
+          position,
+        ),
+      );
+    } catch (e) {
+      developer.log(
+        'live_location_heartbeat_failed',
+        name: 'operator_home_vm',
+        error: e,
+        stackTrace: StackTrace.current,
+      );
+    } finally {
+      _isRefreshingLiveLocation = false;
+    }
   }
 
   Future<void> _syncNavigationLifecycle(String operatorId) async {

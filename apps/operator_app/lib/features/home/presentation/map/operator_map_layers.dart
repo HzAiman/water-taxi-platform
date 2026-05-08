@@ -43,8 +43,7 @@ class OperatorMapLayers {
   }
 
   static bool shouldShowOperatorMarker(BookingModel booking) {
-    return booking.status == BookingStatus.accepted ||
-        booking.status == BookingStatus.onTheWay;
+    return booking.status == BookingStatus.accepted;
   }
 
   static String routePhaseSignature(
@@ -236,6 +235,7 @@ class OperatorMapLayers {
 
   static Set<Marker> buildMarkers(
     BookingModel? activeBooking, {
+    LatLng? operatorPoint,
     double? operatorHeading,
   }) {
     final markers = <Marker>{};
@@ -278,13 +278,15 @@ class OperatorMapLayers {
     }
 
     if (shouldShowOperatorMarker(activeBooking)) {
-      final opLat = activeBooking.operatorLat;
-      final opLng = activeBooking.operatorLng;
-      if (opLat != null && opLng != null) {
+      final markerPoint =
+          operatorPoint ??
+          _latLngOrNull(activeBooking.operatorLat, activeBooking.operatorLng);
+      if (markerPoint != null &&
+          _isValidLatLng(markerPoint.latitude, markerPoint.longitude)) {
         markers.add(
           Marker(
             markerId: const MarkerId('operator_location'),
-            position: LatLng(opLat, opLng),
+            position: markerPoint,
             icon: BitmapDescriptor.defaultMarkerWithHue(
               BitmapDescriptor.hueGreen,
             ),

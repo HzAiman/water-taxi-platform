@@ -1,6 +1,7 @@
 import 'dart:math';
 
 import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
@@ -68,14 +69,17 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   const severeOffRouteCapMeters = 5000.0;
 
   final passengerPickedUp = booking.passengerPickedUpAt != null;
+  final liveOperatorPoint = LatLng(currentLat, currentLng);
   final routeHealth = OperatorMapLayers.resolveRouteHealth(
     booking,
     passengerPickedUp: passengerPickedUp,
+    operatorPoint: liveOperatorPoint,
   );
   final polyline =
       OperatorMapLayers.resolvedRoutePointsForPhase(
             booking,
             passengerPickedUp: passengerPickedUp,
+            operatorPoint: liveOperatorPoint,
             includeOperatorAnchors: false,
           )
           .map(
@@ -83,8 +87,8 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
                 BookingRoutePoint(lat: point.latitude, lng: point.longitude),
           )
           .toList(growable: false);
-  final startLat = booking.operatorLat ?? currentLat;
-  final startLng = booking.operatorLng ?? currentLng;
+  final startLat = currentLat;
+  final startLng = currentLng;
   final endLat = passengerPickedUp ? booking.destinationLat : booking.originLat;
   final endLng = passengerPickedUp ? booking.destinationLng : booking.originLng;
   final projection = _projectProgressOnRoute(

@@ -66,15 +66,16 @@ void main() {
         OperatorMapLayers.isActiveNavigationBooking(onTheWayBooking),
         isTrue,
       );
+      expect(OperatorMapLayers.shouldShowOperatorMarker(acceptedBooking), true);
       expect(
-        OperatorMapLayers.shouldShowOperatorMarker(acceptedBooking),
-        isTrue,
+        OperatorMapLayers.shouldShowOperatorMarker(onTheWayBooking),
+        false,
       );
     });
   });
 
   group('OperatorMapLayers.buildMarkers', () {
-    test('shows operator marker from accepted onward', () {
+    test('shows operator marker for accepted preview only', () {
       final acceptedBooking = _bookingFixture(
         bookingId: 'm1',
         status: BookingStatus.accepted,
@@ -97,7 +98,45 @@ void main() {
         onTheWayMarkers.any(
           (marker) => marker.markerId.value == 'operator_location',
         ),
-        isTrue,
+        isFalse,
+      );
+    });
+
+    test('uses live operator point for accepted preview marker when provided', () {
+      final booking = _bookingFixture(
+        bookingId: 'm-live',
+        status: BookingStatus.accepted,
+        operatorLat: 2.2100,
+        operatorLng: 102.2500,
+      );
+
+      final markers = OperatorMapLayers.buildMarkers(
+        booking,
+        operatorPoint: const LatLng(2.2050, 102.2550),
+      );
+
+      final operatorMarker = markers.singleWhere(
+        (marker) => marker.markerId.value == 'operator_location',
+      );
+      expect(operatorMarker.position, const LatLng(2.2050, 102.2550));
+    });
+
+    test('hides operator marker during live navigation so blue dot is primary', () {
+      final booking = _bookingFixture(
+        bookingId: 'm-live-nav',
+        status: BookingStatus.onTheWay,
+        operatorLat: 2.2100,
+        operatorLng: 102.2500,
+      );
+
+      final markers = OperatorMapLayers.buildMarkers(
+        booking,
+        operatorPoint: const LatLng(2.2050, 102.2550),
+      );
+
+      expect(
+        markers.any((marker) => marker.markerId.value == 'operator_location'),
+        isFalse,
       );
     });
 
