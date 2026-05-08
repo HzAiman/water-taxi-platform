@@ -14,6 +14,9 @@ class OperatorProfileHeader extends StatelessWidget {
   final String operatorId;
   final double topInset;
 
+  static const Color _brandOrange = Color(0xFFFF7A00);
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -22,13 +25,10 @@ class OperatorProfileHeader extends StatelessWidget {
         width: double.infinity,
         padding: EdgeInsets.fromLTRB(24, topInset + 24, 24, 24),
         decoration: BoxDecoration(
-          gradient: LinearGradient(
+          gradient: const LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              const Color(0xFF0066CC),
-              const Color(0xFF0066CC).withValues(alpha: 0.8),
-            ],
+            colors: [_brandOrange, _brandMagenta],
           ),
         ),
         child: Column(

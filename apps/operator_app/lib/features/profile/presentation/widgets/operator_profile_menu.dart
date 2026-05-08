@@ -5,17 +5,13 @@ import 'package:operator_app/core/widgets/app_menu_tile.dart';
 class OperatorProfileMenu extends StatelessWidget {
   const OperatorProfileMenu({
     super.key,
-    required this.isDebugMode,
     required this.onAccountManagement,
     required this.onTransactionSummary,
-    required this.onPresenceDebug,
     required this.onLogout,
   });
 
-  final bool isDebugMode;
   final VoidCallback onAccountManagement;
   final VoidCallback onTransactionSummary;
-  final VoidCallback onPresenceDebug;
   final VoidCallback onLogout;
 
   @override
@@ -36,15 +32,6 @@ class OperatorProfileMenu extends StatelessWidget {
           subtitle: 'Track rides, earnings, and export income statements',
           onTap: onTransactionSummary,
         ),
-        if (isDebugMode) ...[
-          const SizedBox(height: 16),
-          AppMenuTile(
-            icon: Icons.bug_report_outlined,
-            title: 'Presence Debug',
-            subtitle: 'Inspect operator_presence sync and online state',
-            onTap: onPresenceDebug,
-          ),
-        ],
         const SizedBox(height: 24),
         AppActionButton(
           label: 'Logout',

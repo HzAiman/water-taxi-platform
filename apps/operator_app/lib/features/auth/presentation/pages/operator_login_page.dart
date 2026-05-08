@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/auth/presentation/pages/operator_profile_setup_page.dart';
 import 'package:operator_app/features/auth/presentation/widgets/operator_login_form.dart';
@@ -184,23 +185,43 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Melaka Water Taxi'), centerTitle: true),
-      body: SingleChildScrollView(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
-          child: OperatorLoginForm(
-            formKey: _formKey,
-            emailController: _emailController,
-            passwordController: _passwordController,
-            isLoading: _isLoading,
-            obscurePassword: _obscurePassword,
-            onTogglePasswordVisibility: () {
-              setState(() {
-                _obscurePassword = !_obscurePassword;
-              });
-            },
-            onSubmit: _login,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        systemNavigationBarColor: const Color(0xFFCA4B8C),
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        backgroundColor: const Color(0xFFCA4B8C),
+        body: Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFFF7A00), Color(0xFFCA4B8C)],
+            ),
+          ),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 24.0,
+                vertical: 32.0,
+              ),
+              child: OperatorLoginForm(
+                formKey: _formKey,
+                emailController: _emailController,
+                passwordController: _passwordController,
+                isLoading: _isLoading,
+                obscurePassword: _obscurePassword,
+                onTogglePasswordVisibility: () {
+                  setState(() {
+                    _obscurePassword = !_obscurePassword;
+                  });
+                },
+                onSubmit: _login,
+              ),
+            ),
           ),
         ),
       ),

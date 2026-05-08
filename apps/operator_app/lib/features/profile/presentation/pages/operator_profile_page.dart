@@ -1,5 +1,4 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_account_management_page.dart';
@@ -7,7 +6,6 @@ import 'package:provider/provider.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
-import 'package:operator_app/features/profile/presentation/pages/operator_presence_debug_page.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_transaction_summary_page.dart';
 import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
 import 'package:operator_app/features/profile/presentation/widgets/operator_profile_header.dart';
@@ -99,7 +97,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
     final topInset = MediaQuery.of(context).padding.top;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: const Color(0xFF0066CC),
+        statusBarColor: const Color(0xFFCA4B8C),
       ),
       child: Scaffold(
         body: _isLoading
@@ -119,7 +117,6 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                   ),
                   Expanded(
                     child: OperatorProfileMenu(
-                      isDebugMode: kDebugMode,
                       onAccountManagement: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(
@@ -151,13 +148,6 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                                   ),
                               child: const OperatorTransactionSummaryPage(),
                             ),
-                          ),
-                        );
-                      },
-                      onPresenceDebug: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const OperatorPresenceDebugPage(),
                           ),
                         );
                       },

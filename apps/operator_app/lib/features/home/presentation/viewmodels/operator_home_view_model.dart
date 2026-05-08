@@ -125,7 +125,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final future = completer.future;
     _initializationFuture = future;
     unawaited(
-      _initialize(operatorId)
+      _initialize(operatorId, preserveExistingBookings: force)
           .then((_) {
             _hasInitialized = true;
             if (!completer.isCompleted) {
@@ -146,7 +146,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
     return future;
   }
 
-  Future<void> _initialize(String operatorId) async {
+  Future<void> _initialize(
+    String operatorId, {
+    bool preserveExistingBookings = false,
+  }) async {
     _operatorId = operatorId;
 
     // Resolve current online status from Firestore.
@@ -174,6 +177,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
       operatorId,
       onFirstActiveEmission: () =>
           unawaited(_syncNavigationLifecycle(operatorId)),
+      preserveExistingBookings: preserveExistingBookings,
     );
 
     // Fallback for slow devices or cold cache misses: sync after 500ms if not
@@ -377,9 +381,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
     notifyListeners();
 
     try {
-      _stopStreams();
+      _stopStreams(clearBookings: false, stopLocationSharing: false);
       _streamVersion += 1;
-      _startStreams(operatorId);
+      _startStreams(operatorId, preserveExistingBookings: true);
     } finally {
       _isRefreshing = false;
       notifyListeners();
@@ -387,6 +391,21 @@ class OperatorHomeViewModel extends ChangeNotifier {
   }
 
   // ── Cancellation notice ──────────────────────────────────────────────────
+
+  Future<void> recoverAfterForeground(String operatorId) async {
+    _operatorId = operatorId;
+
+    if (_activeSubscription == null || _pendingSubscription == null) {
+      _startStreams(
+        operatorId,
+        onFirstActiveEmission: () =>
+            unawaited(_syncNavigationLifecycle(operatorId)),
+        preserveExistingBookings: true,
+      );
+    }
+
+    await _syncNavigationLifecycle(operatorId);
+  }
 
   /// Records that the cancellation notice for [bookingId] was shown, so it
   /// isn't shown again on the next stream event.
@@ -399,8 +418,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
   void _startStreams(
     String operatorId, {
     void Function()? onFirstActiveEmission,
+    bool preserveExistingBookings = false,
   }) {
-    _stopStreams();
+    _stopStreams(
+      clearBookings: !preserveExistingBookings,
+      stopLocationSharing: !preserveExistingBookings,
+    );
 
     var hasCalledCallback = false;
     _activeSubscription = _bookingRepo
@@ -436,9 +459,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
             notifyListeners();
           },
           onError: (_) {
-            _activeBookings = [];
-            _stopLocationSharing();
-            _refreshNavigationGuidance(notify: false);
+            if (!preserveExistingBookings) {
+              _activeBookings = [];
+              _stopLocationSharing();
+              _refreshNavigationGuidance(notify: false);
+            }
             notifyListeners();
           },
         );
@@ -449,7 +474,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
         notifyListeners();
       },
       onError: (_) {
-        _pendingBookings = [];
+        if (!preserveExistingBookings) {
+          _pendingBookings = [];
+        }
         notifyListeners();
       },
     );
@@ -503,14 +530,21 @@ class OperatorHomeViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  void _stopStreams() {
+  void _stopStreams({
+    bool clearBookings = true,
+    bool stopLocationSharing = true,
+  }) {
     _activeSubscription?.cancel();
     _pendingSubscription?.cancel();
-    _stopLocationSharing();
-    _activeBookings = [];
-    _pendingBookings = [];
-    _cachedHomeSnapshot = null;
-    _cachedHomeSnapshotKey = null;
+    if (stopLocationSharing) {
+      _stopLocationSharing();
+    }
+    if (clearBookings) {
+      _activeBookings = [];
+      _pendingBookings = [];
+      _cachedHomeSnapshot = null;
+      _cachedHomeSnapshotKey = null;
+    }
   }
 
   Future<void> _startLocationSharing(

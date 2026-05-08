@@ -223,15 +223,85 @@ void main() {
       );
 
       await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'active-1', status: BookingStatus.onTheWay),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
       expect(viewModel.streamVersion, 0);
+      expect(viewModel.activeBookings, hasLength(1));
 
       await viewModel.refresh('operator-1');
 
       expect(viewModel.streamVersion, 1);
       expect(viewModel.isRefreshing, isFalse);
+      expect(viewModel.activeBookings, hasLength(1));
       expect(bookingRepo.activeListenCount, greaterThanOrEqualTo(2));
       expect(bookingRepo.pendingListenCount, greaterThanOrEqualTo(2));
     });
+
+    test(
+      'forced reinitialization keeps active trip while streams reconnect',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final viewModel = OperatorHomeViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: FakeOperatorRepository(
+            operator: const OperatorModel(
+              uid: 'operator-1',
+              operatorId: 'operator-1',
+              name: 'Operator',
+              email: 'operator@example.com',
+              isOnline: true,
+            ),
+          ),
+        );
+
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(id: 'active-1', status: BookingStatus.onTheWay),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(viewModel.activeBookings, hasLength(1));
+
+        await viewModel.ensureInitialized('operator-1', force: true);
+
+        expect(viewModel.activeBookings, hasLength(1));
+        expect(bookingRepo.activeListenCount, greaterThanOrEqualTo(2));
+      },
+    );
+
+    test(
+      'foreground recovery keeps active trip and existing streams',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final viewModel = OperatorHomeViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: FakeOperatorRepository(
+            operator: const OperatorModel(
+              uid: 'operator-1',
+              operatorId: 'operator-1',
+              name: 'Operator',
+              email: 'operator@example.com',
+              isOnline: true,
+            ),
+          ),
+        );
+
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(id: 'active-1', status: BookingStatus.onTheWay),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+        final listenCount = bookingRepo.activeListenCount;
+
+        await viewModel.recoverAfterForeground('operator-1');
+
+        expect(viewModel.activeBookings, hasLength(1));
+        expect(bookingRepo.activeListenCount, listenCount);
+      },
+    );
 
     test('markCancellationNoticeShown stores latest booking id', () async {
       final viewModel = OperatorHomeViewModel(

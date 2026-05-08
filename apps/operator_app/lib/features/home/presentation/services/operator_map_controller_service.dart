@@ -245,7 +245,11 @@ class OperatorMapControllerService {
       _forceRouteFitBeforeFollow = false;
       if (_navigationMode == OperatorMapNavigationMode.tracking &&
           operatorPoint != null) {
-        await followOperatorWithPolicy(operatorPoint, forceFollow: true);
+        await followOperatorWithPolicy(
+          operatorPoint,
+          forceFollow: true,
+          routePoints: routePoints,
+        );
       }
       _emitState();
       return _navigationMode;
@@ -270,6 +274,7 @@ class OperatorMapControllerService {
           await followOperatorWithPolicy(
             operatorPoint,
             forceFollow: forceFollow,
+            routePoints: routePoints,
           );
         }
         _emitState();
@@ -332,6 +337,7 @@ class OperatorMapControllerService {
   Future<void> followOperatorWithPolicy(
     LatLng operatorPoint, {
     required bool forceFollow,
+    List<LatLng> routePoints = const <LatLng>[],
   }) async {
     final lastPoint = _lastFollowOperatorPoint;
     final lastAt = _lastFollowAt;
@@ -340,9 +346,12 @@ class OperatorMapControllerService {
     final movementDistance = lastPoint == null
         ? double.infinity
         : _distanceMeters(lastPoint, operatorPoint);
-    final bearing = lastPoint == null
-        ? 0.0
+    final movementBearing = lastPoint == null
+        ? null
         : _bearingDegrees(lastPoint, operatorPoint);
+    final routeBearing = _routeBearingAhead(operatorPoint, routePoints);
+    final bearing =
+        routeBearing ?? movementBearing ?? _lastBearing ?? _overviewTilt;
     final bearingDelta = _lastBearing == null
         ? double.infinity
         : _bearingDeltaDegrees(_lastBearing!, bearing);
@@ -350,8 +359,8 @@ class OperatorMapControllerService {
         forceFollow ||
         lastPoint == null ||
         (elapsed != null &&
-            elapsed >= const Duration(milliseconds: 2000) &&
-            (movementDistance >= 28 || bearingDelta >= 6));
+            elapsed >= const Duration(milliseconds: 700) &&
+            (movementDistance >= 4 || bearingDelta >= 2));
 
     if (!shouldFollow) {
       return;
@@ -362,8 +371,8 @@ class OperatorMapControllerService {
           ? 0.0
           : _distanceMeters(lastPoint, operatorPoint) /
                 math.max(elapsed.inMilliseconds / 1000, 0.001);
-      final aheadMeters = (18 + (speedMps * 5)).clamp(18.0, 55.0);
-      final targetZoom = (17.8 - (speedMps * 0.14)).clamp(16.1, 17.8);
+      final aheadMeters = (85 + (speedMps * 6)).clamp(85.0, 170.0);
+      final targetZoom = (18.45 - (speedMps * 0.08)).clamp(17.4, 18.45);
       final targetTilt = _desiredTrackingTilt;
       final smoothing = _cameraSmoothingFactor(speedMps);
       final rawTarget = _offsetPoint(operatorPoint, bearing, aheadMeters);
@@ -377,7 +386,7 @@ class OperatorMapControllerService {
       final easedTarget = _lastCameraTarget == null
           ? rawTarget
           : _lerpLatLng(rawTarget, predictedTarget, smoothing * 0.35);
-      final cameraTarget = _lastCameraTarget == null
+      final cameraTarget = _lastCameraTarget == null || forceFollow
           ? easedTarget
           : _lerpLatLng(_lastCameraTarget!, easedTarget, smoothing);
       final cameraBearing = _lastBearing == null
@@ -565,6 +574,36 @@ class OperatorMapControllerService {
     );
   }
 
+  double? _routeBearingAhead(LatLng operatorPoint, List<LatLng> routePoints) {
+    if (routePoints.length < 2) {
+      return null;
+    }
+
+    var nearestIndex = 0;
+    var nearestDistance = double.infinity;
+    for (var i = 0; i < routePoints.length; i++) {
+      final distance = _distanceMeters(operatorPoint, routePoints[i]);
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = i;
+      }
+    }
+
+    for (var i = nearestIndex + 1; i < routePoints.length; i++) {
+      if (_distanceMeters(operatorPoint, routePoints[i]) >= 8) {
+        return _bearingDegrees(operatorPoint, routePoints[i]);
+      }
+    }
+
+    for (var i = nearestIndex - 1; i >= 0; i--) {
+      if (_distanceMeters(operatorPoint, routePoints[i]) >= 8) {
+        return _bearingDegrees(routePoints[i], operatorPoint);
+      }
+    }
+
+    return null;
+  }
+
   double _bearingDegrees(LatLng from, LatLng to) {
     final fromLat = _degreesToRadians(from.latitude);
     final fromLng = _degreesToRadians(from.longitude);
@@ -614,7 +653,7 @@ class OperatorMapControllerService {
   }
 
   double _cameraSmoothingFactor(double speedMps) {
-    return (0.18 + (speedMps * 0.003)).clamp(0.18, 0.3);
+    return (0.42 + (speedMps * 0.01)).clamp(0.42, 0.62);
   }
 
   double _lerpAngle(double from, double to, double t) {

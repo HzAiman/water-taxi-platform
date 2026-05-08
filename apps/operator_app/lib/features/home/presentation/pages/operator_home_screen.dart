@@ -154,7 +154,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return;
     }
 
-    unawaited(_initializeViewModel(operatorId, force: true));
+    unawaited(
+      context.read<OperatorHomeViewModel>().recoverAfterForeground(operatorId),
+    );
   }
 
   @override
