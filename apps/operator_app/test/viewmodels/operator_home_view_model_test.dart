@@ -139,6 +139,32 @@ void main() {
       expect(viewModel.isUpdatingBooking, isFalse);
     });
 
+    test('completeTrip removes completed booking locally', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final viewModel = OperatorHomeViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: FakeOperatorRepository(),
+      );
+
+      await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'active-1', status: BookingStatus.onTheWay),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      final result = await viewModel.completeTrip('active-1');
+
+      expect(result, isA<OperationSuccess>());
+      expect(viewModel.activeBookings, isEmpty);
+
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'active-1', status: BookingStatus.onTheWay),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(viewModel.activeBookings, isEmpty);
+    });
+
     test('busy guard blocks overlapping booking operations', () async {
       final bookingRepo = FakeOperatorBookingRepository()
         ..acceptCompleter = Completer<OperationResult>();

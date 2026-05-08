@@ -188,13 +188,15 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
         statusBarColor: Colors.transparent,
-        systemNavigationBarColor: const Color(0xFFCA4B8C),
+        systemNavigationBarColor: Colors.transparent,
+        systemNavigationBarDividerColor: Colors.transparent,
         systemNavigationBarIconBrightness: Brightness.light,
       ),
       child: Scaffold(
+        extendBody: true,
         extendBodyBehindAppBar: true,
-        backgroundColor: const Color(0xFFCA4B8C),
-        body: Container(
+        backgroundColor: Colors.transparent,
+        body: DecoratedBox(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
@@ -202,24 +204,27 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
               colors: [Color(0xFFFF7A00), Color(0xFFCA4B8C)],
             ),
           ),
-          child: SafeArea(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 24.0,
-                vertical: 32.0,
-              ),
-              child: OperatorLoginForm(
-                formKey: _formKey,
-                emailController: _emailController,
-                passwordController: _passwordController,
-                isLoading: _isLoading,
-                obscurePassword: _obscurePassword,
-                onTogglePasswordVisibility: () {
-                  setState(() {
-                    _obscurePassword = !_obscurePassword;
-                  });
-                },
-                onSubmit: _login,
+          child: SizedBox.expand(
+            child: SafeArea(
+              bottom: false,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 24.0,
+                  vertical: 32.0,
+                ),
+                child: OperatorLoginForm(
+                  formKey: _formKey,
+                  emailController: _emailController,
+                  passwordController: _passwordController,
+                  isLoading: _isLoading,
+                  obscurePassword: _obscurePassword,
+                  onTogglePasswordVisibility: () {
+                    setState(() {
+                      _obscurePassword = !_obscurePassword;
+                    });
+                  },
+                  onSubmit: _login,
+                ),
               ),
             ),
           ),

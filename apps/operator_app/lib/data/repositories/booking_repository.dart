@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:developer' as developer;
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -476,8 +477,8 @@ class BookingRepository {
     double? operatorLng,
   }) async {
     try {
-      await _runWithRetry(
-        () => _db.runTransaction((tx) async {
+      final archivePayload = await _runWithRetry(
+        () => _db.runTransaction<Map<String, dynamic>?>((tx) async {
           final ref = _db
               .collection(FirestoreCollections.bookings)
               .doc(bookingId);
@@ -512,17 +513,23 @@ class BookingRepository {
           );
 
           if (_shouldArchive(status)) {
-            tx.set(_archiveRef(bookingId), {
+            return {
               ...data,
               ...payload,
               BookingFields.status: status.firestoreValue,
               BookingFields.updatedAt: FieldValue.serverTimestamp(),
               'archivedAt': FieldValue.serverTimestamp(),
               'archivedStatus': status.firestoreValue,
-            });
+            };
           }
+
+          return null;
         }),
       );
+
+      if (archivePayload != null) {
+        await _writeArchiveBestEffort(bookingId, archivePayload);
+      }
 
       final label = status == BookingStatus.onTheWay ? 'started' : 'completed';
       return OperationSuccess('Trip $label successfully.');
@@ -970,6 +977,22 @@ class BookingRepository {
 
   DocumentReference<Map<String, dynamic>> _archiveRef(String bookingId) {
     return _db.collection(FirestoreCollections.bookingsArchive).doc(bookingId);
+  }
+
+  Future<void> _writeArchiveBestEffort(
+    String bookingId,
+    Map<String, dynamic> payload,
+  ) async {
+    try {
+      await _archiveRef(bookingId).set(payload);
+    } catch (e, stackTrace) {
+      developer.log(
+        'Booking completion succeeded, but archive write was skipped.',
+        name: 'BookingRepository',
+        error: e,
+        stackTrace: stackTrace,
+      );
+    }
   }
 
   static List<String> _strList(dynamic v) {

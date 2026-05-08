@@ -39,6 +39,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   List<BookingModel> _activeBookings = [];
   List<BookingModel> _pendingBookings = [];
+  final Set<String> _locallyCompletedBookingIds = <String>{};
 
   StreamSubscription<List<BookingModel>>? _activeSubscription;
   StreamSubscription<List<BookingModel>>? _pendingSubscription;
@@ -343,8 +344,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
       bookingId: bookingId,
     );
 
-    if (result is OperationSuccess && _trackingBookingId == bookingId) {
-      _stopLocationSharing();
+    if (result is OperationSuccess) {
+      _markTripCompletedLocally(bookingId);
     }
 
     return result;
@@ -362,10 +363,16 @@ class OperatorHomeViewModel extends ChangeNotifier {
       bookingId: bookingId,
     );
 
+    if (result is OperationSuccess) {
+      _markPassengerPickedUpLocally(bookingId);
+      return result;
+    }
+
     if (result case OperationFailure(:final title, :final message)) {
       if (_isPermissionDenied('$title $message')) {
         // Firestore rules may block custom marker fields; keep the pickup
         // interaction usable and allow progression to trip completion.
+        _markPassengerPickedUpLocally(bookingId);
         return const OperationSuccess('Passenger marked as picked up.');
       }
     }
@@ -436,7 +443,12 @@ class OperatorHomeViewModel extends ChangeNotifier {
               onFirstActiveEmission();
             }
 
-            _activeBookings = list;
+            _activeBookings = list
+                .where(
+                  (booking) =>
+                      !_locallyCompletedBookingIds.contains(booking.bookingId),
+                )
+                .toList(growable: false);
             _refreshNavigationGuidance(notify: false);
 
             unawaited(_syncNavigationLifecycle(operatorId));
@@ -527,6 +539,48 @@ class OperatorHomeViewModel extends ChangeNotifier {
     updated[index] = startedBooking;
     _activeBookings = updated;
     _refreshNavigationGuidance(currentPosition: initial, notify: false);
+    notifyListeners();
+  }
+
+  void _markPassengerPickedUpLocally(String bookingId) {
+    final index = _activeBookings.indexWhere(
+      (booking) => booking.bookingId == bookingId,
+    );
+    if (index == -1) {
+      return;
+    }
+
+    final current = _activeBookings[index];
+    if (current.passengerPickedUpAt != null) {
+      return;
+    }
+
+    final pickedUpBooking = current.copyWith(
+      passengerPickedUpAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+    final updated = [..._activeBookings];
+    updated[index] = pickedUpBooking;
+    _activeBookings = updated;
+    _refreshNavigationGuidance(
+      currentPosition: _latestOperatorPosition,
+      notify: false,
+    );
+    notifyListeners();
+  }
+
+  void _markTripCompletedLocally(String bookingId) {
+    _locallyCompletedBookingIds.add(bookingId);
+    _activeBookings = _activeBookings
+        .where((booking) => booking.bookingId != bookingId)
+        .toList(growable: false);
+    if (_trackingBookingId == bookingId) {
+      _stopLocationSharing();
+    } else {
+      _refreshNavigationGuidance(notify: false);
+    }
+    _cachedHomeSnapshot = null;
+    _cachedHomeSnapshotKey = null;
     notifyListeners();
   }
 

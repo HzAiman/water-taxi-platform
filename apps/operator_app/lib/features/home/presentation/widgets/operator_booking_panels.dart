@@ -14,6 +14,7 @@ class OperatorBookingStatsCard extends StatelessWidget {
     required this.isActiveExpanded,
     required this.onPendingTap,
     required this.onActiveTap,
+    required this.onRefresh,
     required this.isRefreshing,
   });
 
@@ -23,21 +24,22 @@ class OperatorBookingStatsCard extends StatelessWidget {
   final bool isActiveExpanded;
   final VoidCallback onPendingTap;
   final VoidCallback onActiveTap;
+  final VoidCallback? onRefresh;
   final bool isRefreshing;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        color: Colors.white.withValues(alpha: 0.94),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.10),
+            blurRadius: 14,
+            offset: const Offset(0, 5),
           ),
         ],
       ),
@@ -52,22 +54,45 @@ class OperatorBookingStatsCard extends StatelessWidget {
               onTap: onPendingTap,
             ),
           ),
-          if (isRefreshing) ...[
-            const SizedBox(width: 8),
-            const SizedBox(
-              width: 18,
-              height: 18,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            ),
-          ],
-          Container(width: 1, height: 36, color: Colors.grey[300]),
+          Container(width: 1, height: 30, color: Colors.grey[300]),
           Expanded(
             child: OperatorStatTile(
               label: 'Active Trip',
               value: activeCount.toString(),
-              color: const Color(0xFF0066CC),
+              color: const Color(0xFFCA4B8C),
               isExpanded: isActiveExpanded,
               onTap: onActiveTap,
+            ),
+          ),
+          Container(width: 1, height: 30, color: Colors.grey[300]),
+          const SizedBox(width: 4),
+          Tooltip(
+            message: isRefreshing ? 'Refreshing bookings' : 'Refresh bookings',
+            child: SizedBox(
+              width: 34,
+              height: 34,
+              child: IconButton(
+                padding: EdgeInsets.zero,
+                visualDensity: VisualDensity.compact,
+                onPressed: isRefreshing ? null : onRefresh,
+                icon: AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 180),
+                  child: isRefreshing
+                      ? const SizedBox(
+                          key: ValueKey('booking-refresh-progress'),
+                          width: 17,
+                          height: 17,
+                          child: CircularProgressIndicator(strokeWidth: 2.2),
+                        )
+                      : const Icon(
+                          Icons.refresh_rounded,
+                          key: ValueKey('booking-refresh-icon'),
+                          size: 21,
+                        ),
+                ),
+                color: const Color(0xFFCA4B8C),
+                disabledColor: Colors.grey[500],
+              ),
             ),
           ),
         ],
@@ -118,15 +143,15 @@ class OperatorActiveBookingCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -138,16 +163,16 @@ class OperatorActiveBookingCard extends StatelessWidget {
               Icon(
                 isAccepted ? Icons.directions_boat : Icons.route,
                 color: actionColor,
-                size: 24,
+                size: 20,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   booking.userName.trim().isEmpty
                       ? 'Current Trip'
                       : booking.userName,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w800,
                     color: Colors.grey[850],
                   ),
@@ -156,7 +181,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
                   color: actionColor.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(999),
@@ -176,13 +201,15 @@ class OperatorActiveBookingCard extends StatelessWidget {
           Text(
             subtitle,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               color: Colors.grey[700],
-              height: 1.35,
+              height: 1.25,
               fontWeight: FontWeight.w500,
             ),
+            maxLines: isStale ? 4 : 2,
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -195,7 +222,8 @@ class OperatorActiveBookingCard extends StatelessWidget {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF0066CC),
                     side: const BorderSide(color: Color(0x330066CC)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12),
                   ),
                 ),
               ),
@@ -208,7 +236,8 @@ class OperatorActiveBookingCard extends StatelessWidget {
                       backgroundColor: const Color(0xFFFFF1F1),
                       foregroundColor: const Color(0xFFB42318),
                       side: const BorderSide(color: Color(0x33B42318)),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12),
                     ),
                     child: const Text('Release'),
                   ),
@@ -222,7 +251,8 @@ class OperatorActiveBookingCard extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: actionColor,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      textStyle: const TextStyle(fontSize: 12),
                     ),
                     child: isUpdating
                         ? const SizedBox(
@@ -281,15 +311,15 @@ class OperatorPendingBookingCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.1),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.08),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -301,14 +331,14 @@ class OperatorPendingBookingCard extends StatelessWidget {
               const Icon(
                 Icons.notifications_active,
                 color: Colors.orange,
-                size: 24,
+                size: 20,
               ),
-              const SizedBox(width: 10),
+              const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   title,
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 14,
                     fontWeight: FontWeight.w800,
                     color: Colors.grey[850],
                   ),
@@ -317,7 +347,7 @@ class OperatorPendingBookingCard extends StatelessWidget {
                 ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
                 decoration: BoxDecoration(
                   color: Colors.orange.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
@@ -337,13 +367,15 @@ class OperatorPendingBookingCard extends StatelessWidget {
           Text(
             subtitle,
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 12,
               color: Colors.grey[700],
-              height: 1.35,
+              height: 1.25,
               fontWeight: FontWeight.w500,
             ),
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(
@@ -355,7 +387,8 @@ class OperatorPendingBookingCard extends StatelessWidget {
                     side: BorderSide(
                       color: Colors.orange.shade900.withValues(alpha: 0.2),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12),
                   ),
                   child: const Text('Reject'),
                 ),
@@ -367,7 +400,8 @@ class OperatorPendingBookingCard extends StatelessWidget {
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF0066CC),
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    textStyle: const TextStyle(fontSize: 12),
                   ),
                   child: isUpdating
                       ? const SizedBox(
@@ -419,6 +453,24 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
 class _OperatorCollapsibleNavigationCardState
     extends State<OperatorCollapsibleNavigationCard> {
   bool _isExpanded = false;
+  bool _isSubmittingPrimaryAction = false;
+
+  bool get _isPrimaryActionBusy =>
+      widget.isUpdating || _isSubmittingPrimaryAction;
+
+  Future<void> _handlePrimaryAction() async {
+    if (_isPrimaryActionBusy) {
+      return;
+    }
+    setState(() => _isSubmittingPrimaryAction = true);
+    try {
+      await widget.onPrimaryAction();
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmittingPrimaryAction = false);
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -497,15 +549,15 @@ class _OperatorCollapsibleNavigationCardState
             SizedBox(
               width: double.infinity,
               child: ElevatedButton(
-                onPressed: widget.isUpdating
+                onPressed: _isPrimaryActionBusy
                     ? null
-                    : () => unawaited(widget.onPrimaryAction()),
+                    : () => unawaited(_handlePrimaryAction()),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.green,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(vertical: 12),
                 ),
-                child: widget.isUpdating
+                child: _isPrimaryActionBusy
                     ? const SizedBox(
                         height: 18,
                         width: 18,

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:developer' as developer;
+import 'dart:ui' show ImageFilter;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -43,6 +44,10 @@ class OperatorHomeScreen extends StatefulWidget {
 
 class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
+  static const Color _brandOrange = Color(0xFFFF7A00);
+  static const Color _brandMagenta = Color(0xFFCA4B8C);
+  static const Color _goOnlineGreen = Color(0xFF16A34A);
+
   static const MethodChannel _mapsConfigChannel = MethodChannel(
     'operator_app/maps_config',
   );
@@ -417,13 +422,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     return access;
   }
 
-  Future<void> _centerOnUser() async {
+  Future<void> _centerOnUser({bool showFeedback = true}) async {
     if (!_mapCameraService.currentState.isMapReady) {
-      showTopInfo(
-        context,
-        message: 'Map is still loading.',
-        title: 'Please wait',
-      );
+      if (showFeedback) {
+        showTopInfo(
+          context,
+          message: 'Map is still loading.',
+          title: 'Please wait',
+        );
+      }
       return;
     }
 
@@ -448,11 +455,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       if (!mounted) {
         return;
       }
-      showTopError(
-        context,
-        message: 'Unable to get location: $e',
-        title: 'Location error',
-      );
+      if (showFeedback) {
+        showTopError(
+          context,
+          message: 'Unable to get location: $e',
+          title: 'Location error',
+        );
+      }
     }
   }
 
@@ -506,90 +515,87 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
     return KeyedSubtree(
       key: ValueKey('booking-actions-${viewModel.streamVersion}'),
-      child: RefreshIndicator(
-        onRefresh: () => _refreshBookingData(operatorId),
-        child: SingleChildScrollView(
-          physics: const AlwaysScrollableScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              OperatorBookingStatsCard(
-                pendingCount: pendingCount,
-                activeCount: activeCount,
-                isQueueExpanded: _isQueueSectionExpanded,
-                isActiveExpanded: _isActiveSectionExpanded,
-                onPendingTap: () {
-                  setState(() {
-                    final shouldExpand = !_isQueueSectionExpanded;
-                    _isQueueSectionExpanded = shouldExpand;
-                    _isActiveSectionExpanded = false;
-                  });
-                },
-                onActiveTap: () {
-                  setState(() {
-                    final shouldExpand = !_isActiveSectionExpanded;
-                    _isActiveSectionExpanded = shouldExpand;
-                    _isQueueSectionExpanded = false;
-                  });
-                },
-                isRefreshing: viewModel.isRefreshing,
+      child: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            OperatorBookingStatsCard(
+              pendingCount: pendingCount,
+              activeCount: activeCount,
+              isQueueExpanded: _isQueueSectionExpanded,
+              isActiveExpanded: _isActiveSectionExpanded,
+              onPendingTap: () {
+                setState(() {
+                  final shouldExpand = !_isQueueSectionExpanded;
+                  _isQueueSectionExpanded = shouldExpand;
+                  _isActiveSectionExpanded = false;
+                });
+              },
+              onActiveTap: () {
+                setState(() {
+                  final shouldExpand = !_isActiveSectionExpanded;
+                  _isActiveSectionExpanded = shouldExpand;
+                  _isQueueSectionExpanded = false;
+                });
+              },
+              onRefresh: () => _refreshBookingData(operatorId),
+              isRefreshing: viewModel.isRefreshing,
+            ),
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: activeBooking != null
+                    ? _buildActiveBookingCard(activeBooking, viewModel)
+                    : const OperatorInfoCard(
+                        icon: Icons.directions_boat_filled_outlined,
+                        iconColor: Color(0xFF0066CC),
+                        title: 'No active trip',
+                        subtitle:
+                            'Accept a booking from the queue to start operating.',
+                      ),
               ),
-              AnimatedCrossFade(
-                firstChild: const SizedBox.shrink(),
-                secondChild: Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: activeBooking != null
-                      ? _buildActiveBookingCard(activeBooking, viewModel)
-                      : const OperatorInfoCard(
-                          icon: Icons.directions_boat_filled_outlined,
-                          iconColor: Color(0xFF0066CC),
-                          title: 'No active trip',
-                          subtitle:
-                              'Accept a booking from the queue to start operating.',
-                        ),
-                ),
-                crossFadeState: _isActiveSectionExpanded
-                    ? CrossFadeState.showSecond
-                    : CrossFadeState.showFirst,
-                duration: const Duration(milliseconds: 180),
+              crossFadeState: _isActiveSectionExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 180),
+            ),
+            AnimatedCrossFade(
+              firstChild: const SizedBox.shrink(),
+              secondChild: Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: topPendingBooking != null
+                    ? _buildPendingBookingCard(
+                        topPendingBooking,
+                        pendingCount,
+                        viewModel,
+                      )
+                    : const OperatorInfoCard(
+                        icon: Icons.hourglass_top,
+                        iconColor: Colors.orange,
+                        title: 'No pending bookings',
+                        subtitle: 'You are online. Waiting for passengers...',
+                      ),
               ),
-              AnimatedCrossFade(
-                firstChild: const SizedBox.shrink(),
-                secondChild: Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: topPendingBooking != null
-                      ? _buildPendingBookingCard(
-                          topPendingBooking,
-                          pendingCount,
-                          viewModel,
-                        )
-                      : const OperatorInfoCard(
-                          icon: Icons.hourglass_top,
-                          iconColor: Colors.orange,
-                          title: 'No pending bookings',
-                          subtitle: 'You are online. Waiting for passengers...',
-                        ),
+              crossFadeState: _isQueueSectionExpanded
+                  ? CrossFadeState.showSecond
+                  : CrossFadeState.showFirst,
+              duration: const Duration(milliseconds: 180),
+            ),
+            if (activeBooking != null &&
+                activeBooking.status == BookingStatus.onTheWay)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: _buildNavigationInfoCard(
+                  booking: activeBooking,
+                  guidance: bookingGuidance,
+                  passengerPickedUp: passengerPickedUp,
+                  isLiveLocationStale: snapshot.isLiveLocationStale,
+                  viewModel: viewModel,
                 ),
-                crossFadeState: _isQueueSectionExpanded
-                    ? CrossFadeState.showSecond
-                    : CrossFadeState.showFirst,
-                duration: const Duration(milliseconds: 180),
               ),
-              if (activeBooking != null &&
-                  activeBooking.status == BookingStatus.onTheWay)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: _buildNavigationInfoCard(
-                    booking: activeBooking,
-                    guidance: bookingGuidance,
-                    passengerPickedUp: passengerPickedUp,
-                    isLiveLocationStale: snapshot.isLiveLocationStale,
-                    viewModel: viewModel,
-                  ),
-                ),
-            ],
+          ],
           ),
-        ),
       ),
     );
   }
@@ -669,6 +675,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           return;
         }
         _showOperationResult(result);
+        if (passengerPickedUp && result is OperationSuccess) {
+          await _centerOnUser(showFeedback: false);
+        }
       },
     );
   }
@@ -1010,12 +1019,14 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     if (operatorId == null) {
       return const SizedBox.shrink();
     }
+    final topInset = MediaQuery.paddingOf(context).top;
 
     return Positioned.fill(
       child: Stack(
+        fit: StackFit.expand,
         children: [
           Positioned(
-            top: 16,
+            top: topInset + 12,
             left: 16,
             right: 16,
             child: Column(
@@ -1052,7 +1063,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                 style: ElevatedButton.styleFrom(
                   backgroundColor: viewModel.isOnline
                       ? Colors.red
-                      : const Color(0xFF0066CC),
+                      : _goOnlineGreen,
                   padding: const EdgeInsets.symmetric(
                     horizontal: 24,
                     vertical: 12,
@@ -1085,6 +1096,40 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildStatusBarScrim(BuildContext context) {
+    final statusBarHeight = MediaQuery.paddingOf(context).top;
+    if (statusBarHeight <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    return Positioned(
+      top: 0,
+      left: 0,
+      right: 0,
+      height: statusBarHeight + 6,
+      child: IgnorePointer(
+        child: ClipRect(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.46),
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    _brandOrange.withValues(alpha: 0.06),
+                    _brandMagenta.withValues(alpha: 0.08),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1180,26 +1225,40 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     );
     final isLoading = _isInitializingViewModel;
 
-    return Scaffold(
-      appBar: AppBar(toolbarHeight: 0, elevation: 0),
-      body: operatorId == null
-          ? const Center(child: Text('Not signed in'))
-          : Stack(
-              children: [
-                _buildMap(context, activeBooking, snapshot, trimmedRoutePoints),
-                if (isLoading)
-                  const Positioned.fill(
-                    child: Center(child: CircularProgressIndicator()),
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.dark,
+        statusBarBrightness: Brightness.light,
+      ),
+      child: Scaffold(
+        extendBodyBehindAppBar: true,
+        body: operatorId == null
+            ? const Center(child: Text('Not signed in'))
+            : Stack(
+                fit: StackFit.expand,
+                children: [
+                  _buildMap(
+                    context,
+                    activeBooking,
+                    snapshot,
+                    trimmedRoutePoints,
                   ),
-                _buildOverlayUI(context, operatorId, viewModel),
-                _buildFloatingButtons(
-                  activeBooking,
-                  trimmedRoutePoints,
-                  snapshot.operatorPoint,
-                  snapshot.destinationPoint,
-                ),
-              ],
-            ),
+                  _buildStatusBarScrim(context),
+                  if (isLoading)
+                    const Positioned.fill(
+                      child: Center(child: CircularProgressIndicator()),
+                    ),
+                  _buildOverlayUI(context, operatorId, viewModel),
+                  _buildFloatingButtons(
+                    activeBooking,
+                    trimmedRoutePoints,
+                    snapshot.operatorPoint,
+                    snapshot.destinationPoint,
+                  ),
+                ],
+              ),
+      ),
     );
   }
 }

@@ -192,6 +192,43 @@ void main() {
     expect(operatorRepo.lastOnlineStatus, isTrue);
   });
 
+  testWidgets('online operator refresh button reloads booking streams', (
+    tester,
+  ) async {
+    final operatorRepo = _FakeOperatorRepository(
+      operator: const OperatorModel(
+        uid: 'operator-1',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
+        isOnline: true,
+      ),
+    );
+    final bookingRepo = _FakeBookingRepository();
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        operatorId: 'operator-1',
+        operatorEmail: 'muzaffar@example.com',
+        operatorRepo: operatorRepo,
+        bookingRepo: bookingRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final initialActiveSubscriptions = bookingRepo.activeStreamRequestCount;
+    final initialPendingSubscriptions = bookingRepo.pendingStreamRequestCount;
+
+    await tester.tap(find.byTooltip('Refresh bookings'));
+    await tester.pumpAndSettle();
+
+    expect(bookingRepo.activeStreamRequestCount, initialActiveSubscriptions + 1);
+    expect(
+      bookingRepo.pendingStreamRequestCount,
+      initialPendingSubscriptions + 1,
+    );
+  });
+
   testWidgets('online operator can expand pending queue and accept booking', (
     tester,
   ) async {
@@ -370,8 +407,10 @@ void main() {
 
     expect(bookingRepo.lastPickedUpBookingId, 'active-2');
     expect(bookingRepo.lastPickedUpOperatorId, 'operator-1');
+    expect(find.text('Passenger Picked Up'), findsNothing);
+    expect(find.text('Complete Trip'), findsOneWidget);
 
-    // Emit updated booking state with passenger picked up
+    // Firestore stream reconciliation should keep the locally advanced phase.
     bookingRepo.emitActive([
       _sampleBooking(
         id: 'active-2',
@@ -388,6 +427,13 @@ void main() {
 
     expect(bookingRepo.lastCompletedBookingId, 'active-2');
     expect(bookingRepo.lastCompletedOperatorId, 'operator-1');
+    final viewModel = Provider.of<OperatorHomeViewModel>(
+      tester.element(find.byType(OperatorHomeScreen)),
+      listen: false,
+    );
+    expect(viewModel.activeBookings, isEmpty);
+    expect(find.text('Complete Trip'), findsNothing);
+    expect(find.text('No active trip'), findsOneWidget);
   });
 
   testWidgets('pickup marker from Firestore shows complete action directly', (
@@ -623,14 +669,20 @@ class _FakeBookingRepository extends BookingRepository {
   String? lastPickedUpOperatorId;
   String? lastCompletedBookingId;
   String? lastCompletedOperatorId;
+  int activeStreamRequestCount = 0;
+  int pendingStreamRequestCount = 0;
 
   @override
-  Stream<List<BookingModel>> streamActiveBookings(String operatorId) =>
-      _activeController.stream;
+  Stream<List<BookingModel>> streamActiveBookings(String operatorId) {
+    activeStreamRequestCount += 1;
+    return _activeController.stream;
+  }
 
   @override
-  Stream<List<BookingModel>> streamPendingBookings() =>
-      _pendingController.stream;
+  Stream<List<BookingModel>> streamPendingBookings() {
+    pendingStreamRequestCount += 1;
+    return _pendingController.stream;
+  }
 
   @override
   Future<OperationResult> acceptBooking({
