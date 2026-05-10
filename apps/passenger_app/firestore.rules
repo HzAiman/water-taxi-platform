@@ -31,6 +31,7 @@ service cloud.firestore {
         'name',
         'operatorId',
         'email',
+        'phoneNumber',
         'createdAt',
         'updatedAt',
         // Legacy compatibility keys that may still exist on older docs.
@@ -199,6 +200,7 @@ service cloud.firestore {
           'name',
           'operatorId',
           'email',
+          'phoneNumber',
           'updatedAt'
         ]);
       allow delete: if false;
@@ -315,7 +317,10 @@ service cloud.firestore {
               'status',
               'updatedAt',
               'operatorUid',
-              'operatorId'
+              'operatorId',
+              'assignedOperatorName',
+              'assignedOperatorDisplayId',
+              'assignedOperatorPhone'
             ])
             &&
             resource.data.status == 'pending'

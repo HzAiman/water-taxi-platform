@@ -6,6 +6,7 @@ class OperatorModel {
     required this.name,
     required this.email,
     required this.isOnline,
+    this.phoneNumber = '',
     this.createdAt,
     this.updatedAt,
   });
@@ -15,6 +16,7 @@ class OperatorModel {
   final String name;
   final String email;
   final bool isOnline;
+  final String phoneNumber;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -29,6 +31,7 @@ class OperatorModel {
       operatorId: (data['operatorId'] ?? '').toString(),
       name: (data['name'] ?? '').toString(),
       email: (data['email'] ?? '').toString(),
+      phoneNumber: (data['phoneNumber'] ?? '').toString(),
       isOnline: data['isOnline'] == true,
       createdAt: createdAt,
       updatedAt: updatedAt,
@@ -41,6 +44,7 @@ class OperatorModel {
     String? name,
     String? email,
     bool? isOnline,
+    String? phoneNumber,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -50,14 +54,16 @@ class OperatorModel {
       name: name ?? this.name,
       email: email ?? this.email,
       isOnline: isOnline ?? this.isOnline,
+      phoneNumber: phoneNumber ?? this.phoneNumber,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );
   }
 
   Map<String, dynamic> toMap() => {
-        'operatorId': operatorId,
-        'name': name,
-        'email': email,
-      };
+    'operatorId': operatorId,
+    'name': name,
+    'email': email,
+    'phoneNumber': phoneNumber,
+  };
 }

@@ -34,6 +34,9 @@ class BookingModel {
     required this.status,
     String? operatorUid,
     @Deprecated('Use operatorUid instead.') String? operatorId,
+    this.assignedOperatorName = '',
+    this.assignedOperatorDisplayId = '',
+    this.assignedOperatorPhone = '',
     this.operatorLat,
     this.operatorLng,
     required this.rejectedBy,
@@ -71,6 +74,9 @@ class BookingModel {
   final BookingStatus status;
   final String? operatorUid;
   String? get operatorId => operatorUid;
+  final String assignedOperatorName;
+  final String assignedOperatorDisplayId;
+  final String assignedOperatorPhone;
   final double? operatorLat;
   final double? operatorLng;
   final List<String> rejectedBy;
@@ -149,6 +155,9 @@ class BookingModel {
       paymentStatus: _str(data['paymentStatus']),
       status: BookingStatus.fromString(_str(data['status'])),
       operatorUid: (data['operatorUid'] ?? data['operatorId'])?.toString(),
+      assignedOperatorName: _str(data['assignedOperatorName']),
+      assignedOperatorDisplayId: _str(data['assignedOperatorDisplayId']),
+      assignedOperatorPhone: _str(data['assignedOperatorPhone']),
       operatorLat: _nullableDouble(data['operatorLat']),
       operatorLng: _nullableDouble(data['operatorLng']),
       rejectedBy: _strList(data['rejectedBy']),
@@ -188,6 +197,9 @@ class BookingModel {
     BookingStatus? status,
     String? operatorUid,
     @Deprecated('Use operatorUid instead.') String? operatorId,
+    String? assignedOperatorName,
+    String? assignedOperatorDisplayId,
+    String? assignedOperatorPhone,
     double? operatorLat,
     double? operatorLng,
     List<String>? rejectedBy,
@@ -226,6 +238,11 @@ class BookingModel {
       paymentStatus: paymentStatus ?? this.paymentStatus,
       status: status ?? this.status,
       operatorUid: operatorUid ?? operatorId ?? this.operatorUid,
+      assignedOperatorName: assignedOperatorName ?? this.assignedOperatorName,
+      assignedOperatorDisplayId:
+          assignedOperatorDisplayId ?? this.assignedOperatorDisplayId,
+      assignedOperatorPhone:
+          assignedOperatorPhone ?? this.assignedOperatorPhone,
       operatorLat: operatorLat ?? this.operatorLat,
       operatorLng: operatorLng ?? this.operatorLng,
       rejectedBy: rejectedBy ?? this.rejectedBy,
@@ -339,10 +356,7 @@ class BookingRoutePoint {
     if (raw is Map) {
       final lat = _asDouble(raw['lat'] ?? raw['latitude'] ?? raw['_latitude']);
       final lng = _asDouble(
-        raw['lng'] ??
-            raw['longitude'] ??
-            raw['lon'] ??
-            raw['_longitude'],
+        raw['lng'] ?? raw['longitude'] ?? raw['lon'] ?? raw['_longitude'],
       );
       if (lat != null && lng != null) {
         return BookingRoutePoint(lat: lat, lng: lng);

@@ -34,6 +34,9 @@ abstract final class BookingFields {
   static const String status = 'status';
   static const String operatorUid = 'operatorUid';
   static const String operatorId = 'operatorId';
+  static const String assignedOperatorName = 'assignedOperatorName';
+  static const String assignedOperatorDisplayId = 'assignedOperatorDisplayId';
+  static const String assignedOperatorPhone = 'assignedOperatorPhone';
   static const String operatorLat = 'operatorLat';
   static const String operatorLng = 'operatorLng';
   static const String rejectedBy = 'rejectedBy';
@@ -72,6 +75,7 @@ abstract final class OperatorFields {
   static const String operatorIdKey = 'operatorIdKey';
   static const String name = 'name';
   static const String email = 'email';
+  static const String phoneNumber = 'phoneNumber';
   static const String isOnline = 'isOnline';
   static const String createdAt = 'createdAt';
   static const String updatedAt = 'updatedAt';

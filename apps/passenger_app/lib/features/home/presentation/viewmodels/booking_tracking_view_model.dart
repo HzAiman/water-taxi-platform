@@ -14,8 +14,8 @@ class BookingTrackingViewModel extends ChangeNotifier {
   BookingTrackingViewModel({
     required BookingRepository bookingRepo,
     PaymentGatewayService? paymentGateway,
-  })  : _bookingRepo = bookingRepo,
-        _paymentGateway = paymentGateway ?? CloudFunctionPaymentGatewayService();
+  }) : _bookingRepo = bookingRepo,
+       _paymentGateway = paymentGateway ?? CloudFunctionPaymentGatewayService();
 
   final BookingRepository _bookingRepo;
   final PaymentGatewayService _paymentGateway;
@@ -47,21 +47,26 @@ class BookingTrackingViewModel extends ChangeNotifier {
     notifyListeners();
 
     var receivedFirstEvent = false;
-    _subscription = _bookingRepo.streamBooking(bookingId).listen((b) {
-      if (!receivedFirstEvent) {
-        receivedFirstEvent = true;
-        _isLoading = false;
-      }
-      _booking = b;
-      _trackingError = null;
-      notifyListeners();
-    }, onError: (Object error, StackTrace stackTrace) {
-      _isLoading = false;
-      _trackingError =
-          'Unable to load booking updates. Please check your connection and retry.';
-      _debugLog('startTracking error: $error');
-      notifyListeners();
-    });
+    _subscription = _bookingRepo
+        .streamBooking(bookingId)
+        .listen(
+          (b) {
+            if (!receivedFirstEvent) {
+              receivedFirstEvent = true;
+              _isLoading = false;
+            }
+            _booking = b;
+            _trackingError = null;
+            notifyListeners();
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            _isLoading = false;
+            _trackingError =
+                'Unable to load booking updates. Please check your connection and retry.';
+            _debugLog('startTracking error: $error');
+            notifyListeners();
+          },
+        );
   }
 
   /// Retries the active tracking subscription using the last booking ID.

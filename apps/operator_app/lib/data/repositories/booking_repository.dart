@@ -115,11 +115,16 @@ class BookingRepository {
         final ref = _db
             .collection(FirestoreCollections.bookings)
             .doc(bookingId);
+        final operatorRef = _db
+            .collection(FirestoreCollections.operators)
+            .doc(operatorId);
         final snap = await tx.get(ref);
+        final operatorSnap = await tx.get(operatorRef);
 
         if (!snap.exists) throw StateError('This booking no longer exists.');
 
         final data = snap.data()!;
+        final operatorData = operatorSnap.data() ?? const <String, dynamic>{};
         final status = BookingStatus.fromString(
           (data[BookingFields.status] ?? '').toString(),
         );
@@ -141,6 +146,12 @@ class BookingRepository {
         tx.update(ref, {
           BookingFields.status: BookingStatus.accepted.firestoreValue,
           BookingFields.operatorUid: operatorId,
+          BookingFields.assignedOperatorName:
+              (operatorData[OperatorFields.name] ?? '').toString(),
+          BookingFields.assignedOperatorDisplayId:
+              (operatorData[OperatorFields.operatorId] ?? '').toString(),
+          BookingFields.assignedOperatorPhone:
+              (operatorData[OperatorFields.phoneNumber] ?? '').toString(),
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
         });
         _appendStatusHistory(

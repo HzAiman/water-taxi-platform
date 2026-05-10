@@ -7,10 +7,7 @@ import 'package:operator_app/services/notifications/local_notification_service.d
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class NotificationMessage {
-  const NotificationMessage({
-    required this.title,
-    required this.body,
-  });
+  const NotificationMessage({required this.title, required this.body});
 
   final String title;
   final String body;
@@ -24,10 +21,10 @@ class OperatorNotificationCoordinator {
     required OperatorRepository operatorRepo,
     required LocalNotificationService localNotifications,
     required ForegroundNotifier onForegroundMessage,
-  })  : _bookingRepo = bookingRepo,
-        _operatorRepo = operatorRepo,
-        _localNotifications = localNotifications,
-        _onForegroundMessage = onForegroundMessage;
+  }) : _bookingRepo = bookingRepo,
+       _operatorRepo = operatorRepo,
+       _localNotifications = localNotifications,
+       _onForegroundMessage = onForegroundMessage;
 
   final BookingRepository _bookingRepo;
   final OperatorRepository _operatorRepo;
@@ -47,6 +44,13 @@ class OperatorNotificationCoordinator {
   Set<String> _knownPendingIds = <String>{};
   final Map<String, BookingStatus> _knownAssignedStatuses =
       <String, BookingStatus>{};
+  final Map<int, DateTime> _lastDeliveredEventIds = <int, DateTime>{};
+  final Map<String, DateTime> _lastDeliveredNavigationGroups =
+      <String, DateTime>{};
+
+  static const Duration _eventDedupeWindow = Duration(seconds: 12);
+  static const Duration _routeProgressCooldown = Duration(seconds: 60);
+  static const Duration _routeStateCooldown = Duration(seconds: 20);
 
   Future<void> start({required String operatorId}) async {
     await _localNotifications.initialize();
@@ -92,9 +96,9 @@ class OperatorNotificationCoordinator {
       }
     });
 
-    _historySub = _bookingRepo
-        .streamOperatorBookingHistory(operatorId)
-        .listen((bookings) {
+    _historySub = _bookingRepo.streamOperatorBookingHistory(operatorId).listen((
+      bookings,
+    ) {
       if (!_seededHistory) {
         for (final booking in bookings) {
           _knownAssignedStatuses[booking.bookingId] = booking.status;
@@ -133,6 +137,18 @@ class OperatorNotificationCoordinator {
     required int eventId,
     String? payload,
   }) async {
+    final now = DateTime.now();
+    final lastDeliveredAt = _lastDeliveredEventIds[eventId];
+    if (lastDeliveredAt != null &&
+        now.difference(lastDeliveredAt) < _eventDedupeWindow) {
+      return;
+    }
+    _lastDeliveredEventIds[eventId] = now;
+    _lastDeliveredEventIds.removeWhere(
+      (_, deliveredAt) =>
+          now.difference(deliveredAt) > const Duration(minutes: 5),
+    );
+
     if (_isForeground) {
       _onForegroundMessage(message);
       return;
@@ -150,12 +166,35 @@ class OperatorNotificationCoordinator {
     if (!_seededHistory) {
       return Future<void>.value();
     }
+    if (!_shouldDeliverNavigationAlert(alert)) {
+      return Future<void>.value();
+    }
 
     return _deliver(
       NotificationMessage(title: alert.title, body: alert.body),
       eventId: alert.eventId,
       payload: alert.bookingId,
     );
+  }
+
+  bool _shouldDeliverNavigationAlert(OperatorNavigationAlert alert) {
+    final cooldown = switch (alert.title) {
+      'Route progress' => _routeProgressCooldown,
+      'Off-route detected' || 'Route resumed' => _routeStateCooldown,
+      _ => _eventDedupeWindow,
+    };
+    final groupKey = '${alert.bookingId}|${alert.title}';
+    final now = DateTime.now();
+    final lastDeliveredAt = _lastDeliveredNavigationGroups[groupKey];
+    if (lastDeliveredAt != null && now.difference(lastDeliveredAt) < cooldown) {
+      return false;
+    }
+    _lastDeliveredNavigationGroups[groupKey] = now;
+    _lastDeliveredNavigationGroups.removeWhere(
+      (_, deliveredAt) =>
+          now.difference(deliveredAt) > const Duration(minutes: 10),
+    );
+    return true;
   }
 
   String _statusLabel(BookingStatus status) {
@@ -192,19 +231,18 @@ class OperatorNotificationCoordinator {
       return;
     }
 
-    _onlineReminderSyncTimer ??= Timer.periodic(
-      const Duration(seconds: 15),
-      (_) {
-        if (!(_isOnline && !_isForeground)) {
-          _onlineReminderSyncTimer?.cancel();
-          _onlineReminderSyncTimer = null;
-          return;
-        }
-        _localNotifications.showOnlineReminder(
-          title: 'You are online',
-          body: 'You can receive incoming booking requests.',
-        );
-      },
-    );
+    _onlineReminderSyncTimer ??= Timer.periodic(const Duration(seconds: 15), (
+      _,
+    ) {
+      if (!(_isOnline && !_isForeground)) {
+        _onlineReminderSyncTimer?.cancel();
+        _onlineReminderSyncTimer = null;
+        return;
+      }
+      _localNotifications.showOnlineReminder(
+        title: 'You are online',
+        body: 'You can receive incoming booking requests.',
+      );
+    });
   }
 }

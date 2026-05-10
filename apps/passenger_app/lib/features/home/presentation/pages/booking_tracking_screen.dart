@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:passenger_app/core/theme/passenger_brand.dart';
 import 'package:passenger_app/core/widgets/gradient_app_bar.dart';
@@ -36,10 +37,16 @@ class BookingTrackingScreen extends StatefulWidget {
   State<BookingTrackingScreen> createState() => _BookingTrackingScreenState();
 }
 
-class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
+class _BookingTrackingScreenState extends State<BookingTrackingScreen>
+    with SingleTickerProviderStateMixin {
+  static const MethodChannel _phoneChannel = MethodChannel(
+    'passenger_app/phone',
+  );
+
   final DateTime _openedAt = DateTime.now();
 
   GoogleMapController? _mapController;
+  late final AnimationController _pulseController;
   String? _initialFitBookingId;
   LatLng? _lastFocusedOperatorPoint;
   DateTime? _lastOperatorFocusAt;
@@ -58,6 +65,10 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
   @override
   void initState() {
     super.initState();
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
     Future.microtask(() {
       if (!mounted) {
         return;
@@ -333,14 +344,15 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       Row(
                         children: [
                           Container(
-                            width: 12,
-                            height: 12,
-                            decoration: BoxDecoration(
+                            width: 28,
+                            height: 28,
+                            alignment: Alignment.center,
+                            child: _buildStatusRippleDot(
+                              status: status,
                               color: statusTheme.color,
-                              shape: BoxShape.circle,
                             ),
                           ),
-                          const SizedBox(width: 8),
+                          const SizedBox(width: 6),
                           Expanded(
                             child: Text(
                               statusTheme.title,
@@ -381,7 +393,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                           ),
                         ),
                       ],
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 12),
                       _buildStatusTimeline(status),
                       if (isLocatingOperator || isOperatorLocationStale) ...[
                         const SizedBox(height: 12),
@@ -389,82 +401,40 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                           isLocating: isLocatingOperator,
                         ),
                       ],
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          const Text(
-                            'Booking ID',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: Color(0xFF666666),
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              booking.bookingId,
-                              textAlign: TextAlign.end,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF1A1A1A),
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
+                      const SizedBox(height: 12),
+                      _buildCompactRouteCard(
+                        origin: currentOrigin,
+                        destination: currentDestination,
                       ),
-                      const SizedBox(height: 16),
-                      Container(
-                        padding: const EdgeInsets.all(16),
-                        decoration: BoxDecoration(
-                          color: PassengerBrand.softMint,
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: const Color(0xFFDDE5F0)),
-                        ),
-                        child: Column(
-                          children: [
-                            _buildLocationRow(
-                              Icons.location_on,
-                              'Pick-up',
-                              currentOrigin,
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(vertical: 8),
-                              child: Divider(color: Color(0xFFDDE5F0)),
-                            ),
-                            _buildLocationRow(
-                              Icons.flag,
-                              'Drop-off',
-                              currentDestination,
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 16),
+                      const SizedBox(height: 12),
                       Row(
                         children: [
                           Expanded(
                             child: _buildInfoTile(
                               icon: Icons.people,
                               label: 'Passengers',
-                              value:
-                                  '$currentPassengerCount ${currentPassengerCount == 1 ? 'Passenger' : 'Passengers'}',
+                              value: '$currentPassengerCount',
                             ),
                           ),
-                          const SizedBox(width: 12),
+                          const SizedBox(width: 8),
                           Expanded(
-                            child: _buildInfoTile(
-                              icon: Icons.account_balance_wallet,
-                              label: 'Payment',
-                              value:
-                                  '${PaymentMethods.label(paymentMethod)} • ${_formatStatusLabel(paymentStatus)}',
+                            flex: 2,
+                            child: _buildPaymentStatusCard(
+                              paymentMethod: PaymentMethods.label(
+                                paymentMethod,
+                              ),
+                              paymentStatus: _formatStatusLabel(paymentStatus),
                             ),
                           ),
                         ],
                       ),
+                      if (booking.operatorUid?.trim().isNotEmpty == true) ...[
+                        const SizedBox(height: 12),
+                        _buildAssignedOperatorCard(
+                          operatorUid: booking.operatorUid!,
+                          booking: booking,
+                        ),
+                      ],
                       const SizedBox(height: 12),
                       _buildStateGuidance(booking),
                       const SizedBox(height: 20),
@@ -526,33 +496,53 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     return const EdgeInsets.only(top: 64, bottom: 80, left: 40, right: 40);
   }
 
-  Widget _buildLocationRow(IconData icon, String label, String address) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: PassengerBrand.blue, size: 20),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Colors.grey),
+  Widget _buildCompactRouteCard({
+    required String origin,
+    required String destination,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: PassengerBrand.softMint,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDDE5F0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_on, color: PassengerBrand.blue, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _AutoScrollText(
+              text: origin,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1A1A1A),
               ),
-              Text(
-                address,
-                style: const TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ],
+            ),
           ),
-        ),
-      ],
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Icon(
+              Icons.arrow_forward_rounded,
+              size: 16,
+              color: Color(0xFF6E7B8B),
+            ),
+          ),
+          const Icon(Icons.flag, color: PassengerBrand.blue, size: 17),
+          const SizedBox(width: 8),
+          Expanded(
+            child: _AutoScrollText(
+              text: destination,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF1A1A1A),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -562,7 +552,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     required String value,
   }) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       decoration: BoxDecoration(
         color: PassengerBrand.surface,
         borderRadius: BorderRadius.circular(12),
@@ -570,8 +560,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       ),
       child: Row(
         children: [
-          Icon(icon, color: PassengerBrand.blue, size: 20),
-          const SizedBox(width: 10),
+          Icon(icon, color: PassengerBrand.blue, size: 17),
+          const SizedBox(width: 8),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -579,21 +569,19 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                 Text(
                   label,
                   style: const TextStyle(
-                    fontSize: 12,
+                    fontSize: 10,
                     color: Color(0xFF666666),
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  value,
+                const SizedBox(height: 1),
+                _AutoScrollText(
+                  text: value,
                   style: const TextStyle(
-                    fontSize: 13,
+                    fontSize: 12,
                     color: Color(0xFF1A1A1A),
                     fontWeight: FontWeight.w600,
                   ),
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -601,6 +589,250 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         ],
       ),
     );
+  }
+
+  Widget _buildPaymentStatusCard({
+    required String paymentMethod,
+    required String paymentStatus,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: PassengerBrand.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDDE5F0)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: _buildCompactInfoContent(
+              icon: Icons.credit_card,
+              label: 'Payment',
+              value: paymentMethod,
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 34,
+            margin: const EdgeInsets.symmetric(horizontal: 8),
+            color: const Color(0xFFDDE5F0),
+          ),
+          Expanded(
+            child: _buildCompactInfoContent(
+              icon: Icons.verified,
+              label: 'Status',
+              value: paymentStatus,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactInfoContent({
+    required IconData icon,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      children: [
+        Icon(icon, color: PassengerBrand.blue, size: 17),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFF666666),
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+              ),
+              const SizedBox(height: 1),
+              _AutoScrollText(
+                text: value,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF1A1A1A),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildStatusRippleDot({
+    required BookingStatus status,
+    required Color color,
+  }) {
+    final rippleMode = _rippleModeFor(status);
+    if (rippleMode == _StatusRippleMode.none) {
+      return Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: _pulseController,
+      builder: (context, child) {
+        final value = _pulseController.value;
+        final progress = rippleMode == _StatusRippleMode.outward
+            ? value
+            : 1 - value;
+        final outerScale = 1.0 + (progress * 1.35);
+        final innerScale = 1.0 + ((progress + 0.45) % 1.0 * 1.1);
+        final outerOpacity = 0.30 * (1 - progress);
+        final innerOpacity = 0.18 * (1 - ((progress + 0.45) % 1.0));
+
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            Transform.scale(
+              scale: outerScale,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: outerOpacity),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            Transform.scale(
+              scale: innerScale,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: innerOpacity),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            child!,
+          ],
+        );
+      },
+      child: Container(
+        width: 12,
+        height: 12,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+    );
+  }
+
+  Widget _buildAssignedOperatorCard({
+    required String operatorUid,
+    required BookingModel booking,
+  }) {
+    final name = booking.assignedOperatorName.trim();
+    final operatorId = booking.assignedOperatorDisplayId.trim();
+    final phone = booking.assignedOperatorPhone.trim();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: PassengerBrand.softMint,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: PassengerBrand.border),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: const BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: PassengerBrand.gradient,
+            ),
+            child: const Icon(
+              Icons.directions_boat_filled,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _AutoScrollText(
+                  text: name.isNotEmpty ? name : 'Assigned Operator',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF1A1A1A),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                _AutoScrollText(
+                  text: operatorId.isNotEmpty
+                      ? 'Operator ID: $operatorId'
+                      : 'Operator UID: $operatorUid',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFF5A6878),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton.filled(
+            onPressed: phone.isEmpty ? null : () => _callOperator(phone),
+            style: IconButton.styleFrom(
+              backgroundColor: phone.isEmpty
+                  ? const Color(0xFFDDE5F0)
+                  : PassengerBrand.blue,
+              foregroundColor: Colors.white,
+              disabledForegroundColor: const Color(0xFF8A97A8),
+            ),
+            icon: const Icon(Icons.call, size: 18),
+            tooltip: phone.isEmpty
+                ? 'Operator phone number unavailable'
+                : 'Call operator',
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _callOperator(String phone) async {
+    try {
+      final didOpenDialer =
+          await _phoneChannel.invokeMethod<bool>('dial', <String, Object>{
+            'phone': phone,
+          }) ??
+          false;
+      if (!mounted) {
+        return;
+      }
+      if (!didOpenDialer) {
+        showTopInfo(
+          context,
+          title: 'Unable to open dialer',
+          message: 'Please call the operator manually: $phone',
+        );
+      }
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+      showTopInfo(
+        context,
+        title: 'Unable to open dialer',
+        message: 'Please call the operator manually: $phone',
+      );
+    }
   }
 
   CameraPosition _cameraPositionFor(
@@ -1019,75 +1251,74 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
 
   Widget _buildStatusTimeline(BookingStatus status) {
     final steps = [
-      _TimelineStep('Request Sent'),
-      _TimelineStep('Operator Assigned'),
-      _TimelineStep('Trip In Progress'),
-      _TimelineStep('Trip Completed'),
+      _TimelineStep('Request'),
+      _TimelineStep('Assigned'),
+      _TimelineStep('Trip'),
+      _TimelineStep('Done'),
     ];
 
     final currentIndex = _timelineIndex(status);
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: PassengerBrand.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFDDE5F0)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Booking Progress',
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: Color(0xFF1A1A1A),
-            ),
-          ),
-          const SizedBox(height: 10),
-          ...List.generate(steps.length, (i) {
-            final step = steps[i];
-            final reached = currentIndex >= i;
-            final isCurrent = currentIndex == i;
-            final isLast = i == steps.length - 1;
+      child: Row(
+        children: List.generate(steps.length, (i) {
+          final step = steps[i];
+          final reached = currentIndex >= i;
+          final isCurrent = currentIndex == i;
+          final isLast = i == steps.length - 1;
 
-            return Padding(
-              padding: EdgeInsets.only(bottom: isLast ? 0 : 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    margin: const EdgeInsets.only(top: 2),
-                    width: 12,
-                    height: 12,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: reached
-                          ? PassengerBrand.blue
-                          : const Color(0xFFD2DCEB),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      step.label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: isCurrent
-                            ? FontWeight.w700
-                            : FontWeight.w500,
-                        color: reached
-                            ? const Color(0xFF1A1A1A)
-                            : const Color(0xFF8A97A8),
+          return Expanded(
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    children: [
+                      Container(
+                        width: isCurrent ? 10 : 8,
+                        height: isCurrent ? 10 : 8,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: reached
+                              ? PassengerBrand.blue
+                              : const Color(0xFFD2DCEB),
+                        ),
                       ),
-                    ),
+                      const SizedBox(height: 5),
+                      Text(
+                        step.label,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: isCurrent
+                              ? FontWeight.w800
+                              : FontWeight.w600,
+                          color: reached
+                              ? const Color(0xFF1A1A1A)
+                              : const Color(0xFF8A97A8),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
-              ),
-            );
-          }),
-        ],
+                ),
+                if (!isLast)
+                  Container(
+                    width: 16,
+                    height: 2,
+                    margin: const EdgeInsets.only(bottom: 18),
+                    color: currentIndex > i
+                        ? PassengerBrand.blue
+                        : const Color(0xFFD2DCEB),
+                  ),
+              ],
+            ),
+          );
+        }),
       ),
     );
   }
@@ -1161,6 +1392,21 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       case BookingStatus.rejected:
       case BookingStatus.unknown:
         return 0;
+    }
+  }
+
+  _StatusRippleMode _rippleModeFor(BookingStatus status) {
+    switch (status) {
+      case BookingStatus.pending:
+        return _StatusRippleMode.outward;
+      case BookingStatus.accepted:
+      case BookingStatus.onTheWay:
+        return _StatusRippleMode.inward;
+      case BookingStatus.completed:
+      case BookingStatus.cancelled:
+      case BookingStatus.rejected:
+      case BookingStatus.unknown:
+        return _StatusRippleMode.none;
     }
   }
 
@@ -1275,6 +1521,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
 
   @override
   void dispose() {
+    _pulseController.dispose();
     _mapController?.dispose();
     super.dispose();
   }
@@ -1344,4 +1591,127 @@ class _TimelineStep {
   const _TimelineStep(this.label);
 
   final String label;
+}
+
+enum _StatusRippleMode { outward, inward, none }
+
+class _AutoScrollText extends StatefulWidget {
+  const _AutoScrollText({required this.text, required this.style});
+
+  final String text;
+  final TextStyle style;
+  static const Duration _pause = Duration(milliseconds: 900);
+
+  @override
+  State<_AutoScrollText> createState() => _AutoScrollTextState();
+}
+
+class _AutoScrollTextState extends State<_AutoScrollText>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  double _scrollDistance = 0;
+  Duration? _duration;
+  bool _loopScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(covariant _AutoScrollText oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.text != widget.text || oldWidget.style != widget.style) {
+      _duration = null;
+      _controller.stop();
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textPainter = TextPainter(
+          text: TextSpan(text: widget.text, style: widget.style),
+          maxLines: 1,
+          textDirection: Directionality.of(context),
+        )..layout();
+        final maxWidth = constraints.maxWidth;
+        final textWidth = textPainter.width;
+
+        if (!maxWidth.isFinite || textWidth <= maxWidth) {
+          _controller.stop();
+          _controller.value = 0;
+          _duration = null;
+          _loopScheduled = false;
+          return Text(
+            widget.text,
+            style: widget.style,
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+          );
+        }
+
+        final distance = textWidth - maxWidth + 24;
+        final duration = Duration(
+          milliseconds: (distance * 42).clamp(2600, 9000).round(),
+        );
+        _configureScrolling(distance: distance, duration: duration);
+
+        return ClipRect(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return Transform.translate(
+                offset: Offset(-_scrollDistance * _controller.value, 0),
+                child: child,
+              );
+            },
+            child: Text(
+              widget.text,
+              style: widget.style,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.visible,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _configureScrolling({
+    required double distance,
+    required Duration duration,
+  }) {
+    _scrollDistance = distance;
+    if (_duration == duration && _loopScheduled) {
+      return;
+    }
+    _duration = duration;
+    _loopScheduled = true;
+    _controller.duration = duration;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || _duration != duration) {
+        _loopScheduled = false;
+        return;
+      }
+      while (mounted && _duration == duration) {
+        await Future<void>.delayed(_AutoScrollText._pause);
+        if (!mounted || _duration != duration) {
+          return;
+        }
+        await _controller.forward(from: 0);
+      }
+      _loopScheduled = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
 }

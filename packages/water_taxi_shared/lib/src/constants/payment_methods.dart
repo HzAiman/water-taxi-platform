@@ -12,6 +12,8 @@ abstract final class PaymentMethods {
     switch (value) {
       case creditCard:
         return 'Credit / Debit Card';
+      case 'stripe_payment_sheet':
+        return 'Card Credit/Debit';
       case eWallet:
         return 'E-Wallet';
       case onlineBanking:

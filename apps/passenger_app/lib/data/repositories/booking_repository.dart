@@ -185,7 +185,9 @@ class BookingRepository {
   /// Streams a single booking document in real-time. Emits `null` if the
   /// document does not exist.
   Stream<BookingModel?> streamBooking(String bookingId) {
-    final bookingRef = _db.collection(FirestoreCollections.bookings).doc(bookingId);
+    final bookingRef = _db
+        .collection(FirestoreCollections.bookings)
+        .doc(bookingId);
     final trackingRef = _trackingRef(bookingId);
 
     late final StreamController<BookingModel?> controller;
@@ -349,9 +351,13 @@ class BookingRepository {
       final startOffset = _distanceBetweenPoints(origin, startSnap.point);
       final endOffset = _distanceBetweenPoints(destination, endSnap.point);
       final segmentLength = _polylineLength(segment);
-      final directLength = _distanceBetweenPoints(startSnap.point, endSnap.point);
-      final detourPenalty =
-          directLength <= 1e-9 ? 0.0 : (segmentLength - directLength).abs();
+      final directLength = _distanceBetweenPoints(
+        startSnap.point,
+        endSnap.point,
+      );
+      final detourPenalty = directLength <= 1e-9
+          ? 0.0
+          : (segmentLength - directLength).abs();
       final score =
           ((startOffset + endOffset) * 2.0) +
           segmentLength +
@@ -413,7 +419,8 @@ class BookingRepository {
             destinationJettyId: _normalizeOptionalString(
               data[BookingFields.destinationJettyId] ??
                   (data['properties'] is Map
-                      ? (data['properties'] as Map)[BookingFields.destinationJettyId]
+                      ? (data['properties']
+                            as Map)[BookingFields.destinationJettyId]
                       : null),
             ),
           ),

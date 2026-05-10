@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:operator_app/core/theme/operator_brand.dart';
 
+final Map<String, DateTime> _recentTopAlertKeys = <String, DateTime>{};
+const Duration _duplicateTopAlertWindow = Duration(seconds: 4);
+
 void showTopAlert(
   BuildContext context, {
   required String message,
@@ -13,6 +16,18 @@ void showTopAlert(
   String? actionLabel,
   VoidCallback? onAction,
 }) {
+  final now = DateTime.now();
+  final key = '$title|$message|${icon.codePoint}';
+  final lastShownAt = _recentTopAlertKeys[key];
+  if (lastShownAt != null &&
+      now.difference(lastShownAt) < _duplicateTopAlertWindow) {
+    return;
+  }
+  _recentTopAlertKeys[key] = now;
+  _recentTopAlertKeys.removeWhere(
+    (_, shownAt) => now.difference(shownAt) > const Duration(minutes: 2),
+  );
+
   final overlayState = Overlay.of(context, rootOverlay: true);
 
   late OverlayEntry entry;
