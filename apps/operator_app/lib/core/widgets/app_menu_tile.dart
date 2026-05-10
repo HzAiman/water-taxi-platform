@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 
 class AppMenuTile extends StatelessWidget {
   const AppMenuTile({
@@ -16,9 +17,6 @@ class AppMenuTile extends StatelessWidget {
   final VoidCallback onTap;
   final String? semanticLabel;
 
-  static const Color _brandOrange = Color(0xFFFF7A00);
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
-
   @override
   Widget build(BuildContext context) {
     return Semantics(
@@ -34,7 +32,7 @@ class AppMenuTile extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFDDE5F0)),
+              border: Border.all(color: OperatorBrand.border),
             ),
             child: Row(
               children: [
@@ -42,15 +40,11 @@ class AppMenuTile extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [_brandOrange, _brandMagenta],
-                    ),
+                    gradient: OperatorBrand.gradient,
                     borderRadius: BorderRadius.circular(12),
                     boxShadow: [
                       BoxShadow(
-                        color: _brandMagenta.withValues(alpha: 0.22),
+                        color: OperatorBrand.magenta.withValues(alpha: 0.22),
                         blurRadius: 10,
                         offset: const Offset(0, 4),
                       ),
@@ -82,7 +76,7 @@ class AppMenuTile extends StatelessWidget {
                     ],
                   ),
                 ),
-                const Icon(Icons.chevron_right, color: _brandMagenta),
+                const Icon(Icons.chevron_right, color: OperatorBrand.magenta),
               ],
             ),
           ),

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
+import 'package:operator_app/core/widgets/app_action_button.dart';
 import 'package:operator_app/features/auth/presentation/widgets/operator_auth_hero.dart';
 
 class OperatorProfileSetupForm extends StatelessWidget {
@@ -52,7 +54,10 @@ class OperatorProfileSetupForm extends StatelessWidget {
             textCapitalization: TextCapitalization.words,
             decoration: const InputDecoration(
               labelText: 'Full Name',
-              prefixIcon: Icon(Icons.person_outline),
+              prefixIcon: Icon(
+                Icons.person_outline,
+                color: OperatorBrand.magenta,
+              ),
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
@@ -68,7 +73,10 @@ class OperatorProfileSetupForm extends StatelessWidget {
             decoration: const InputDecoration(
               labelText: 'Operator ID',
               hintText: 'e.g. OP-001',
-              prefixIcon: Icon(Icons.badge_outlined),
+              prefixIcon: Icon(
+                Icons.badge_outlined,
+                color: OperatorBrand.magenta,
+              ),
             ),
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
@@ -83,31 +91,17 @@ class OperatorProfileSetupForm extends StatelessWidget {
             initialValue: email,
             decoration: const InputDecoration(
               labelText: 'Email',
-              prefixIcon: Icon(Icons.email_outlined),
+              prefixIcon: Icon(
+                Icons.email_outlined,
+                color: OperatorBrand.magenta,
+              ),
             ),
           ),
           const SizedBox(height: 32),
-          SizedBox(
-            height: 54,
-            child: ElevatedButton(
-              onPressed: isSaving ? null : onSubmit,
-              child: isSaving
-                  ? const SizedBox(
-                      height: 24,
-                      width: 24,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                      ),
-                    )
-                  : const Text(
-                      'Save and Continue',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-            ),
+          AppActionButton(
+            label: 'Save and Continue',
+            onPressed: isSaving ? null : onSubmit,
+            isLoading: isSaving,
           ),
         ],
       ),

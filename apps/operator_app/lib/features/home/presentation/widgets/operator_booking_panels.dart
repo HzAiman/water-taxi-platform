@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
 import 'package:operator_app/features/home/presentation/widgets/operator_stat_tile.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -59,7 +60,7 @@ class OperatorBookingStatsCard extends StatelessWidget {
             child: OperatorStatTile(
               label: 'Active Trip',
               value: activeCount.toString(),
-              color: const Color(0xFFCA4B8C),
+              color: OperatorBrand.magenta,
               isExpanded: isActiveExpanded,
               onTap: onActiveTap,
             ),
@@ -90,7 +91,7 @@ class OperatorBookingStatsCard extends StatelessWidget {
                           size: 21,
                         ),
                 ),
-                color: const Color(0xFFCA4B8C),
+                color: OperatorBrand.magenta,
                 disabledColor: Colors.grey[500],
               ),
             ),
@@ -125,7 +126,9 @@ class OperatorActiveBookingCard extends StatelessWidget {
     final isAccepted = status == BookingStatus.accepted;
     final isOnTheWay = status == BookingStatus.onTheWay;
     final isStale = isAcceptedBookingStale(booking);
-    final actionColor = isAccepted ? const Color(0xFF0066CC) : Colors.green;
+    final actionColor = isAccepted
+        ? OperatorBrand.magenta
+        : OperatorBrand.goOnlineGreen;
 
     final passengerSummary = booking.passengerCount == 1
         ? '1 passenger'
@@ -220,8 +223,10 @@ class OperatorActiveBookingCard extends StatelessWidget {
                   icon: const Icon(Icons.call, size: 18),
                   label: const Text('Call'),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF0066CC),
-                    side: const BorderSide(color: Color(0x330066CC)),
+                    foregroundColor: OperatorBrand.magenta,
+                    side: BorderSide(
+                      color: OperatorBrand.magenta.withValues(alpha: 0.20),
+                    ),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     textStyle: const TextStyle(fontSize: 12),
                   ),
@@ -398,7 +403,7 @@ class OperatorPendingBookingCard extends StatelessWidget {
                 child: ElevatedButton(
                   onPressed: isUpdating ? null : () => unawaited(onAccept()),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF0066CC),
+                    backgroundColor: OperatorBrand.magenta,
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     textStyle: const TextStyle(fontSize: 12),
@@ -500,7 +505,7 @@ class _OperatorCollapsibleNavigationCardState
                 children: [
                   const Icon(
                     Icons.navigation,
-                    color: Color(0xFF0066CC),
+                    color: OperatorBrand.magenta,
                     size: 20,
                   ),
                   const SizedBox(width: 8),
@@ -518,7 +523,7 @@ class _OperatorCollapsibleNavigationCardState
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: Color(0xFF0066CC),
+                      color: OperatorBrand.magenta,
                     ),
                   ),
                   const SizedBox(width: 4),

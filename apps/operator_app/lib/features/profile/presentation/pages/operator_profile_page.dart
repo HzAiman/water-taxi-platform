@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_account_management_page.dart';
 import 'package:provider/provider.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
@@ -97,7 +98,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
     final topInset = MediaQuery.of(context).padding.top;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: const Color(0xFFCA4B8C),
+        statusBarColor: OperatorBrand.magenta,
       ),
       child: Scaffold(
         body: _isLoading

@@ -1,15 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-
-const Color _brandOrange = Color(0xFFFF7A00);
-const Color _brandMagenta = Color(0xFFCA4B8C);
+import 'package:operator_app/core/theme/operator_brand.dart';
 
 void showTopAlert(
   BuildContext context, {
   required String message,
   String? title,
-  Color iconColor = _brandMagenta,
+  Color iconColor = OperatorBrand.magenta,
   IconData icon = Icons.info_outline,
   Duration duration = const Duration(seconds: 4),
   String? actionLabel,
@@ -66,7 +64,7 @@ void showTopSuccess(
     context,
     message: message,
     title: title,
-    iconColor: _brandMagenta,
+    iconColor: OperatorBrand.magenta,
     icon: Icons.verified_rounded,
     duration: duration,
   );
@@ -84,7 +82,7 @@ void showTopInfo(
     context,
     message: message,
     title: title,
-    iconColor: _brandMagenta,
+    iconColor: OperatorBrand.magenta,
     icon: Icons.info_outline,
     duration: duration,
     actionLabel: actionLabel,
@@ -101,7 +99,7 @@ void showTopWelcomeCard(
     context,
     title: 'Welcome back, Operator!',
     message: operatorLabel,
-    iconColor: _brandMagenta,
+    iconColor: OperatorBrand.magenta,
     icon: Icons.verified_user,
     duration: duration,
   );
@@ -228,7 +226,10 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                         height: 4,
                         decoration: const BoxDecoration(
                           gradient: LinearGradient(
-                            colors: [_brandOrange, _brandMagenta],
+                            colors: [
+                              OperatorBrand.orange,
+                              OperatorBrand.magenta,
+                            ],
                           ),
                         ),
                       ),
@@ -243,7 +244,10 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                             gradient: const LinearGradient(
                               begin: Alignment.topLeft,
                               end: Alignment.bottomRight,
-                              colors: [_brandOrange, _brandMagenta],
+                              colors: [
+                                OperatorBrand.orange,
+                                OperatorBrand.magenta,
+                              ],
                             ),
                             borderRadius: BorderRadius.circular(10),
                             boxShadow: [
@@ -297,7 +301,7 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                                     minimumSize: Size.zero,
                                     tapTargetSize:
                                         MaterialTapTargetSize.shrinkWrap,
-                                    foregroundColor: _brandMagenta,
+                                    foregroundColor: OperatorBrand.magenta,
                                   ),
                                   child: Text(
                                     widget.actionLabel!,

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -14,8 +15,8 @@ class OperatorSummarySectionCard extends StatelessWidget {
   final String title;
   final Widget child;
 
-  static const Color _brandOrange = Color(0xFFFF7A00);
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
+  static const Color _brandOrange = OperatorBrand.orange;
+  static const Color _brandMagenta = OperatorBrand.magenta;
 
   @override
   Widget build(BuildContext context) {
@@ -74,8 +75,8 @@ class OperatorSummaryMetricChip extends StatelessWidget {
   final String label;
   final String value;
 
-  static const Color _brandOrange = Color(0xFFFF7A00);
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
+  static const Color _brandOrange = OperatorBrand.orange;
+  static const Color _brandMagenta = OperatorBrand.magenta;
 
   @override
   Widget build(BuildContext context) {
@@ -187,7 +188,7 @@ class RideHistoryTile extends StatelessWidget {
                   vertical: 4,
                 ),
                 decoration: BoxDecoration(
-                  color: const Color(0xFFCA4B8C).withValues(alpha: 0.10),
+                  color: OperatorBrand.magenta.withValues(alpha: 0.10),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
@@ -195,7 +196,7 @@ class RideHistoryTile extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFFCA4B8C),
+                    color: OperatorBrand.magenta,
                   ),
                 ),
               ),
@@ -268,7 +269,7 @@ class StatementTile extends StatelessWidget {
                   onPressed: () => unawaited(onShare()),
                   icon: const Icon(
                     Icons.share_outlined,
-                    color: Color(0xFFCA4B8C),
+                    color: OperatorBrand.magenta,
                   ),
                   label: const Text('Share'),
                 ),
@@ -279,7 +280,7 @@ class StatementTile extends StatelessWidget {
                   onPressed: () => unawaited(onDelete()),
                   icon: const Icon(
                     Icons.delete_outline,
-                    color: Color(0xFFCA4B8C),
+                    color: OperatorBrand.magenta,
                   ),
                   label: const Text('Delete'),
                 ),

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 enum OperatorRoutePhase { toPickup, toDestination, none }
@@ -347,7 +348,7 @@ class OperatorMapLayers {
                     ? const Color(0xFFF59E0B)
                     : isPreview
                     ? const Color(0xFF94A3B8)
-                    : const Color(0xFF0066CC))
+                    : OperatorBrand.navigationBlue)
                 .withValues(alpha: opacity.clamp(0, 1)),
         width: isFallback ? 4 : (isPreview ? 3 : 5),
         patterns: isFallback

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
 
 class AppActionButton extends StatelessWidget {
   const AppActionButton({
@@ -57,22 +58,45 @@ class AppActionButton extends StatelessWidget {
         ? OutlinedButton(
             onPressed: isLoading ? null : onPressed,
             style: OutlinedButton.styleFrom(
-              foregroundColor: foregroundColor,
+              foregroundColor: foregroundColor ?? PassengerBrand.blue,
               side: BorderSide(
-                color: borderColor ?? const Color(0xFF0066CC),
+                color: borderColor ?? PassengerBrand.blue,
                 width: 1.5,
               ),
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: child,
           )
-        : ElevatedButton(
-            onPressed: isLoading ? null : onPressed,
-            style: ElevatedButton.styleFrom(
-              minimumSize: const Size.fromHeight(48),
-              padding: const EdgeInsets.symmetric(vertical: 14),
+        : DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: onPressed == null || isLoading
+                  ? null
+                  : PassengerBrand.gradient,
+              color: onPressed == null || isLoading
+                  ? Colors.grey.shade300
+                  : null,
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: onPressed == null || isLoading
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: PassengerBrand.blue.withValues(alpha: 0.22),
+                        blurRadius: 14,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
             ),
-            child: child,
+            child: ElevatedButton(
+              onPressed: isLoading ? null : onPressed,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.transparent,
+                disabledBackgroundColor: Colors.transparent,
+                shadowColor: Colors.transparent,
+                minimumSize: const Size.fromHeight(48),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+              child: child,
+            ),
           );
 
     return Semantics(

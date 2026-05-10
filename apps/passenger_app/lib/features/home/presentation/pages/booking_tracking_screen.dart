@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
+import 'package:passenger_app/core/widgets/gradient_app_bar.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/features/home/presentation/viewmodels/booking_tracking_view_model.dart';
 import 'package:provider/provider.dart';
@@ -129,11 +131,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
           DateTime.now().difference(_openedAt) > const Duration(seconds: 6);
 
       return Scaffold(
-        appBar: AppBar(
-          title: const Text('Booking Status'),
-          centerTitle: true,
-          elevation: 0,
-        ),
+        appBar: const GradientAppBar(title: 'Booking Status'),
         body: Center(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -225,11 +223,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       booking.destinationLat,
       booking.destinationLng,
     );
-    final routePoints = _routePointsFor(
-      booking,
-      originPoint,
-      destinationPoint,
-    );
+    final routePoints = _routePointsFor(booking, originPoint, destinationPoint);
     final operatorPoint = _operatorPointForBooking(booking);
     final markers = _buildMarkers(
       bookingId: booking.bookingId,
@@ -257,11 +251,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     );
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Booking Status'),
-        centerTitle: true,
-        elevation: 0,
-      ),
+      appBar: const GradientAppBar(title: 'Booking Status'),
       body: Stack(
         children: [
           Positioned.fill(
@@ -430,7 +420,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                       Container(
                         padding: const EdgeInsets.all(16),
                         decoration: BoxDecoration(
-                          color: const Color(0xFFF0F5FF),
+                          color: PassengerBrand.softMint,
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: const Color(0xFFDDE5F0)),
                         ),
@@ -485,7 +475,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                           style: ElevatedButton.styleFrom(
                             backgroundColor: canCancel
                                 ? const Color(0xFFD64545)
-                                : const Color(0xFF0066CC),
+                                : PassengerBrand.blue,
                             foregroundColor: Colors.white,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
@@ -540,7 +530,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, color: const Color(0xFF0066CC), size: 20),
+        Icon(icon, color: PassengerBrand.blue, size: 20),
         const SizedBox(width: 12),
         Expanded(
           child: Column(
@@ -574,13 +564,13 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
+        color: PassengerBrand.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFDDE5F0)),
       ),
       child: Row(
         children: [
-          Icon(icon, color: const Color(0xFF0066CC), size: 20),
+          Icon(icon, color: PassengerBrand.blue, size: 20),
           const SizedBox(width: 10),
           Expanded(
             child: Column(
@@ -716,13 +706,12 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     return markers;
   }
 
-  Set<Polyline> _buildPolylines(
-      {
-        required String bookingId,
-        required List<LatLng> routePoints,
-        required LatLng? originPoint,
-        required LatLng? destinationPoint,
-      }) {
+  Set<Polyline> _buildPolylines({
+    required String bookingId,
+    required List<LatLng> routePoints,
+    required LatLng? originPoint,
+    required LatLng? destinationPoint,
+  }) {
     final polylineSignature = _polylineSignature(
       routePoints: routePoints,
       originPoint: originPoint,
@@ -737,7 +726,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         Polyline(
           polylineId: const PolylineId('route'),
           points: routePoints,
-          color: const Color(0xFF0066CC),
+          color: PassengerBrand.blue,
           width: 4,
         ),
       };
@@ -769,7 +758,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       Polyline(
         polylineId: const PolylineId('route'),
         points: [originPoint, destinationPoint],
-        color: const Color(0xFF0066CC),
+        color: PassengerBrand.blue,
         width: 4,
       ),
     };
@@ -862,10 +851,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         originPoint: originPoint,
         destinationPoint: destinationPoint,
       );
-      await _followOperatorIfNeeded(
-        status,
-        operatorPoint,
-      );
+      await _followOperatorIfNeeded(status, operatorPoint);
     });
   }
 
@@ -931,10 +917,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     }
   }
 
-  Future<void> _animateToBounds(
-    LatLngBounds bounds,
-    double padding,
-  ) async {
+  Future<void> _animateToBounds(LatLngBounds bounds, double padding) async {
     final controller = _mapController;
     if (controller == null) {
       return;
@@ -1047,7 +1030,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFF8FBFF),
+        color: PassengerBrand.surface,
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: const Color(0xFFDDE5F0)),
       ),
@@ -1081,7 +1064,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: reached
-                          ? const Color(0xFF0066CC)
+                          ? PassengerBrand.blue
                           : const Color(0xFFD2DCEB),
                     ),
                   ),
@@ -1139,13 +1122,13 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0xFFEAF4FF),
+        color: PassengerBrand.softMint,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFFBFD9FF)),
+        border: Border.all(color: PassengerBrand.border),
       ),
       child: Row(
         children: [
-          const Icon(Icons.near_me, size: 16, color: Color(0xFF0066CC)),
+          const Icon(Icons.near_me, size: 16, color: PassengerBrand.blue),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1154,7 +1137,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
                   : 'Operator location update is delayed. Showing the most recent known position.',
               style: const TextStyle(
                 fontSize: 12,
-                color: Color(0xFF0E4A8A),
+                color: PassengerBrand.blue,
                 fontWeight: FontWeight.w600,
               ),
             ),
@@ -1308,7 +1291,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         return const _BookingStatusTheme(
           title: 'Booking Confirmed',
           message: 'An operator has accepted your booking.',
-          color: Color(0xFF0066CC),
+          color: PassengerBrand.blue,
         );
       case BookingStatus.onTheWay:
         return const _BookingStatusTheme(
@@ -1339,7 +1322,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen> {
         return const _BookingStatusTheme(
           title: 'Booking Updated',
           message: 'This booking has been updated.',
-          color: Color(0xFF0066CC),
+          color: PassengerBrand.blue,
         );
     }
   }

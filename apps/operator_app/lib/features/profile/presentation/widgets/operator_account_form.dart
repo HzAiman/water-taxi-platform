@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:operator_app/core/widgets/app_action_button.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 
 class OperatorAccountForm extends StatelessWidget {
   const OperatorAccountForm({
@@ -25,7 +26,7 @@ class OperatorAccountForm extends StatelessWidget {
   final VoidCallback onSave;
   final Future<void> Function() onCancel;
 
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
+  static const Color _brandMagenta = OperatorBrand.magenta;
 
   @override
   Widget build(BuildContext context) {

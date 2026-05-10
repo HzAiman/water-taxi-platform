@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
+import 'package:passenger_app/core/widgets/app_action_button.dart';
+import 'package:passenger_app/core/widgets/gradient_app_bar.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/routes/main_screen.dart';
 
@@ -34,7 +37,9 @@ class _RegistrationPageState extends State<RegistrationPage> {
       return false;
     }
 
-    final emailRegex = RegExp(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$');
+    final emailRegex = RegExp(
+      r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+    );
     if (!emailRegex.hasMatch(email)) {
       _showErrorSnackBar("Please enter a valid email address");
       return false;
@@ -45,12 +50,20 @@ class _RegistrationPageState extends State<RegistrationPage> {
 
   void _showErrorSnackBar(String message) {
     if (!mounted) return;
-    showTopError(context, message: message, duration: const Duration(seconds: 3));
+    showTopError(
+      context,
+      message: message,
+      duration: const Duration(seconds: 3),
+    );
   }
 
   void _showSuccessSnackBar(String message) {
     if (!mounted) return;
-    showTopSuccess(context, message: message, duration: const Duration(seconds: 2));
+    showTopSuccess(
+      context,
+      message: message,
+      duration: const Duration(seconds: 2),
+    );
   }
 
   Future<void> _completeRegistration() async {
@@ -77,17 +90,17 @@ class _RegistrationPageState extends State<RegistrationPage> {
       }
 
       // Save user data to Firestore
-      await FirebaseFirestore.instance.collection('users').doc(currentUser.uid).set(
-        {
-          'uid': currentUser.uid,
-          'phoneNumber': widget.phoneNumber,
-          'name': name,
-          'email': email,
-          'createdAt': FieldValue.serverTimestamp(),
-          'updatedAt': FieldValue.serverTimestamp(),
-        },
-        SetOptions(merge: true),
-      );
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(currentUser.uid)
+          .set({
+            'uid': currentUser.uid,
+            'phoneNumber': widget.phoneNumber,
+            'name': name,
+            'email': email,
+            'createdAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
 
       if (!mounted) return;
 
@@ -121,152 +134,137 @@ class _RegistrationPageState extends State<RegistrationPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("Complete Registration"),
-        centerTitle: true,
-      ),
+      appBar: const GradientAppBar(title: 'Complete Registration'),
       body: SafeArea(
         child: SingleChildScrollView(
           child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 40.0),
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const SizedBox(height: 40),
-              
-              // Welcome Icon
-              Container(
-                width: 120,
-                height: 120,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      const Color(0xFF0066CC).withValues(alpha: 0.1),
-                      const Color(0xFF0066CC).withValues(alpha: 0.05),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 24.0,
+              vertical: 40.0,
+            ),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const SizedBox(height: 40),
+
+                // Welcome Icon
+                Container(
+                  width: 120,
+                  height: 120,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [
+                        PassengerBrand.mint.withValues(alpha: 0.12),
+                        PassengerBrand.blue.withValues(alpha: 0.08),
+                      ],
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.person_add,
+                    size: 70,
+                    color: PassengerBrand.blue,
+                  ),
+                ),
+                const SizedBox(height: 40),
+
+                // Title
+                Text(
+                  "Welcome to Melaka Water Taxi!",
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: const Color(0xFF1A1A1A),
+                    fontSize: 28,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Subtitle
+                Text(
+                  "Please complete your profile",
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodyLarge?.copyWith(
+                    color: Colors.grey[600],
+                    fontSize: 16,
+                  ),
+                ),
+                const SizedBox(height: 40),
+
+                // Phone Number Display
+                Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: PassengerBrand.mint.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: PassengerBrand.mint.withValues(alpha: 0.22),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.phone, color: PassengerBrand.blue),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          widget.phoneNumber,
+                          style: const TextStyle(
+                            color: PassengerBrand.blue,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
-                child: const Icon(
-                  Icons.person_add,
-                  size: 70,
-                  color: Color(0xFF0066CC),
-                ),
-              ),
-              const SizedBox(height: 40),
-              
-              // Title
-              Text(
-                "Welcome to Melaka Water Taxi!",
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
-                  color: const Color(0xFF1A1A1A),
-                  fontSize: 28,
-                ),
-              ),
-              const SizedBox(height: 12),
-              
-              // Subtitle
-              Text(
-                "Please complete your profile",
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: Colors.grey[600],
-                  fontSize: 16,
-                ),
-              ),
-              const SizedBox(height: 40),
-              
-              // Phone Number Display
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0066CC).withValues(alpha: 0.05),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: const Color(0xFF0066CC).withValues(alpha: 0.2),
+                const SizedBox(height: 24),
+
+                // Name Field
+                TextField(
+                  controller: _nameController,
+                  enabled: !_isLoading,
+                  decoration: InputDecoration(
+                    labelText: "Full Name",
+                    hintText: "Enter your full name",
+                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
+                    prefixIcon: const Icon(
+                      Icons.person,
+                      color: PassengerBrand.blue,
+                    ),
                   ),
                 ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.phone, color: Color(0xFF0066CC)),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Text(
-                        widget.phoneNumber,
-                        style: const TextStyle(
-                          color: Color(0xFF0066CC),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 15,
-                        ),
-                      ),
+                const SizedBox(height: 16),
+
+                // Email Field
+                TextField(
+                  controller: _emailController,
+                  enabled: !_isLoading,
+                  keyboardType: TextInputType.emailAddress,
+                  decoration: InputDecoration(
+                    labelText: "Email Address",
+                    hintText: "Enter your email",
+                    hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
+                    prefixIcon: const Icon(
+                      Icons.email,
+                      color: PassengerBrand.blue,
                     ),
-                  ],
+                  ),
                 ),
-              ),
-              const SizedBox(height: 24),
-              
-              // Name Field
-              TextField(
-                controller: _nameController,
-                enabled: !_isLoading,
-                decoration: InputDecoration(
-                  labelText: "Full Name",
-                  hintText: "Enter your full name",
-                  hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
-                  prefixIcon: const Icon(Icons.person, color: Color(0xFF0066CC)),
+                const SizedBox(height: 32),
+
+                // Complete Registration Button
+                AppActionButton(
+                  label: 'Complete Registration',
+                  onPressed: _isLoading ? null : _completeRegistration,
+                  isLoading: _isLoading,
                 ),
-              ),
-              const SizedBox(height: 16),
-              
-              // Email Field
-              TextField(
-                controller: _emailController,
-                enabled: !_isLoading,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                  labelText: "Email Address",
-                  hintText: "Enter your email",
-                  hintStyle: TextStyle(color: Colors.grey[400], fontSize: 15),
-                  prefixIcon: const Icon(Icons.email, color: Color(0xFF0066CC)),
-                ),
-              ),
-              const SizedBox(height: 32),
-              
-              // Complete Registration Button
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: _isLoading
-                  ? ElevatedButton(
-                      onPressed: null,
-                      child: const SizedBox(
-                        height: 24,
-                        width: 24,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                        ),
-                      ),
-                    )
-                  : ElevatedButton(
-                      onPressed: _completeRegistration,
-                      child: const Text(
-                        "Complete Registration",
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-              ),
-              const SizedBox(height: 40),
-            ],
+                const SizedBox(height: 40),
+              ],
+            ),
           ),
-        ),
         ),
       ),
     );

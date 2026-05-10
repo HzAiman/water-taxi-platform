@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 
 class OperatorProfileHeader extends StatelessWidget {
   const OperatorProfileHeader({
@@ -14,8 +15,8 @@ class OperatorProfileHeader extends StatelessWidget {
   final String operatorId;
   final double topInset;
 
-  static const Color _brandOrange = Color(0xFFFF7A00);
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
+  static const Color _brandOrange = OperatorBrand.orange;
+  static const Color _brandMagenta = OperatorBrand.magenta;
 
   @override
   Widget build(BuildContext context) {

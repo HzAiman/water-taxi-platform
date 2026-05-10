@@ -1,8 +1,10 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
 import 'package:passenger_app/core/widgets/app_action_button.dart';
 import 'package:passenger_app/core/widgets/app_menu_tile.dart';
+import 'package:passenger_app/core/widgets/gradient_app_bar.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/features/auth/presentation/pages/phone_login_page.dart';
 import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
@@ -139,7 +141,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: const Color(0xFF0066CC),
+        statusBarColor: PassengerBrand.blue,
       ),
       child: Scaffold(
         body: Column(
@@ -150,15 +152,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
               child: Container(
                 width: double.infinity,
                 padding: EdgeInsets.fromLTRB(24, topInset + 24, 24, 24),
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                    colors: [
-                      const Color(0xFF0066CC),
-                      const Color(0xFF0066CC).withValues(alpha: 0.8),
-                    ],
-                  ),
+                decoration: const BoxDecoration(
+                  gradient: PassengerBrand.gradient,
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -460,10 +455,7 @@ class _AccountManagementRoutePageState
     final viewModel = context.watch<ProfileViewModel>();
 
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Account Management'),
-        centerTitle: true,
-      ),
+      appBar: const GradientAppBar(title: 'Account Management'),
       body: !_hasLoadedInitialData && viewModel.isLoading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
@@ -699,7 +691,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     final bookings = viewModel.bookingHistory;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Booking History'), centerTitle: true),
+      appBar: const GradientAppBar(title: 'Booking History'),
       body: hasUser
           ? _buildContent(viewModel, bookings)
           : const Center(child: Text('Please sign in to view your bookings.')),
@@ -781,16 +773,16 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
               selected: isSelected,
               showCheckmark: false,
               onSelected: (_) => setState(() => _selectedFilter = filter),
-              selectedColor: const Color(0xFF0066CC).withValues(alpha: 0.15),
+              selectedColor: PassengerBrand.mint.withValues(alpha: 0.15),
               backgroundColor: Colors.white,
               side: BorderSide(
                 color: isSelected
-                    ? const Color(0xFF0066CC)
+                    ? PassengerBrand.mint
                     : const Color(0xFFDDE5F0),
               ),
               labelStyle: TextStyle(
                 color: isSelected
-                    ? const Color(0xFF0066CC)
+                    ? PassengerBrand.blue
                     : const Color(0xFF555555),
                 fontWeight: FontWeight.w600,
                 fontSize: 12,
@@ -836,7 +828,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(icon, size: 36, color: const Color(0xFF0066CC)),
+              Icon(icon, size: 36, color: PassengerBrand.blue),
               const SizedBox(height: 12),
               Text(
                 title,
@@ -975,16 +967,16 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
               width: double.infinity,
               padding: const EdgeInsets.all(10),
               decoration: BoxDecoration(
-                color: const Color(0xFFEAF4FF),
+                color: PassengerBrand.softMint,
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: const Color(0xFFBFD9FF)),
+                border: Border.all(color: PassengerBrand.border),
               ),
               child: Row(
                 children: [
                   const Icon(
                     Icons.info_outline,
                     size: 16,
-                    color: Color(0xFF0066CC),
+                    color: PassengerBrand.blue,
                   ),
                   const SizedBox(width: 8),
                   const Expanded(
@@ -992,7 +984,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                       'This active booking looks stale. Open live tracking to sync latest status.',
                       style: TextStyle(
                         fontSize: 12,
-                        color: Color(0xFF0E4A8A),
+                        color: PassengerBrand.blue,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -1026,7 +1018,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                 'RM ${totalFare.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontSize: 15,
-                  color: Color(0xFF0066CC),
+                  color: PassengerBrand.blue,
                   fontWeight: FontWeight.w700,
                 ),
               ),
@@ -1054,7 +1046,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Icon(icon, size: 18, color: const Color(0xFF0066CC)),
+        Icon(icon, size: 18, color: PassengerBrand.blue),
         const SizedBox(width: 10),
         Expanded(
           child: RichText(
@@ -1135,7 +1127,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
       case BookingStatus.pending:
         return Colors.orange;
       case BookingStatus.accepted:
-        return const Color(0xFF0066CC);
+        return PassengerBrand.blue;
       case BookingStatus.completed:
         return Colors.green;
       case BookingStatus.cancelled:

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 
 class OperatorInfoCard extends StatelessWidget {
   const OperatorInfoCard({
@@ -11,7 +12,7 @@ class OperatorInfoCard extends StatelessWidget {
     required this.subtitle,
     this.actionLabel,
     this.secondaryActionLabel,
-    this.actionColor = const Color(0xFF0066CC),
+    this.actionColor = OperatorBrand.magenta,
     this.secondaryActionColor = const Color(0xFFF3F4F6),
     this.secondaryActionTextColor = const Color(0xFF1F2937),
     this.showActionLoading = false,

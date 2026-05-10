@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
 
 class AppMenuTile extends StatelessWidget {
   const AppMenuTile({
@@ -31,7 +32,7 @@ class AppMenuTile extends StatelessWidget {
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: const Color(0xFFDDE5F0)),
+              border: Border.all(color: PassengerBrand.border),
             ),
             child: Row(
               children: [
@@ -39,10 +40,10 @@ class AppMenuTile extends StatelessWidget {
                   width: 42,
                   height: 42,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFEAF3FF),
+                    gradient: PassengerBrand.gradient,
                     borderRadius: BorderRadius.circular(12),
                   ),
-                  child: Icon(icon, color: const Color(0xFF0066CC)),
+                  child: Icon(icon, color: Colors.white),
                 ),
                 const SizedBox(width: 12),
                 Expanded(

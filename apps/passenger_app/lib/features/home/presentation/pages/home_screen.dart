@@ -2,6 +2,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
+import 'package:passenger_app/core/widgets/app_action_button.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/data/repositories/fare_repository.dart';
@@ -231,7 +233,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light.copyWith(
-        statusBarColor: const Color(0xFF0066CC),
+        statusBarColor: PassengerBrand.blue,
       ),
       child: Scaffold(
         body: SingleChildScrollView(
@@ -243,15 +245,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 child: Container(
                   width: double.infinity,
                   padding: EdgeInsets.fromLTRB(24, topInset + 24, 24, 24),
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [
-                        const Color(0xFF0066CC),
-                        const Color(0xFF0066CC).withValues(alpha: 0.8),
-                      ],
-                    ),
+                  decoration: const BoxDecoration(
+                    gradient: PassengerBrand.gradient,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,7 +334,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     children: [
                                       const Icon(
                                         Icons.location_on,
-                                        color: Color(0xFF0066CC),
+                                        color: PassengerBrand.blue,
                                         size: 20,
                                       ),
                                       const SizedBox(width: 8),
@@ -424,7 +419,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                     children: [
                                       const Icon(
                                         Icons.flag,
-                                        color: Color(0xFF0066CC),
+                                        color: PassengerBrand.blue,
                                         size: 20,
                                       ),
                                       const SizedBox(width: 8),
@@ -513,7 +508,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             children: [
                               const Icon(
                                 Icons.person,
-                                color: Color(0xFF0066CC),
+                                color: PassengerBrand.blue,
                               ),
                               const SizedBox(width: 12),
                               Column(
@@ -542,7 +537,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               IconButton(
                                 icon: const Icon(Icons.remove_circle_outline),
                                 color: viewModel.adultCount > 1
-                                    ? const Color(0xFF0066CC)
+                                    ? PassengerBrand.blue
                                     : Colors.grey,
                                 onPressed: viewModel.adultCount > 1
                                     ? () => viewModel.setAdultCount(
@@ -560,7 +555,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               IconButton(
                                 icon: const Icon(Icons.add_circle_outline),
                                 color: viewModel.adultCount < 10
-                                    ? const Color(0xFF0066CC)
+                                    ? PassengerBrand.blue
                                     : Colors.grey,
                                 onPressed: viewModel.adultCount < 10
                                     ? () => viewModel.setAdultCount(
@@ -594,7 +589,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             children: [
                               const Icon(
                                 Icons.child_care,
-                                color: Color(0xFF0066CC),
+                                color: PassengerBrand.blue,
                               ),
                               const SizedBox(width: 12),
                               Column(
@@ -623,7 +618,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               IconButton(
                                 icon: const Icon(Icons.remove_circle_outline),
                                 color: viewModel.childCount > 0
-                                    ? const Color(0xFF0066CC)
+                                    ? PassengerBrand.blue
                                     : Colors.grey,
                                 onPressed: viewModel.childCount > 0
                                     ? () => viewModel.setChildCount(
@@ -641,7 +636,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                               IconButton(
                                 icon: const Icon(Icons.add_circle_outline),
                                 color: viewModel.childCount < 10
-                                    ? const Color(0xFF0066CC)
+                                    ? PassengerBrand.blue
                                     : Colors.grey,
                                 onPressed: viewModel.childCount < 10
                                     ? () => viewModel.setChildCount(
@@ -658,35 +653,15 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        SizedBox(
-                          width: double.infinity,
-                          height: 54,
-                          child: ElevatedButton(
-                            onPressed:
-                                (viewModel.canBook &&
-                                    !viewModel.isCheckingFare &&
-                                    activeBooking == null)
-                                ? () => _bookNow(viewModel)
-                                : null,
-                            child: viewModel.isCheckingFare
-                                ? const SizedBox(
-                                    height: 22,
-                                    width: 22,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
-                                      ),
-                                    ),
-                                  )
-                                : const Text(
-                                    'Book Water Taxi',
-                                    style: TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                          ),
+                        AppActionButton(
+                          label: 'Book Water Taxi',
+                          onPressed:
+                              (viewModel.canBook &&
+                                  !viewModel.isCheckingFare &&
+                                  activeBooking == null)
+                              ? () => _bookNow(viewModel)
+                              : null,
+                          isLoading: viewModel.isCheckingFare,
                         ),
                         if (activeBooking != null) ...[
                           const SizedBox(height: 8),
@@ -736,9 +711,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: const Color(0xFFF0F7FF),
+        color: PassengerBrand.softMint,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFBFD7F5)),
+        border: Border.all(color: PassengerBrand.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -747,7 +722,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             children: [
               const Icon(
                 Icons.receipt_long,
-                color: Color(0xFF0066CC),
+                color: PassengerBrand.blue,
                 size: 20,
               ),
               const SizedBox(width: 8),
@@ -796,31 +771,28 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
           ),
           const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ChangeNotifierProvider(
-                      create: (_) => BookingTrackingViewModel(
-                        bookingRepo: context.read<BookingRepository>(),
-                        paymentGateway: context.read<PaymentGatewayService>(),
-                      ),
-                      child: BookingTrackingScreen(
-                        bookingId: booking.bookingId,
-                        origin: booking.origin,
-                        destination: booking.destination,
-                        passengerCount: booking.passengerCount,
-                      ),
+          AppActionButton(
+            label: 'View Booking Status',
+            icon: const Icon(Icons.directions_boat, size: 18),
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => ChangeNotifierProvider(
+                    create: (_) => BookingTrackingViewModel(
+                      bookingRepo: context.read<BookingRepository>(),
+                      paymentGateway: context.read<PaymentGatewayService>(),
+                    ),
+                    child: BookingTrackingScreen(
+                      bookingId: booking.bookingId,
+                      origin: booking.origin,
+                      destination: booking.destination,
+                      passengerCount: booking.passengerCount,
                     ),
                   ),
-                );
-              },
-              icon: const Icon(Icons.directions_boat, size: 18),
-              label: const Text('View Booking Status'),
-            ),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -840,7 +812,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       case BookingStatus.pending:
         return Colors.orange;
       case BookingStatus.accepted:
-        return const Color(0xFF0066CC);
+        return PassengerBrand.blue;
       case BookingStatus.completed:
         return Colors.green;
       case BookingStatus.cancelled:

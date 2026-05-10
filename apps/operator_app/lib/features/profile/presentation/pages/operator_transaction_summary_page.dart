@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/core/widgets/gradient_app_bar.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
@@ -19,8 +20,8 @@ class OperatorTransactionSummaryPage extends StatefulWidget {
 
 class _OperatorTransactionSummaryPageState
     extends State<OperatorTransactionSummaryPage> {
-  static const Color _brandOrange = Color(0xFFFF7A00);
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
+  static const Color _brandOrange = OperatorBrand.orange;
+  static const Color _brandMagenta = OperatorBrand.magenta;
 
   @override
   void initState() {

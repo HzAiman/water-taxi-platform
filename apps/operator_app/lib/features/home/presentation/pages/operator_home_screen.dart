@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/home/presentation/location/operator_location_coordinator.dart';
 import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
@@ -44,9 +45,9 @@ class OperatorHomeScreen extends StatefulWidget {
 
 class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     with WidgetsBindingObserver, TickerProviderStateMixin {
-  static const Color _brandOrange = Color(0xFFFF7A00);
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
-  static const Color _goOnlineGreen = Color(0xFF16A34A);
+  static const Color _brandOrange = OperatorBrand.orange;
+  static const Color _brandMagenta = OperatorBrand.magenta;
+  static const Color _goOnlineGreen = OperatorBrand.goOnlineGreen;
 
   static const MethodChannel _mapsConfigChannel = MethodChannel(
     'operator_app/maps_config',
@@ -549,7 +550,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     ? _buildActiveBookingCard(activeBooking, viewModel)
                     : const OperatorInfoCard(
                         icon: Icons.directions_boat_filled_outlined,
-                        iconColor: Color(0xFF0066CC),
+                        iconColor: OperatorBrand.magenta,
                         title: 'No active trip',
                         subtitle:
                             'Accept a booking from the queue to start operating.',
@@ -595,7 +596,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                 ),
               ),
           ],
-          ),
+        ),
       ),
     );
   }
@@ -1160,7 +1161,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                   child: FloatingActionButton.small(
                     heroTag: 'toggle_camera_tilt',
                     backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF0066CC),
+                    foregroundColor: OperatorBrand.magenta,
                     onPressed: () {
                       unawaited(_mapCameraService.toggleNavigationTilt());
                     },
@@ -1178,7 +1179,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                   operatorPoint != null)
                 FloatingActionButton(
                   heroTag: 'resume_navigation',
-                  backgroundColor: const Color(0xFF0066CC),
+                  backgroundColor: OperatorBrand.magenta,
                   foregroundColor: Colors.white,
                   onPressed: () {
                     unawaited(

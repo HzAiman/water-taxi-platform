@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
+import 'package:passenger_app/core/widgets/app_action_button.dart';
+import 'package:passenger_app/core/widgets/gradient_app_bar.dart';
 
 class JettyLocationScreen extends StatefulWidget {
   final String initialJettyName;
@@ -45,7 +48,7 @@ class _JettyLocationScreenState extends State<JettyLocationScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) return;
     }
-    
+
     if (permission == LocationPermission.deniedForever) return;
 
     if (mounted) {
@@ -98,10 +101,8 @@ class _JettyLocationScreenState extends State<JettyLocationScreen> {
     final lng = (_currentJetty['lng'] as num).toDouble();
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.isPickup ? 'Confirm Pick-up' : 'Confirm Drop-off'),
-        backgroundColor: const Color(0xFF0066CC),
-        foregroundColor: Colors.white,
+      appBar: GradientAppBar(
+        title: widget.isPickup ? 'Confirm Pick-up' : 'Confirm Drop-off',
       ),
       body: Stack(
         children: [
@@ -115,7 +116,8 @@ class _JettyLocationScreenState extends State<JettyLocationScreen> {
               _mapController = controller;
             },
             myLocationEnabled: _isLocationGranted,
-            myLocationButtonEnabled: false, // Hide default button, we use custom
+            myLocationButtonEnabled:
+                false, // Hide default button, we use custom
             zoomControlsEnabled: false,
             mapToolbarEnabled: false,
           ),
@@ -125,7 +127,7 @@ class _JettyLocationScreenState extends State<JettyLocationScreen> {
             child: FloatingActionButton(
               mini: true,
               backgroundColor: Colors.white,
-              child: const Icon(Icons.my_location, color: Color(0xFF0066CC)),
+              child: const Icon(Icons.my_location, color: PassengerBrand.blue),
               onPressed: () async {
                 final position = await Geolocator.getCurrentPosition();
                 _mapController?.animateCamera(
@@ -153,7 +155,9 @@ class _JettyLocationScreenState extends State<JettyLocationScreen> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Text(
-                      widget.isPickup ? 'Pick-up Location' : 'Drop-off Location',
+                      widget.isPickup
+                          ? 'Pick-up Location'
+                          : 'Drop-off Location',
                       style: const TextStyle(
                         fontSize: 14,
                         color: Colors.grey,
@@ -193,22 +197,11 @@ class _JettyLocationScreenState extends State<JettyLocationScreen> {
                       ),
                     ),
                     const SizedBox(height: 16),
-                    ElevatedButton(
+                    AppActionButton(
+                      label: 'Confirm Location',
                       onPressed: () {
                         Navigator.pop(context, _selectedJettyName);
                       },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0066CC),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        'Confirm Location',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                      ),
                     ),
                   ],
                 ),

@@ -1,12 +1,13 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
 
 void showTopAlert(
   BuildContext context, {
   required String message,
   String? title,
-  Color iconColor = const Color(0xFF0066CC),
+  Color iconColor = PassengerBrand.blue,
   IconData icon = Icons.info_outline,
   Duration duration = const Duration(seconds: 4),
   String? actionLabel,
@@ -63,7 +64,7 @@ void showTopSuccess(
     context,
     message: message,
     title: title,
-    iconColor: const Color(0xFF0066CC),
+    iconColor: PassengerBrand.blue,
     icon: Icons.verified_rounded,
     duration: duration,
   );
@@ -81,7 +82,7 @@ void showTopInfo(
     context,
     message: message,
     title: title,
-    iconColor: const Color(0xFF0066CC),
+    iconColor: PassengerBrand.blue,
     icon: Icons.info_outline,
     duration: duration,
     actionLabel: actionLabel,
@@ -190,7 +191,26 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(widget.icon, color: widget.iconColor, size: 28),
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: widget.iconColor == PassengerBrand.blue
+                            ? PassengerBrand.gradient
+                            : null,
+                        color: widget.iconColor == PassengerBrand.blue
+                            ? null
+                            : widget.iconColor.withValues(alpha: 0.10),
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                      child: Icon(
+                        widget.icon,
+                        color: widget.iconColor == PassengerBrand.blue
+                            ? Colors.white
+                            : widget.iconColor,
+                        size: 24,
+                      ),
+                    ),
                     const SizedBox(width: 12),
                     Expanded(
                       child: Column(
@@ -215,7 +235,8 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                               color: Color(0xFF666666),
                             ),
                           ),
-                          if (widget.actionLabel != null && widget.onAction != null) ...[
+                          if (widget.actionLabel != null &&
+                              widget.onAction != null) ...[
                             const SizedBox(height: 10),
                             TextButton(
                               onPressed: () {
@@ -230,7 +251,9 @@ class _TopAlertOverlayState extends State<_TopAlertOverlay> {
                               ),
                               child: Text(
                                 widget.actionLabel!,
-                                style: const TextStyle(fontWeight: FontWeight.w700),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
                           ],

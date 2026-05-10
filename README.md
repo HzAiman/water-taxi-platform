@@ -47,9 +47,17 @@ Each app is a standalone Flutter project with its own Firebase config and featur
 - Operator profiles are keyed directly by auth `uid`; `operatorId` remains the display/reporting reference.
 - Online/offline availability toggle.
 - Booking workflow: reject, accept, start trip, complete trip.
-- Live operator coordinate publishing after `startTrip` with throttled writes and terminal-state stop conditions.
-- Operator map with current-location support.
-- Profile management and shared top-card notifications.
+- Navigation starts only after the booking enters `on_the_way`.
+- Dynamic operator-to-pickup and operator-to-dropoff route rendering using Firestore river polyline coordinates, snapping/segmenting to the planned river path.
+- Straight-line fallback is explicit and UI-visible when phase-specific river route geometry is unavailable.
+- Navigation health/status UI for route source, stale GPS, and off-route/rejoin guidance.
+- Google-Maps-style navigation camera with 3D/2D tilt toggle, bearing-follow behavior, forward camera offset, and automatic recentering.
+- Operator map uses the native Google Maps blue-dot location as the live source of truth during navigation.
+- Screen wake-lock behavior while navigation is running.
+- Profile management, themed in-app notifications, and shared top-card notifications.
+- Ride / transaction summary with daily, weekly, monthly, and yearly filters.
+- Branded PDF income statements with operator name, operator ID, statement period dates, pickup-to-dropoff route labels, trip date/time, app icon, and theme styling.
+- App icon and operator login/home/profile styling aligned to the orange-to-magenta brand gradient.
 - Refactored UI logic into repositories + view models using Provider.
 - Push notifications (FCM) for incoming passenger bookings.
 - Background local notifications and persistent online-status reminder.
@@ -170,6 +178,25 @@ MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
 
 You also need the corresponding Android package/SHA restrictions configured in Google Cloud.
 
+### App icons and branding
+
+Both apps keep their launcher icon source assets under each app's `assets/app_icon/` folder.
+
+The operator app currently uses:
+
+- `assets/app_icon/icon.png` for the launcher icon and branded PDF statements.
+- `assets/app_icon/icon_trans.png` for transparent-logo UI placement where the gradient background is already supplied by the screen.
+
+After replacing icon assets, regenerate platform launcher assets from the app directory:
+
+```bash
+cd apps/operator_app
+flutter pub run flutter_launcher_icons
+
+cd ../passenger_app
+flutter pub run flutter_launcher_icons
+```
+
 ## Running the Apps
 
 From each app directory:
@@ -205,6 +232,8 @@ Recent verification highlights:
 - Passenger tracking widget tests now validate route polyline rendering and operator marker visibility gating.
 - Passenger integration tests now validate operator location stream propagation and legacy polyline key compatibility.
 - Operator view model tests now validate location publish throttling guard (time/distance thresholds).
+- Operator route geometry tests cover phase-specific river segmentation and straight-line fallback behavior.
+- Operator map controller tests cover navigation camera mode, tilt reset, recentering, and phase transition behavior.
 
 ## Payment Ops Checklist
 
@@ -240,5 +269,7 @@ Core flows are implemented and refactored away from UI-embedded business logic. 
 
 Live passenger tracking after `on_the_way` is now implemented end-to-end: operator coordinates are published with throttling, passenger tracking renders Firestore route polylines, and operator marker visibility is status-gated.
 
-The workspace is still not production-ready. Main unfinished areas are alerting/dashboard polish for payment operations, operator ID governance monitoring, and full end-to-end integration testing across both apps.
+Operator navigation is now implemented as a true active-trip mode: phase 1 routes from live operator location to pickup, phase 2 routes from live operator location to dropoff, route health is surfaced in the UI, and camera behavior follows a navigation-first pattern.
+
+The workspace is still not production-ready. Main unfinished areas are alerting/dashboard polish for payment operations, operator ID governance monitoring, production-grade GPS/background-location validation, and full end-to-end integration testing across both apps.
 

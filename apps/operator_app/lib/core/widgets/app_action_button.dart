@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 
 class AppActionButton extends StatelessWidget {
   const AppActionButton({
@@ -21,9 +22,6 @@ class AppActionButton extends StatelessWidget {
   final Color? foregroundColor;
   final Color? borderColor;
   final Widget? icon;
-
-  static const Color _brandOrange = Color(0xFFFF7A00);
-  static const Color _brandMagenta = Color(0xFFCA4B8C);
 
   @override
   Widget build(BuildContext context) {
@@ -61,8 +59,11 @@ class AppActionButton extends StatelessWidget {
         ? OutlinedButton(
             onPressed: isLoading ? null : onPressed,
             style: OutlinedButton.styleFrom(
-              foregroundColor: foregroundColor ?? _brandMagenta,
-              side: BorderSide(color: borderColor ?? _brandMagenta, width: 1.5),
+              foregroundColor: foregroundColor ?? OperatorBrand.magenta,
+              side: BorderSide(
+                color: borderColor ?? OperatorBrand.magenta,
+                width: 1.5,
+              ),
               padding: const EdgeInsets.symmetric(vertical: 14),
             ),
             child: child,
@@ -74,7 +75,7 @@ class AppActionButton extends StatelessWidget {
                   : const LinearGradient(
                       begin: Alignment.centerLeft,
                       end: Alignment.centerRight,
-                      colors: [_brandOrange, _brandMagenta],
+                      colors: [OperatorBrand.orange, OperatorBrand.magenta],
                     ),
               color: onPressed == null || isLoading
                   ? Colors.grey.shade300
@@ -84,7 +85,7 @@ class AppActionButton extends StatelessWidget {
                   ? null
                   : [
                       BoxShadow(
-                        color: _brandMagenta.withValues(alpha: 0.24),
+                        color: OperatorBrand.magenta.withValues(alpha: 0.24),
                         blurRadius: 14,
                         offset: const Offset(0, 6),
                       ),

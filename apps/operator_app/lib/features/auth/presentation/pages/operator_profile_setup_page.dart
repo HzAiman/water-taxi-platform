@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/widgets/gradient_app_bar.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/auth/presentation/widgets/operator_profile_setup_form.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
@@ -60,10 +61,7 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Complete Your Profile'),
-        centerTitle: true,
-      ),
+      appBar: const GradientAppBar(title: 'Complete Your Profile'),
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 32.0),

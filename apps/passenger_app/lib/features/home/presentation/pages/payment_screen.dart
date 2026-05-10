@@ -1,5 +1,8 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
+import 'package:passenger_app/core/widgets/app_action_button.dart';
+import 'package:passenger_app/core/widgets/gradient_app_bar.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
@@ -106,7 +109,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final fare = viewModel.fareBreakdown;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Payment'), centerTitle: true),
+      appBar: const GradientAppBar(title: 'Payment'),
       body: viewModel.isLoadingFare
           ? const Center(
               child: Column(
@@ -147,7 +150,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                     width: double.infinity,
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF0F5FF),
+                      color: PassengerBrand.softMint,
                       border: Border(
                         bottom: BorderSide(
                           color: const Color(0xFFDDE5F0),
@@ -172,7 +175,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           children: [
                             const Icon(
                               Icons.location_on,
-                              color: Color(0xFF0066CC),
+                              color: PassengerBrand.blue,
                               size: 24,
                             ),
                             const SizedBox(width: 12),
@@ -209,7 +212,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           children: [
                             const Icon(
                               Icons.flag,
-                              color: Color(0xFF0066CC),
+                              color: PassengerBrand.blue,
                               size: 24,
                             ),
                             const SizedBox(width: 12),
@@ -245,7 +248,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           children: [
                             const Icon(
                               Icons.people,
-                              color: Color(0xFF0066CC),
+                              color: PassengerBrand.blue,
                               size: 24,
                             ),
                             const SizedBox(width: 12),
@@ -419,7 +422,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
-                                      color: Color(0xFF0066CC),
+                                      color: PassengerBrand.blue,
                                     ),
                                   ),
                                 ],
@@ -428,32 +431,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                           ),
                         ),
                         const SizedBox(height: 32),
-                        SizedBox(
-                          width: double.infinity,
-                          height: 54,
-                          child: ElevatedButton(
-                            onPressed: viewModel.isProcessing
-                                ? null
-                                : _processPayment,
-                            child: viewModel.isProcessing
-                                ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                        Colors.white,
-                                      ),
-                                    ),
-                                  )
-                                : Text(
-                                    'Continue to Payment (RM ${fare.total.toStringAsFixed(2)})',
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                          ),
+                        AppActionButton(
+                          label:
+                              'Continue to Payment (RM ${fare.total.toStringAsFixed(2)})',
+                          onPressed: viewModel.isProcessing
+                              ? null
+                              : _processPayment,
+                          isLoading: viewModel.isProcessing,
                         ),
                       ],
                     ),

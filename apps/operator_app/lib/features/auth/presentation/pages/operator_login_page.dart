@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/auth/presentation/pages/operator_profile_setup_page.dart';
 import 'package:operator_app/features/auth/presentation/widgets/operator_login_form.dart';
@@ -197,13 +198,7 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
         extendBodyBehindAppBar: true,
         backgroundColor: Colors.transparent,
         body: DecoratedBox(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFFFF7A00), Color(0xFFCA4B8C)],
-            ),
-          ),
+          decoration: const BoxDecoration(gradient: OperatorBrand.gradient),
           child: SizedBox.expand(
             child: SafeArea(
               bottom: false,

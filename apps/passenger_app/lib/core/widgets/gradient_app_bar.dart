@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:operator_app/core/theme/operator_brand.dart';
+import 'package:passenger_app/core/theme/passenger_brand.dart';
 
 class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
   const GradientAppBar({
@@ -20,7 +20,7 @@ class GradientAppBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(gradient: OperatorBrand.gradient),
+      decoration: const BoxDecoration(gradient: PassengerBrand.gradient),
       child: AppBar(
         title: Text(title),
         centerTitle: centerTitle,
