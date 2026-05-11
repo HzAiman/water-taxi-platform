@@ -229,5 +229,5 @@ firebase deploy --only firestore:rules,firestore:indexes,functions
 - This project uses Node.js 22 as specified in `functions/package.json`.
 - Cloud artifact cleanup is set to 7 days to avoid stale build artifacts accumulating in Artifact Registry.
 
-Documentation sync: March 2026.
+Documentation sync: May 2026.
 

@@ -86,12 +86,7 @@ authorized -> cancelled/refunded (reject/cancel/reconciliation)
 
 Reject and dispatch behavior are implemented using `pending + rejectedBy[]` where the array stores operator UIDs: the booking stays `pending` when an operator rejects it so that another operator can claim it. Passenger `userName` and `userPhone` values on a booking are immutable receipt snapshots captured at creation time. The full `BookingStatus` enum also covers `rejected` and `unknown` for edge-case handling.
 
-Remaining lifecycle hardening work is tracked in app TODO files:
 
-- `apps/passenger_app/TODO.md`
-- `apps/operator_app/TODO.md`
-
-River navigation route quality improvements are tracked in both app TODO files.
 
 ## Tech Stack
 
@@ -260,8 +255,7 @@ Use this quick checklist before each release cut and after backend payment chang
 - `apps/passenger_app/functions/README.md`: Cloud Functions setup, triggers, and deployment.
 - `apps/passenger_app/firestore.rules`: current shared Firestore access rules.
 - `apps/passenger_app/firestore.indexes.json`: current Firestore indexes.
-- `apps/passenger_app/TODO.md`: remaining passenger-side work.
-- `apps/operator_app/TODO.md`: remaining operator-side work.
+
 
 ## Status
 

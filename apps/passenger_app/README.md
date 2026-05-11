@@ -274,13 +274,11 @@ This app is not production-ready yet. Remaining work includes:
 - broader widget and integration test coverage (beyond current view model suite)
 - Android and iOS release signing and build config verification
 
-Documentation sync: March 2026 (includes live operator tracking + Firestore route polyline rollout).
-
-The live task tracker is in `TODO.md`.
+Documentation sync: May 2026 (includes live operator tracking + Firestore route polyline rollout).
 
 ## Future Planning: River Navigation Delivery (14 Jetties)
 
-- Phased delivery is planned in `TODO.md` under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
+- Phased delivery summary for the 14-jetty route:
 - Route polyline data will be Firestore-backed and read-only for client apps.
 - Operator MVP guidance target: progress, next route marker, remaining distance, and speed-based ETA.
 - Passenger tracking requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.

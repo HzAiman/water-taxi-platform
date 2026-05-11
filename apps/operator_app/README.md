@@ -238,13 +238,11 @@ This app is functionally stable for core operator flow but not production-ready.
 - hardened Firestore rule/index validation in production-like environments
 - queue UX polish under heavy concurrent demand
 
-The current task tracker is in `TODO.md`.
-
-Documentation sync: March 2026 (includes live tracking + route polyline compatibility rollout).
+Documentation sync: May 2026 (includes live tracking + route polyline compatibility rollout).
 
 ## Future Planning: River Navigation Delivery (14 Jetties)
 
-- Phased delivery is planned in `TODO.md` under "Cross-App Roadmap: River Navigation Delivery (14 Jetties)".
+- Phased delivery summary for the 14-jetty route:
 - Operator route guidance target: progress, next route marker, remaining distance, and speed-based ETA.
 - Cross-app requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.
 

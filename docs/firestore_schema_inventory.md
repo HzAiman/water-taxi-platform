@@ -1,6 +1,7 @@
 # Firestore Schema Inventory (Live Collections)
 
 Last updated: 2026-04-12
+Documentation review: 2026-05-11 (no new live snapshot)
 Project: melaka-water-taxi
 Database: (default)
 Source: live Firestore introspection via apps/passenger_app/functions/scripts/introspect_firestore_schema.js
