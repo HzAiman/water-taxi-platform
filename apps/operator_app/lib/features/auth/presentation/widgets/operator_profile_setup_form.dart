@@ -9,6 +9,7 @@ class OperatorProfileSetupForm extends StatelessWidget {
     required this.formKey,
     required this.nameController,
     required this.idController,
+    required this.phoneController,
     required this.email,
     required this.isSaving,
     required this.onSubmit,
@@ -17,6 +18,7 @@ class OperatorProfileSetupForm extends StatelessWidget {
   final GlobalKey<FormState> formKey;
   final TextEditingController nameController;
   final TextEditingController idController;
+  final TextEditingController phoneController;
   final String email;
   final bool isSaving;
   final VoidCallback onSubmit;
@@ -81,6 +83,26 @@ class OperatorProfileSetupForm extends StatelessWidget {
             validator: (value) {
               if (value == null || value.trim().isEmpty) {
                 return 'Please enter your operator ID';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 16),
+          TextFormField(
+            controller: phoneController,
+            enabled: !isSaving,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              labelText: 'Phone Number',
+              hintText: 'e.g. +6012-345 6789',
+              prefixIcon: Icon(
+                Icons.phone_outlined,
+                color: OperatorBrand.magenta,
+              ),
+            ),
+            validator: (value) {
+              if (value == null || value.trim().isEmpty) {
+                return 'Please enter your phone number';
               }
               return null;
             },

@@ -20,6 +20,7 @@ class _OperatorAccountManagementPageState
   final _nameController = TextEditingController();
   final _idController = TextEditingController();
   final _emailController = TextEditingController();
+  final _phoneController = TextEditingController();
   bool _isEditing = false;
   bool _isSaving = false;
 
@@ -46,6 +47,7 @@ class _OperatorAccountManagementPageState
       _nameController.text = op?.name ?? '';
       _idController.text = op?.operatorId ?? '';
       _emailController.text = user.email ?? op?.email ?? '';
+      _phoneController.text = op?.phoneNumber ?? '';
     });
   }
 
@@ -70,6 +72,7 @@ class _OperatorAccountManagementPageState
         name: _nameController.text,
         email: _emailController.text,
         operatorId: _idController.text,
+        phoneNumber: _phoneController.text,
       );
 
       if (!mounted) {
@@ -105,6 +108,7 @@ class _OperatorAccountManagementPageState
     _nameController.dispose();
     _idController.dispose();
     _emailController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -120,6 +124,7 @@ class _OperatorAccountManagementPageState
             nameController: _nameController,
             idController: _idController,
             emailController: _emailController,
+            phoneController: _phoneController,
             isEditing: _isEditing,
             isSaving: _isSaving,
             onEdit: () {

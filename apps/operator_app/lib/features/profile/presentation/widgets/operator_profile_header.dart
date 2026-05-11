@@ -7,12 +7,14 @@ class OperatorProfileHeader extends StatelessWidget {
     required this.name,
     required this.email,
     required this.operatorId,
+    required this.phoneNumber,
     required this.topInset,
   });
 
   final String name;
   final String email;
   final String operatorId;
+  final String phoneNumber;
   final double topInset;
 
   static const Color _brandOrange = OperatorBrand.orange;
@@ -51,6 +53,11 @@ class OperatorProfileHeader extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               operatorId,
+              style: const TextStyle(fontSize: 14, color: Colors.white70),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              phoneNumber,
               style: const TextStyle(fontSize: 14, color: Colors.white70),
             ),
           ],

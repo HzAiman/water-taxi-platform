@@ -81,6 +81,7 @@ class OperatorRepository {
       name: op.name,
       email: op.email,
       operatorId: op.operatorId,
+      phoneNumber: op.phoneNumber,
       isOnline: op.isOnline,
     );
   }
@@ -91,16 +92,19 @@ class OperatorRepository {
     required String name,
     required String email,
     required String operatorId,
+    required String phoneNumber,
     bool? isOnline,
   }) async {
     final trimmedName = name.trim();
     final trimmedEmail = email.trim();
     final trimmedOperatorId = operatorId.trim();
+    final trimmedPhone = phoneNumber.trim();
 
     if (trimmedName.isEmpty ||
         trimmedOperatorId.isEmpty ||
-        trimmedEmail.isEmpty) {
-      throw StateError('Name, email, and operator ID are required.');
+        trimmedEmail.isEmpty ||
+        trimmedPhone.isEmpty) {
+      throw StateError('Name, email, operator ID, and phone are required.');
     }
 
     final operatorRef = _db.collection(FirestoreCollections.operators).doc(uid);
@@ -120,6 +124,7 @@ class OperatorRepository {
         OperatorFields.name: trimmedName,
         OperatorFields.email: trimmedEmail,
         OperatorFields.operatorId: trimmedOperatorId,
+        OperatorFields.phoneNumber: trimmedPhone,
         OperatorFields.updatedAt: FieldValue.serverTimestamp(),
         if (!operatorSnap.exists)
           OperatorFields.createdAt: FieldValue.serverTimestamp(),
@@ -133,12 +138,18 @@ class OperatorRepository {
   }
 
   /// Updates operator profile fields.
-  Future<void> updateOperator(String uid, {String? name, String? email}) async {
+  Future<void> updateOperator(
+    String uid, {
+    String? name,
+    String? email,
+    String? phoneNumber,
+  }) async {
     final updates = <String, dynamic>{
       OperatorFields.updatedAt: FieldValue.serverTimestamp(),
     };
     if (name != null) updates[OperatorFields.name] = name;
     if (email != null) updates[OperatorFields.email] = email;
+    if (phoneNumber != null) updates[OperatorFields.phoneNumber] = phoneNumber;
 
     await _db
         .collection(FirestoreCollections.operators)

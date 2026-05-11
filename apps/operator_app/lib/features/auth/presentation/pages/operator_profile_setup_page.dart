@@ -24,12 +24,14 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _idController = TextEditingController();
+  final _phoneController = TextEditingController();
   bool _isSaving = false;
 
   @override
   void dispose() {
     _nameController.dispose();
     _idController.dispose();
+    _phoneController.dispose();
     super.dispose();
   }
 
@@ -44,6 +46,7 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
         name: _nameController.text,
         email: widget.email,
         operatorId: _idController.text,
+        phoneNumber: _phoneController.text,
       );
     } catch (e) {
       if (mounted) {
@@ -69,6 +72,7 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
             formKey: _formKey,
             nameController: _nameController,
             idController: _idController,
+            phoneController: _phoneController,
             email: widget.email,
             isSaving: _isSaving,
             onSubmit: _saveProfile,

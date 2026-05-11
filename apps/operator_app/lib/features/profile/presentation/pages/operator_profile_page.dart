@@ -23,6 +23,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
   final _nameController = TextEditingController();
   final _idController = TextEditingController();
   String _email = '';
+  String _phoneNumber = '';
   bool _isLoading = true;
 
   @override
@@ -43,6 +44,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
       _nameController.text = op?.name ?? '';
       _idController.text = op?.operatorId ?? '';
       _email = user.email ?? op?.email ?? '';
+      _phoneNumber = op?.phoneNumber ?? '';
     } catch (_) {
       if (!mounted) return;
       showTopError(
@@ -114,6 +116,9 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
                     operatorId: _idController.text.isNotEmpty
                         ? 'ID: ${_idController.text}'
                         : 'ID: N/A',
+                    phoneNumber: _phoneNumber.isNotEmpty
+                        ? _phoneNumber
+                        : 'Phone: Not set',
                     topInset: topInset,
                   ),
                   Expanded(

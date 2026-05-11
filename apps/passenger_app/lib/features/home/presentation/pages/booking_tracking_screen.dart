@@ -430,10 +430,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
                       ),
                       if (booking.operatorUid?.trim().isNotEmpty == true) ...[
                         const SizedBox(height: 12),
-                        _buildAssignedOperatorCard(
-                          operatorUid: booking.operatorUid!,
-                          booking: booking,
-                        ),
+                        _buildAssignedOperatorCard(booking: booking),
                       ],
                       const SizedBox(height: 12),
                       _buildStateGuidance(booking),
@@ -730,7 +727,6 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
   }
 
   Widget _buildAssignedOperatorCard({
-    required String operatorUid,
     required BookingModel booking,
   }) {
     final name = booking.assignedOperatorName.trim();
@@ -765,7 +761,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 _AutoScrollText(
-                  text: name.isNotEmpty ? name : 'Assigned Operator',
+                  text: name.isNotEmpty ? name : 'Operator',
                   style: const TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w800,
@@ -776,7 +772,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
                 _AutoScrollText(
                   text: operatorId.isNotEmpty
                       ? 'Operator ID: $operatorId'
-                      : 'Operator UID: $operatorUid',
+                      : 'Operator ID: Unavailable',
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,

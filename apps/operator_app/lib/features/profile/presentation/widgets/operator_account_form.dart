@@ -9,6 +9,7 @@ class OperatorAccountForm extends StatelessWidget {
     required this.nameController,
     required this.idController,
     required this.emailController,
+    required this.phoneController,
     required this.isEditing,
     required this.isSaving,
     required this.onEdit,
@@ -20,6 +21,7 @@ class OperatorAccountForm extends StatelessWidget {
   final TextEditingController nameController;
   final TextEditingController idController;
   final TextEditingController emailController;
+  final TextEditingController phoneController;
   final bool isEditing;
   final bool isSaving;
   final VoidCallback onEdit;
@@ -78,6 +80,31 @@ class OperatorAccountForm extends StatelessWidget {
             validator: (value) {
               if (isEditing && (value == null || value.trim().isEmpty)) {
                 return 'Operator ID cannot be empty';
+              }
+              return null;
+            },
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Phone Number',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF1A1A1A),
+            ),
+          ),
+          const SizedBox(height: 8),
+          TextFormField(
+            controller: phoneController,
+            enabled: isEditing,
+            keyboardType: TextInputType.phone,
+            decoration: const InputDecoration(
+              hintText: 'Enter your phone number',
+              prefixIcon: Icon(Icons.phone_outlined, color: _brandMagenta),
+            ),
+            validator: (value) {
+              if (isEditing && (value == null || value.trim().isEmpty)) {
+                return 'Phone number cannot be empty';
               }
               return null;
             },
