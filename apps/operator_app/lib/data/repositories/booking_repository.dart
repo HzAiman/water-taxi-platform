@@ -1,8 +1,8 @@
 import 'dart:async';
-import 'dart:developer' as developer;
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 /// Data-access layer for the `bookings` Firestore collection (operator side).
@@ -10,17 +10,22 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 /// All write operations that can race (accept, reject, release) use Firestore
 /// transactions. Start and complete use a lightweight retry wrapper.
 class BookingRepository {
-  BookingRepository({FirebaseFirestore? firestore})
-    : _db = firestore ?? FirebaseFirestore.instance;
+  BookingRepository({FirebaseFirestore? firestore, FirebaseFunctions? functions})
+    : _db = firestore ?? FirebaseFirestore.instance,
+      _functions = functions;
 
   final FirebaseFirestore _db;
+  final FirebaseFunctions? _functions;
   List<_PolylineSource>? _cachedPolylineSources;
   DateTime? _cachedPolylineSourcesAt;
+
+  FirebaseFunctions get _callableFunctions =>
+      _functions ?? FirebaseFunctions.instanceFor(region: 'asia-southeast1');
 
   // ── Streams ──────────────────────────────────────────────────────────────
 
   /// Streams bookings currently assigned to [operatorId] (accepted or
-  /// on_the_way), ordered by `updatedAt` descending.
+  /// on_the_way), ordered by backend route-aware pool sequence.
   Stream<List<BookingModel>> streamActiveBookings(String operatorId) {
     return _db
         .collection(FirestoreCollections.bookings)
@@ -38,14 +43,7 @@ class BookingRepository {
                         b.status == BookingStatus.onTheWay,
                   )
                   .toList()
-                ..sort((a, b) {
-                  final at = a.updatedAt;
-                  final bt = b.updatedAt;
-                  if (at == null && bt == null) return 0;
-                  if (at == null) return 1;
-                  if (bt == null) return -1;
-                  return bt.compareTo(at);
-                });
+                ..sort(_compareActiveBookingSequence);
           return active;
         });
   }
@@ -109,66 +107,38 @@ class BookingRepository {
   Future<OperationResult> acceptBooking({
     required String bookingId,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
+    DateTime? locationUpdatedAt,
+    String? routeDirection,
   }) async {
     try {
-      await _db.runTransaction((tx) async {
-        final ref = _db
-            .collection(FirestoreCollections.bookings)
-            .doc(bookingId);
-        final operatorRef = _db
-            .collection(FirestoreCollections.operators)
-            .doc(operatorId);
-        final snap = await tx.get(ref);
-        final operatorSnap = await tx.get(operatorRef);
-
-        if (!snap.exists) throw StateError('This booking no longer exists.');
-
-        final data = snap.data()!;
-        final operatorData = operatorSnap.data() ?? const <String, dynamic>{};
-        final status = BookingStatus.fromString(
-          (data[BookingFields.status] ?? '').toString(),
-        );
-        final assignedOperatorUid = _assignedOperatorUid(data);
-        final rejectedBy = _strList(data[BookingFields.rejectedBy]);
-
-        if (status != BookingStatus.pending) {
-          throw StateError('This booking is no longer pending.');
-        }
-        if (assignedOperatorUid.isNotEmpty) {
-          throw StateError(
-            'This booking was already assigned to another operator.',
-          );
-        }
-        if (rejectedBy.contains(operatorId)) {
-          throw StateError('You already rejected this booking.');
-        }
-
-        tx.update(ref, {
-          BookingFields.status: BookingStatus.accepted.firestoreValue,
-          BookingFields.operatorUid: operatorId,
-          BookingFields.assignedOperatorName:
-              (operatorData[OperatorFields.name] ?? '').toString(),
-          BookingFields.assignedOperatorDisplayId:
-              (operatorData[OperatorFields.operatorId] ?? '').toString(),
-          BookingFields.assignedOperatorPhone:
-              (operatorData[OperatorFields.phoneNumber] ?? '').toString(),
-          BookingFields.updatedAt: FieldValue.serverTimestamp(),
-        });
-        _appendStatusHistory(
-          tx: tx,
-          ref: ref,
-          from: status,
-          to: BookingStatus.accepted,
-          changedBy: operatorId,
-        );
+      final callable = _callableFunctions.httpsCallable('acceptPooledBooking');
+      final result = await callable.call(<String, dynamic>{
+        'bookingId': bookingId,
+        if (operatorLat != null) 'operatorLat': operatorLat,
+        if (operatorLng != null) 'operatorLng': operatorLng,
+        if (locationUpdatedAt != null)
+          'locationUpdatedAt': locationUpdatedAt.toIso8601String(),
+        if (routeDirection != null) 'routeDirection': routeDirection,
       });
-
-      return const OperationSuccess('Booking accepted successfully.');
-    } on StateError catch (e) {
+      final data = result.data is Map ? result.data as Map : const {};
+      final message = data['message']?.toString().trim();
+      return OperationSuccess(
+        message != null && message.isNotEmpty
+            ? message
+            : 'Booking accepted successfully.',
+      );
+    } on FirebaseFunctionsException catch (e) {
       return OperationFailure(
         'Unable to accept booking',
-        e.message,
-        isInfo: true,
+        e.message ??
+            'Backend booking assignment is unavailable. Please refresh and try again.',
+        isInfo:
+            e.code == 'failed-precondition' ||
+            e.code == 'unimplemented' ||
+            e.code == 'not-found' ||
+            e.code == 'unavailable',
       );
     } catch (e) {
       return OperationFailure('Accept failed', 'Could not accept booking: $e');
@@ -320,60 +290,60 @@ class BookingRepository {
     required String operatorId,
     double? operatorLat,
     double? operatorLng,
-  }) => _updateStatus(
-    bookingId: bookingId,
-    status: BookingStatus.onTheWay,
-    operatorId: operatorId,
-    operatorLat: operatorLat,
-    operatorLng: operatorLng,
-  );
+  }) async {
+    try {
+      final callable = _callableFunctions.httpsCallable('startPooledBooking');
+      await callable.call(<String, dynamic>{
+        'bookingId': bookingId,
+        if (operatorLat != null) 'operatorLat': operatorLat,
+        if (operatorLng != null) 'operatorLng': operatorLng,
+      });
+      return const OperationSuccess('Trip started successfully.');
+    } on FirebaseFunctionsException catch (e) {
+      return OperationFailure(
+        'Unable to start trip',
+        e.message ??
+            'Backend trip sequencing is unavailable. Please refresh and try again.',
+        isInfo:
+            e.code == 'failed-precondition' ||
+            e.code == 'unimplemented' ||
+            e.code == 'not-found' ||
+            e.code == 'unavailable',
+      );
+    } catch (e) {
+      return OperationFailure('Start failed', 'Could not start trip: $e');
+    }
+  }
 
   /// Marks that the passenger has been picked up while trip remains
   /// `on_the_way`.
   Future<OperationResult> markPassengerPickedUp({
     required String bookingId,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
   }) async {
     try {
-      await _runWithRetry(
-        () => _db.runTransaction((tx) async {
-          final ref = _db
-              .collection(FirestoreCollections.bookings)
-              .doc(bookingId);
-          final snap = await tx.get(ref);
-          if (!snap.exists || snap.data() == null) {
-            throw StateError('This booking no longer exists.');
-          }
-
-          final data = snap.data()!;
-          final currentStatus = BookingStatus.fromString(
-            (data[BookingFields.status] ?? '').toString(),
-          );
-          final assignedOperatorUid = _assignedOperatorUid(data);
-
-          if (currentStatus != BookingStatus.onTheWay ||
-              assignedOperatorUid != operatorId) {
-            throw StateError(
-              'Only your on-the-way booking can be marked as picked up.',
-            );
-          }
-
-          tx.update(ref, {
-            BookingFields.passengerPickedUpAt: FieldValue.serverTimestamp(),
-            BookingFields.updatedAt: FieldValue.serverTimestamp(),
-          });
-        }),
-      );
-
-      return const OperationSuccess('Passenger marked as picked up.');
-    } on StateError catch (e) {
+      final callable = _callableFunctions.httpsCallable('markPoolStopReached');
+      await callable.call(<String, dynamic>{
+        'bookingId': bookingId,
+        if (operatorLat != null) 'operatorLat': operatorLat,
+        if (operatorLng != null) 'operatorLng': operatorLng,
+      });
+      return const OperationSuccess('Pool stop completed.');
+    } on FirebaseFunctionsException catch (e) {
       return OperationFailure(
-        'Unable to update booking',
-        e.message,
-        isInfo: true,
+        'Unable to complete stop',
+        e.message ??
+            'Backend pool stop validation is unavailable. Please refresh and try again.',
+        isInfo:
+            e.code == 'failed-precondition' ||
+            e.code == 'unimplemented' ||
+            e.code == 'not-found' ||
+            e.code == 'unavailable',
       );
     } catch (e) {
-      return OperationFailure('Update failed', 'Could not update booking: $e');
+      return OperationFailure('Update failed', 'Could not complete stop: $e');
     }
   }
 
@@ -381,11 +351,32 @@ class BookingRepository {
   Future<OperationResult> completeTrip({
     required String bookingId,
     required String operatorId,
-  }) => _updateStatus(
-    bookingId: bookingId,
-    status: BookingStatus.completed,
-    operatorId: operatorId,
-  );
+    double? operatorLat,
+    double? operatorLng,
+  }) async {
+    try {
+      final callable = _callableFunctions.httpsCallable('markPoolStopReached');
+      await callable.call(<String, dynamic>{
+        'bookingId': bookingId,
+        if (operatorLat != null) 'operatorLat': operatorLat,
+        if (operatorLng != null) 'operatorLng': operatorLng,
+      });
+      return const OperationSuccess('Pool stop completed successfully.');
+    } on FirebaseFunctionsException catch (e) {
+      return OperationFailure(
+        'Unable to complete stop',
+        e.message ??
+            'Backend pool stop validation is unavailable. Please refresh and try again.',
+        isInfo:
+            e.code == 'failed-precondition' ||
+            e.code == 'unimplemented' ||
+            e.code == 'not-found' ||
+            e.code == 'unavailable',
+      );
+    } catch (e) {
+      return OperationFailure('Complete failed', 'Could not complete trip: $e');
+    }
+  }
 
   /// Publishes the operator's latest location for an active `on_the_way`
   /// booking so passengers can track in real time.
@@ -400,19 +391,52 @@ class BookingRepository {
         final bookingRef = _db
             .collection(FirestoreCollections.bookings)
             .doc(bookingId);
-        await bookingRef.set({
+        final seedSnap = await bookingRef.get();
+        final seedData = seedSnap.data();
+        final poolGroupId = seedData?[BookingFields.poolGroupId]?.toString();
+        final bookingRefs = <DocumentReference<Map<String, dynamic>>>[
+          bookingRef,
+        ];
+
+        if (poolGroupId != null && poolGroupId.trim().isNotEmpty) {
+          final pooledSnap = await _db
+              .collection(FirestoreCollections.bookings)
+              .where(BookingFields.operatorUid, isEqualTo: operatorId)
+              .where(BookingFields.poolGroupId, isEqualTo: poolGroupId)
+              .where(
+                BookingFields.status,
+                isEqualTo: BookingStatus.onTheWay.firestoreValue,
+              )
+              .get();
+          bookingRefs
+            ..clear()
+            ..addAll(pooledSnap.docs.map((doc) => doc.reference));
+          if (bookingRefs.isEmpty) {
+            bookingRefs.add(bookingRef);
+          }
+        }
+
+        final batch = _db.batch();
+        for (final ref in bookingRefs) {
+          batch.set(ref, {
           BookingFields.operatorLat: operatorLat,
           BookingFields.operatorLng: operatorLng,
           BookingFields.updatedAt: FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+          }, SetOptions(merge: true));
 
-        await _db.collection(FirestoreCollections.tracking).doc(bookingId).set({
-          TrackingFields.bookingId: bookingId,
-          TrackingFields.operatorUid: operatorId,
-          TrackingFields.operatorLat: operatorLat,
-          TrackingFields.operatorLng: operatorLng,
-          TrackingFields.updatedAt: FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
+          batch.set(
+            _db.collection(FirestoreCollections.tracking).doc(ref.id),
+            {
+              TrackingFields.bookingId: ref.id,
+              TrackingFields.operatorUid: operatorId,
+              TrackingFields.operatorLat: operatorLat,
+              TrackingFields.operatorLng: operatorLng,
+              TrackingFields.updatedAt: FieldValue.serverTimestamp(),
+            },
+            SetOptions(merge: true),
+          );
+        }
+        await batch.commit();
       });
 
       return const OperationSuccess('Location updated.');
@@ -479,75 +503,6 @@ class BookingRepository {
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
-
-  Future<OperationResult> _updateStatus({
-    required String bookingId,
-    required BookingStatus status,
-    required String operatorId,
-    double? operatorLat,
-    double? operatorLng,
-  }) async {
-    try {
-      final archivePayload = await _runWithRetry(
-        () => _db.runTransaction<Map<String, dynamic>?>((tx) async {
-          final ref = _db
-              .collection(FirestoreCollections.bookings)
-              .doc(bookingId);
-          final snap = await tx.get(ref);
-          if (!snap.exists || snap.data() == null) {
-            throw StateError('This booking no longer exists.');
-          }
-
-          final data = snap.data()!;
-          final currentStatus = BookingStatus.fromString(
-            (data[BookingFields.status] ?? '').toString(),
-          );
-
-          final payload = <String, dynamic>{
-            BookingFields.status: status.firestoreValue,
-            BookingFields.operatorUid: operatorId,
-            BookingFields.updatedAt: FieldValue.serverTimestamp(),
-          };
-
-          if (operatorLat != null && operatorLng != null) {
-            payload[BookingFields.operatorLat] = operatorLat;
-            payload[BookingFields.operatorLng] = operatorLng;
-          }
-
-          tx.update(ref, payload);
-          _appendStatusHistory(
-            tx: tx,
-            ref: ref,
-            from: currentStatus,
-            to: status,
-            changedBy: operatorId,
-          );
-
-          if (_shouldArchive(status)) {
-            return {
-              ...data,
-              ...payload,
-              BookingFields.status: status.firestoreValue,
-              BookingFields.updatedAt: FieldValue.serverTimestamp(),
-              'archivedAt': FieldValue.serverTimestamp(),
-              'archivedStatus': status.firestoreValue,
-            };
-          }
-
-          return null;
-        }),
-      );
-
-      if (archivePayload != null) {
-        await _writeArchiveBestEffort(bookingId, archivePayload);
-      }
-
-      final label = status == BookingStatus.onTheWay ? 'started' : 'completed';
-      return OperationSuccess('Trip $label successfully.');
-    } catch (e) {
-      return OperationFailure('Update failed', 'Could not update booking: $e');
-    }
-  }
 
   Future<Set<String>> _loadOnlineOperatorIds() async {
     final snap = await _db
@@ -981,31 +936,6 @@ class BookingRepository {
     ];
   }
 
-  static bool _shouldArchive(BookingStatus status) {
-    return status == BookingStatus.completed ||
-        status == BookingStatus.cancelled;
-  }
-
-  DocumentReference<Map<String, dynamic>> _archiveRef(String bookingId) {
-    return _db.collection(FirestoreCollections.bookingsArchive).doc(bookingId);
-  }
-
-  Future<void> _writeArchiveBestEffort(
-    String bookingId,
-    Map<String, dynamic> payload,
-  ) async {
-    try {
-      await _archiveRef(bookingId).set(payload);
-    } catch (e, stackTrace) {
-      developer.log(
-        'Booking completion succeeded, but archive write was skipped.',
-        name: 'BookingRepository',
-        error: e,
-        stackTrace: stackTrace,
-      );
-    }
-  }
-
   static List<String> _strList(dynamic v) {
     if (v is Iterable) return v.map((e) => e.toString()).toList();
     return const [];
@@ -1016,6 +946,32 @@ class BookingRepository {
             data[BookingFields.operatorId] ??
             '')
         .toString();
+  }
+
+  static int _compareActiveBookingSequence(BookingModel a, BookingModel b) {
+    if (a.status == BookingStatus.onTheWay &&
+        b.status != BookingStatus.onTheWay) {
+      return -1;
+    }
+    if (b.status == BookingStatus.onTheWay &&
+        a.status != BookingStatus.onTheWay) {
+      return 1;
+    }
+
+    final aSeq = a.poolSequence;
+    final bSeq = b.poolSequence;
+    if (aSeq != null && bSeq != null && aSeq != bSeq) {
+      return aSeq.compareTo(bSeq);
+    }
+    if (aSeq != null && bSeq == null) return -1;
+    if (aSeq == null && bSeq != null) return 1;
+
+    final at = a.updatedAt;
+    final bt = b.updatedAt;
+    if (at == null && bt == null) return 0;
+    if (at == null) return 1;
+    if (bt == null) return -1;
+    return bt.compareTo(at);
   }
 
   static dynamic _extractRoutePolylineRaw(Map<String, dynamic> data) {

@@ -37,6 +37,23 @@ class BookingModel {
     this.assignedOperatorName = '',
     this.assignedOperatorDisplayId = '',
     this.assignedOperatorPhone = '',
+    this.pooled = false,
+    this.poolGroupId,
+    this.routeDirection,
+    this.poolSequence,
+    this.poolCriteriaVersion,
+    this.poolMax,
+    this.poolEligibilityScore,
+    this.poolEtaSnapshot,
+    this.poolStopPlan = const <PoolStopPlanItem>[],
+    this.currentStopIndex,
+    this.currentStopId,
+    this.currentPoolStopId,
+    this.poolStatus,
+    this.poolPickupStopId,
+    this.poolDropoffStopId,
+    this.poolPhase,
+    this.onboard = false,
     this.operatorLat,
     this.operatorLng,
     required this.rejectedBy,
@@ -46,6 +63,9 @@ class BookingModel {
     this.updatedAt,
     this.cancelledAt,
     this.passengerPickedUpAt,
+    this.pickedUpAt,
+    this.droppedOffAt,
+    this.completedAt,
   }) : operatorUid = operatorUid ?? operatorId;
 
   final String bookingId;
@@ -77,6 +97,23 @@ class BookingModel {
   final String assignedOperatorName;
   final String assignedOperatorDisplayId;
   final String assignedOperatorPhone;
+  final bool pooled;
+  final String? poolGroupId;
+  final String? routeDirection;
+  final int? poolSequence;
+  final String? poolCriteriaVersion;
+  final int? poolMax;
+  final double? poolEligibilityScore;
+  final Map<String, dynamic>? poolEtaSnapshot;
+  final List<PoolStopPlanItem> poolStopPlan;
+  final int? currentStopIndex;
+  final String? currentStopId;
+  final String? currentPoolStopId;
+  final String? poolStatus;
+  final String? poolPickupStopId;
+  final String? poolDropoffStopId;
+  final String? poolPhase;
+  final bool onboard;
   final double? operatorLat;
   final double? operatorLng;
   final List<String> rejectedBy;
@@ -86,6 +123,26 @@ class BookingModel {
   final DateTime? updatedAt;
   final DateTime? cancelledAt;
   final DateTime? passengerPickedUpAt;
+  final DateTime? pickedUpAt;
+  final DateTime? droppedOffAt;
+  final DateTime? completedAt;
+
+  PoolStopPlanItem? get currentPoolStop {
+    if (poolStopPlan.isEmpty) return null;
+    if (currentStopId != null) {
+      for (final stop in poolStopPlan) {
+        if (stop.stopId == currentStopId) return stop;
+      }
+    }
+    for (final stop in poolStopPlan) {
+      if (stop.status == 'active') return stop;
+    }
+    final index = currentStopIndex ?? 0;
+    if (index >= 0 && index < poolStopPlan.length) {
+      return poolStopPlan[index];
+    }
+    return poolStopPlan.first;
+  }
 
   /// Creates a [BookingModel] from a raw Firestore document map.
   ///
@@ -158,6 +215,23 @@ class BookingModel {
       assignedOperatorName: _str(data['assignedOperatorName']),
       assignedOperatorDisplayId: _str(data['assignedOperatorDisplayId']),
       assignedOperatorPhone: _str(data['assignedOperatorPhone']),
+      pooled: _bool(data['pooled']),
+      poolGroupId: _nullableString(data['poolGroupId']),
+      routeDirection: _nullableString(data['routeDirection']),
+      poolSequence: _nullableInt(data['poolSequence']),
+      poolCriteriaVersion: _nullableString(data['poolCriteriaVersion']),
+      poolMax: _nullableInt(data['poolMax']),
+      poolEligibilityScore: _nullableDouble(data['poolEligibilityScore']),
+      poolEtaSnapshot: _nullableMap(data['poolEtaSnapshot']),
+      poolStopPlan: _poolStopPlan(data['poolStopPlan']),
+      currentStopIndex: _nullableInt(data['currentStopIndex']),
+      currentStopId: _nullableString(data['currentStopId']),
+      currentPoolStopId: _nullableString(data['currentPoolStopId']),
+      poolStatus: _nullableString(data['poolStatus']),
+      poolPickupStopId: _nullableString(data['poolPickupStopId']),
+      poolDropoffStopId: _nullableString(data['poolDropoffStopId']),
+      poolPhase: _nullableString(data['poolPhase']),
+      onboard: _bool(data['onboard']),
       operatorLat: _nullableDouble(data['operatorLat']),
       operatorLng: _nullableDouble(data['operatorLng']),
       rejectedBy: _strList(data['rejectedBy']),
@@ -167,6 +241,9 @@ class BookingModel {
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
       passengerPickedUpAt: _nullableDateTime(data['passengerPickedUpAt']),
+      pickedUpAt: _nullableDateTime(data['pickedUpAt']),
+      droppedOffAt: _nullableDateTime(data['droppedOffAt']),
+      completedAt: _nullableDateTime(data['completedAt']),
     );
   }
 
@@ -200,6 +277,23 @@ class BookingModel {
     String? assignedOperatorName,
     String? assignedOperatorDisplayId,
     String? assignedOperatorPhone,
+    bool? pooled,
+    String? poolGroupId,
+    String? routeDirection,
+    int? poolSequence,
+    String? poolCriteriaVersion,
+    int? poolMax,
+    double? poolEligibilityScore,
+    Map<String, dynamic>? poolEtaSnapshot,
+    List<PoolStopPlanItem>? poolStopPlan,
+    int? currentStopIndex,
+    String? currentStopId,
+    String? currentPoolStopId,
+    String? poolStatus,
+    String? poolPickupStopId,
+    String? poolDropoffStopId,
+    String? poolPhase,
+    bool? onboard,
     double? operatorLat,
     double? operatorLng,
     List<String>? rejectedBy,
@@ -209,6 +303,9 @@ class BookingModel {
     DateTime? updatedAt,
     DateTime? cancelledAt,
     DateTime? passengerPickedUpAt,
+    DateTime? pickedUpAt,
+    DateTime? droppedOffAt,
+    DateTime? completedAt,
   }) {
     return BookingModel(
       bookingId: bookingId ?? this.bookingId,
@@ -243,6 +340,23 @@ class BookingModel {
           assignedOperatorDisplayId ?? this.assignedOperatorDisplayId,
       assignedOperatorPhone:
           assignedOperatorPhone ?? this.assignedOperatorPhone,
+      pooled: pooled ?? this.pooled,
+      poolGroupId: poolGroupId ?? this.poolGroupId,
+      routeDirection: routeDirection ?? this.routeDirection,
+      poolSequence: poolSequence ?? this.poolSequence,
+      poolCriteriaVersion: poolCriteriaVersion ?? this.poolCriteriaVersion,
+      poolMax: poolMax ?? this.poolMax,
+      poolEligibilityScore: poolEligibilityScore ?? this.poolEligibilityScore,
+      poolEtaSnapshot: poolEtaSnapshot ?? this.poolEtaSnapshot,
+      poolStopPlan: poolStopPlan ?? this.poolStopPlan,
+      currentStopIndex: currentStopIndex ?? this.currentStopIndex,
+      currentStopId: currentStopId ?? this.currentStopId,
+      currentPoolStopId: currentPoolStopId ?? this.currentPoolStopId,
+      poolStatus: poolStatus ?? this.poolStatus,
+      poolPickupStopId: poolPickupStopId ?? this.poolPickupStopId,
+      poolDropoffStopId: poolDropoffStopId ?? this.poolDropoffStopId,
+      poolPhase: poolPhase ?? this.poolPhase,
+      onboard: onboard ?? this.onboard,
       operatorLat: operatorLat ?? this.operatorLat,
       operatorLng: operatorLng ?? this.operatorLng,
       rejectedBy: rejectedBy ?? this.rejectedBy,
@@ -252,6 +366,9 @@ class BookingModel {
       updatedAt: updatedAt ?? this.updatedAt,
       cancelledAt: cancelledAt ?? this.cancelledAt,
       passengerPickedUpAt: passengerPickedUpAt ?? this.passengerPickedUpAt,
+      pickedUpAt: pickedUpAt ?? this.pickedUpAt,
+      droppedOffAt: droppedOffAt ?? this.droppedOffAt,
+      completedAt: completedAt ?? this.completedAt,
     );
   }
 
@@ -265,11 +382,25 @@ class BookingModel {
     return double.tryParse(v?.toString() ?? '') ?? 0.0;
   }
 
+  static bool _bool(dynamic v) {
+    if (v is bool) return v;
+    if (v is num) return v != 0;
+    final text = v?.toString().trim().toLowerCase();
+    return text == 'true' || text == '1' || text == 'yes';
+  }
+
   static double? _nullableDouble(dynamic v) {
     if (v == null) return null;
     if (v is double) return v;
     if (v is num) return v.toDouble();
     return double.tryParse(v.toString());
+  }
+
+  static int? _nullableInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.truncate();
+    return int.tryParse(v.toString());
   }
 
   static int _int(dynamic v) {
@@ -282,6 +413,21 @@ class BookingModel {
     final normalized = v?.toString().trim();
     if (normalized == null || normalized.isEmpty) return null;
     return normalized;
+  }
+
+  static Map<String, dynamic>? _nullableMap(dynamic v) {
+    if (v is Map) {
+      return Map<String, dynamic>.from(v);
+    }
+    return null;
+  }
+
+  static List<PoolStopPlanItem> _poolStopPlan(dynamic value) {
+    if (value is! Iterable) return const <PoolStopPlanItem>[];
+    return value
+        .whereType<Map>()
+        .map((item) => PoolStopPlanItem.fromMap(Map<String, dynamic>.from(item)))
+        .toList(growable: false);
   }
 
   static List<String> _strList(dynamic v) {
@@ -380,5 +526,106 @@ class BookingRoutePoint {
     if (v is double) return v;
     if (v is num) return v.toDouble();
     return double.tryParse(v?.toString() ?? '');
+  }
+}
+
+class PoolStopPlanItem {
+  const PoolStopPlanItem({
+    required this.stopId,
+    required this.index,
+    required this.stopType,
+    this.stopJettyId,
+    required this.stopName,
+    required this.lat,
+    required this.lng,
+    this.routePositionMeters,
+    this.distanceFromRouteMeters,
+    required this.bookingIds,
+    this.status = 'pending',
+    this.etaToStopMinutes,
+    this.reachedAt,
+    this.completedAt,
+  });
+
+  final String stopId;
+  final int index;
+  final String stopType;
+  final String? stopJettyId;
+  final String stopName;
+  final double lat;
+  final double lng;
+  final double? routePositionMeters;
+  final double? distanceFromRouteMeters;
+  final List<String> bookingIds;
+  final String status;
+  final double? etaToStopMinutes;
+  final DateTime? reachedAt;
+  final DateTime? completedAt;
+
+  bool get isPickup => stopType == 'pickup';
+  bool get isDropoff => stopType == 'dropoff';
+
+  factory PoolStopPlanItem.fromMap(Map<String, dynamic> data) {
+    return PoolStopPlanItem(
+      stopId: _str(data['stopId']),
+      index: _int(data['stopIndex'] ?? data['index']),
+      stopType: _str(data['stopType']),
+      stopJettyId: _nullableString(data['jettyId'] ?? data['stopJettyId']),
+      stopName: _str(data['jettyName'] ?? data['stopName']),
+      lat: _double(data['lat']),
+      lng: _double(data['lng']),
+      routePositionMeters: _nullableDouble(data['routePositionMeters']),
+      distanceFromRouteMeters: _nullableDouble(data['distanceFromRouteMeters']),
+      bookingIds: _strList(data['bookingIds']),
+      status: _str(data['status']).isEmpty ? 'pending' : _str(data['status']),
+      etaToStopMinutes: _nullableDouble(data['etaToStop']),
+      reachedAt: _nullableDateTime(data['reachedAt']),
+      completedAt: _nullableDateTime(data['completedAt']),
+    );
+  }
+
+  static String _str(dynamic v) => (v ?? '').toString();
+
+  static double _double(dynamic v) {
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v?.toString() ?? '') ?? 0.0;
+  }
+
+  static double? _nullableDouble(dynamic v) {
+    if (v == null) return null;
+    if (v is double) return v;
+    if (v is num) return v.toDouble();
+    return double.tryParse(v.toString());
+  }
+
+  static int _int(dynamic v) {
+    if (v is int) return v;
+    if (v is num) return v.truncate();
+    return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  static String? _nullableString(dynamic v) {
+    final text = v?.toString().trim();
+    return text == null || text.isEmpty ? null : text;
+  }
+
+  static List<String> _strList(dynamic v) {
+    if (v is Iterable) return v.map((e) => e.toString()).toList();
+    return const [];
+  }
+
+  static DateTime? _nullableDateTime(dynamic v) {
+    if (v == null) return null;
+    if (v is DateTime) return v;
+    if (v is int) return DateTime.fromMillisecondsSinceEpoch(v);
+    if (v is num) return DateTime.fromMillisecondsSinceEpoch(v.toInt());
+    if (v is String) return DateTime.tryParse(v);
+    try {
+      final dynamic maybeTimestamp = v;
+      return maybeTimestamp.toDate() as DateTime?;
+    } catch (_) {
+      return null;
+    }
   }
 }

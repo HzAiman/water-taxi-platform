@@ -652,8 +652,17 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : guidance?.isEtaLowConfidence == true
         ? '~ ${_formatEta(guidance?.eta)}'
         : _formatEta(guidance?.eta);
+    final currentStop = booking.currentPoolStop;
+    final isPickupStop = currentStop?.isPickup ?? !passengerPickedUp;
+    final actionLabel = currentStop == null
+        ? (passengerPickedUp ? 'Complete Trip' : 'Passenger Picked Up')
+        : isPickupStop
+        ? 'Complete Pickup Stop'
+        : 'Complete Dropoff Stop';
 
     return OperatorCollapsibleNavigationCard(
+      stopLabel: _formatPoolStopLabel(currentStop),
+      routeDirectionLabel: _formatRouteDirectionLabel(booking.routeDirection),
       progressLabel: hasPausedRecoveryState
           ? 'Paused'
           : progressPercent == null
@@ -662,25 +671,51 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       remaining: remaining,
       eta: eta,
       isUpdating: viewModel.isUpdatingBooking,
-      primaryActionLabel: passengerPickedUp
-          ? 'Complete Trip'
-          : 'Passenger Picked Up',
+      primaryActionLabel: actionLabel,
       routeWarningText: isLiveLocationStale
           ? 'Live GPS is stale. Progress and ETA are paused until a fresh location arrives.'
           : _criticalRouteWarningText(guidance),
       onPrimaryAction: () async {
-        final result = passengerPickedUp
+        final result = !isPickupStop
             ? await viewModel.completeTrip(booking.bookingId)
             : await viewModel.markPassengerPickedUp(booking.bookingId);
         if (!mounted) {
           return;
         }
-        _showOperationResult(result);
-        if (passengerPickedUp && result is OperationSuccess) {
+        _showStopOperationResult(
+          result,
+          isPickupStop: isPickupStop,
+          currentStop: currentStop,
+        );
+        if (!isPickupStop && result is OperationSuccess) {
           await _centerOnUser(showFeedback: false);
         }
       },
     );
+  }
+
+  String? _formatPoolStopLabel(PoolStopPlanItem? stop) {
+    if (stop == null) {
+      return null;
+    }
+    final verb = stop.isPickup ? 'Pick up' : 'Drop off';
+    final count = stop.bookingIds.length;
+    final bookingText = count <= 1 ? '1 booking' : '$count bookings';
+    final stopName = stop.stopName.trim().isEmpty
+        ? 'next jetty'
+        : stop.stopName.trim();
+    return '$verb $bookingText at $stopName';
+  }
+
+  String? _formatRouteDirectionLabel(String? routeDirection) {
+    final normalized = routeDirection?.trim().toLowerCase();
+    if (normalized == 'forward') {
+      return 'Forward route';
+    }
+    if (normalized == 'reverse') {
+      return 'Reverse route';
+    }
+    return null;
   }
 
   Widget _buildPendingBookingCard(
@@ -796,6 +831,28 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
   }
 
+  void _showStopOperationResult(
+    OperationResult result, {
+    required bool isPickupStop,
+    required PoolStopPlanItem? currentStop,
+  }) {
+    if (result is OperationSuccess && currentStop != null) {
+      final count = currentStop.bookingIds.length;
+      final bookingText = count <= 1 ? '1 booking' : '$count bookings';
+      final stopName = currentStop.stopName.trim().isEmpty
+          ? 'this stop'
+          : currentStop.stopName.trim();
+      showTopSuccess(
+        context,
+        message: isPickupStop
+            ? 'Picked up $bookingText at $stopName.'
+            : 'Dropped off $bookingText at $stopName.',
+      );
+      return;
+    }
+    _showOperationResult(result);
+  }
+
   Future<void> _syncNavigationCamera(
     BookingModel? activeBooking, {
     required List<LatLng> routePoints,
@@ -859,7 +916,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }
 
   bool _isPassengerPickedUp(BookingModel booking) {
-    return booking.passengerPickedUpAt != null;
+    return booking.passengerPickedUpAt != null ||
+        booking.pickedUpAt != null ||
+        booking.onboard ||
+        booking.poolPhase == 'onboard';
   }
 
   String? _criticalRouteWarningText(OperatorNavigationGuidance? guidance) {

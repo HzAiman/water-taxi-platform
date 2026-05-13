@@ -150,6 +150,16 @@ service cloud.firestore {
         'assignedOperatorName',
         'assignedOperatorDisplayId',
         'assignedOperatorPhone',
+        'pooled',
+        'poolGroupId',
+        'routeDirection',
+        'poolSequence',
+        'poolCriteriaVersion',
+        'poolMax',
+        'poolEligibilityScore',
+        'poolEtaSnapshot',
+        'poolStopPlan',
+        'currentStopIndex',
         'passengerPickedUpAt',
         'operatorLat',
         'operatorLng',
@@ -314,6 +324,13 @@ service cloud.firestore {
       allow update: if isOperator()
         && request.resource.data.userId == resource.data.userId
         && request.resource.data.bookingId == resource.data.bookingId
+        // Starting navigation is backend-authoritative. Clients may update an
+        // existing on_the_way booking location, but may not transition into
+        // on_the_way directly.
+        && !(
+          resource.data.status != 'on_the_way'
+          && request.resource.data.status == 'on_the_way'
+        )
         && (
           (
             request.resource.data.diff(resource.data).changedKeys().hasOnly([
@@ -334,14 +351,6 @@ service cloud.firestore {
               resource.data.keys().hasAny(['rejectedBy'])
               && resource.data.rejectedBy.hasAny([request.auth.uid])
             )
-          )
-          || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId', 'operatorLat', 'operatorLng'])
-            &&
-            resource.data.status == 'accepted'
-            && request.resource.data.status == 'on_the_way'
-            && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
-            && isAssignedOperator()
           )
           || (
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId', 'rejectedBy'])
@@ -365,14 +374,6 @@ service cloud.firestore {
                 && request.resource.data.rejectedBy.size() == resource.data.rejectedBy.size() + 1
               )
             )
-          )
-          || (
-            request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'operatorUid', 'operatorId'])
-            &&
-            resource.data.status == 'on_the_way'
-            && request.resource.data.status == 'completed'
-            && bookingOperatorUid(request.resource.data) == bookingOperatorUid(resource.data)
-            && isAssignedOperator()
           )
           || (
             request.resource.data.diff(resource.data).changedKeys().hasOnly(['updatedAt', 'operatorLat', 'operatorLng'])

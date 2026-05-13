@@ -1225,6 +1225,10 @@ class FakeOperatorBookingRepository extends BookingRepository {
   Future<OperationResult> acceptBooking({
     required String bookingId,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
+    DateTime? locationUpdatedAt,
+    String? routeDirection,
   }) async {
     lastAcceptedBookingId = bookingId;
     lastAcceptedOperatorId = operatorId;
@@ -1265,6 +1269,8 @@ class FakeOperatorBookingRepository extends BookingRepository {
   Future<OperationResult> completeTrip({
     required String bookingId,
     required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
   }) async {
     return completeResult;
   }

@@ -49,8 +49,8 @@ class OperatorNotificationCoordinator {
       <String, DateTime>{};
 
   static const Duration _eventDedupeWindow = Duration(seconds: 12);
-  static const Duration _routeProgressCooldown = Duration(seconds: 60);
-  static const Duration _routeStateCooldown = Duration(seconds: 20);
+  static const Duration _routeProgressCooldown = Duration(minutes: 2);
+  static const Duration _routeStateCooldown = Duration(minutes: 2);
 
   Future<void> start({required String operatorId}) async {
     await _localNotifications.initialize();
@@ -150,6 +150,9 @@ class OperatorNotificationCoordinator {
     );
 
     if (_isForeground) {
+      if (!_shouldShowForegroundMessage(message)) {
+        return;
+      }
       _onForegroundMessage(message);
       return;
     }
@@ -160,6 +163,15 @@ class OperatorNotificationCoordinator {
       body: message.body,
       payload: payload,
     );
+  }
+
+  bool _shouldShowForegroundMessage(NotificationMessage message) {
+    // These are already visible in the live cards/navigation UI. Suppressing
+    // them prevents grouped pool updates from becoming banner spam.
+    return switch (message.title) {
+      'Route progress' || 'Booking status updated' => false,
+      _ => true,
+    };
   }
 
   Future<void> deliverNavigationAlert(OperatorNavigationAlert alert) {

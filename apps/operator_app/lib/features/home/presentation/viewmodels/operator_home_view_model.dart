@@ -260,10 +260,16 @@ class OperatorHomeViewModel extends ChangeNotifier {
       }
     }
     final result = await _withBusy(
-      () => _bookingRepo.acceptBooking(
-        bookingId: bookingId,
-        operatorId: operatorId,
-      ),
+      () async {
+        final position = await _currentPositionOrNull();
+        return _bookingRepo.acceptBooking(
+          bookingId: bookingId,
+          operatorId: operatorId,
+          operatorLat: position?.latitude,
+          operatorLng: position?.longitude,
+          locationUpdatedAt: position?.timestamp,
+        );
+      },
       actionName: 'accept_booking',
       bookingId: bookingId,
     );
@@ -337,10 +343,15 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
     final result = await _withBusy(
-      () => _bookingRepo.completeTrip(
-        bookingId: bookingId,
-        operatorId: operatorId,
-      ),
+      () async {
+        final position = await _currentPositionOrNull();
+        return _bookingRepo.completeTrip(
+          bookingId: bookingId,
+          operatorId: operatorId,
+          operatorLat: position?.latitude,
+          operatorLng: position?.longitude,
+        );
+      },
       actionName: 'complete_trip',
       bookingId: bookingId,
     );
@@ -356,10 +367,15 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
     final result = await _withBusy(
-      () => _bookingRepo.markPassengerPickedUp(
-        bookingId: bookingId,
-        operatorId: operatorId,
-      ),
+      () async {
+        final position = await _currentPositionOrNull();
+        return _bookingRepo.markPassengerPickedUp(
+          bookingId: bookingId,
+          operatorId: operatorId,
+          operatorLat: position?.latitude,
+          operatorLng: position?.longitude,
+        );
+      },
       actionName: 'mark_passenger_picked_up',
       bookingId: bookingId,
     );

@@ -136,7 +136,10 @@ class OperatorActiveBookingCard extends StatelessWidget {
     final fareSummary = booking.totalFare > 0
         ? formatCurrency(booking.totalFare)
         : 'Fare N/A';
-    var subtitle = isOnTheWay
+    final currentStop = booking.currentPoolStop;
+    var subtitle = currentStop != null
+        ? _poolStopSubtitle(currentStop, booking)
+        : isOnTheWay
         ? '${booking.origin} → ${booking.destination}\n$passengerSummary - $fareSummary'
         : detailText;
     if (isStale) {
@@ -171,7 +174,9 @@ class OperatorActiveBookingCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  booking.userName.trim().isEmpty
+                  currentStop != null
+                      ? _poolStopTitle(currentStop)
+                      : booking.userName.trim().isEmpty
                       ? 'Current Trip'
                       : booking.userName,
                   style: TextStyle(
@@ -190,7 +195,9 @@ class OperatorActiveBookingCard extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  formatStatusLabel(status.firestoreValue),
+                  currentStop != null
+                      ? _routeDirectionLabel(booking.routeDirection)
+                      : formatStatusLabel(status.firestoreValue),
                   style: TextStyle(
                     fontSize: 11,
                     color: actionColor,
@@ -212,6 +219,25 @@ class OperatorActiveBookingCard extends StatelessWidget {
             maxLines: isStale ? 4 : 2,
             overflow: TextOverflow.ellipsis,
           ),
+          if (currentStop != null) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                _buildPoolChip(
+                  _poolPhaseLabel(booking),
+                  OperatorBrand.magenta,
+                  Icons.groups_2,
+                ),
+                _buildPoolChip(
+                  '${currentStop.bookingIds.length} stop booking${currentStop.bookingIds.length == 1 ? '' : 's'}',
+                  Colors.blueGrey,
+                  Icons.alt_route,
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
           Row(
             children: [
@@ -270,7 +296,11 @@ class OperatorActiveBookingCard extends StatelessWidget {
                               ),
                             ),
                           )
-                        : const Text('Start'),
+                        : Text(
+                            booking.poolGroupId == null
+                                ? 'Start'
+                                : 'Start Route',
+                          ),
                   ),
                 ),
               ],
@@ -280,6 +310,70 @@ class OperatorActiveBookingCard extends StatelessWidget {
       ),
     );
   }
+}
+
+String _poolStopTitle(PoolStopPlanItem stop) {
+  final verb = stop.isPickup ? 'Pick up' : 'Drop off';
+  final count = stop.bookingIds.length;
+  final bookingText = count <= 1 ? '1 booking' : '$count bookings';
+  return '$verb $bookingText';
+}
+
+String _poolStopSubtitle(PoolStopPlanItem stop, BookingModel booking) {
+  final stopName = stop.stopName.trim().isEmpty
+      ? 'Next jetty'
+      : stop.stopName.trim();
+  return '$stopName\n${_routeDirectionLabel(booking.routeDirection)} - ${_poolPhaseLabel(booking)}';
+}
+
+String _routeDirectionLabel(String? routeDirection) {
+  final normalized = routeDirection?.trim().toLowerCase();
+  if (normalized == 'reverse') {
+    return 'Reverse route';
+  }
+  if (normalized == 'forward') {
+    return 'Forward route';
+  }
+  return 'Pool route';
+}
+
+String _poolPhaseLabel(BookingModel booking) {
+  final phase = booking.poolPhase?.trim().toLowerCase();
+  if (phase == 'onboard' || booking.onboard) {
+    return 'Onboard';
+  }
+  if (phase == 'dropped_off' || booking.status == BookingStatus.completed) {
+    return 'Dropped off';
+  }
+  if (phase == 'cancelled' || booking.status == BookingStatus.cancelled) {
+    return 'Cancelled';
+  }
+  return 'Waiting pickup';
+}
+
+Widget _buildPoolChip(String label, Color color, IconData icon) {
+  return Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.10),
+      borderRadius: BorderRadius.circular(999),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 13, color: color),
+        const SizedBox(width: 4),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: color,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class OperatorPendingBookingCard extends StatelessWidget {
@@ -436,6 +530,8 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
     required this.progressLabel,
     required this.remaining,
     required this.eta,
+    this.stopLabel,
+    this.routeDirectionLabel,
     required this.isUpdating,
     required this.primaryActionLabel,
     required this.routeWarningText,
@@ -445,6 +541,8 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
   final String progressLabel;
   final String remaining;
   final String eta;
+  final String? stopLabel;
+  final String? routeDirectionLabel;
   final bool isUpdating;
   final String primaryActionLabel;
   final String? routeWarningText;
@@ -537,6 +635,28 @@ class _OperatorCollapsibleNavigationCardState
             ),
           ),
           const SizedBox(height: 8),
+          if (widget.stopLabel != null ||
+              widget.routeDirectionLabel != null) ...[
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (widget.stopLabel != null)
+                  _buildNavigationChip(
+                    widget.stopLabel!,
+                    OperatorBrand.magenta,
+                    Icons.place,
+                  ),
+                if (widget.routeDirectionLabel != null)
+                  _buildNavigationChip(
+                    widget.routeDirectionLabel!,
+                    Colors.blueGrey,
+                    Icons.swap_vert,
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
           Text(
             '${widget.remaining} - ETA ${widget.eta}',
             style: TextStyle(
@@ -580,6 +700,36 @@ class _OperatorCollapsibleNavigationCardState
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildNavigationChip(String label, Color color, IconData icon) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 5),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 260),
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 11,
+                color: color,
+                fontWeight: FontWeight.w800,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

@@ -40,7 +40,8 @@ class OperatorMapLayers {
   static const double _closedLoopToleranceMeters = 12.0;
 
   static bool isActiveNavigationBooking(BookingModel booking) {
-    return booking.status == BookingStatus.onTheWay;
+    return booking.status == BookingStatus.onTheWay ||
+        booking.poolStatus == 'in_progress';
   }
 
   static bool shouldShowOperatorMarker(BookingModel booking) {
@@ -244,10 +245,28 @@ class OperatorMapLayers {
       return markers;
     }
 
+    final currentStop = activeBooking.currentPoolStop;
     final passengerPickedUp = activeBooking.passengerPickedUpAt != null;
     final originLat = activeBooking.originLat;
     final originLng = activeBooking.originLng;
-    if (!passengerPickedUp && _isValidLatLng(originLat, originLng)) {
+    if (currentStop != null &&
+        _isValidLatLng(currentStop.lat, currentStop.lng)) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('current_pool_stop'),
+          position: LatLng(currentStop.lat, currentStop.lng),
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            currentStop.isPickup
+                ? BitmapDescriptor.hueRed
+                : BitmapDescriptor.hueAzure,
+          ),
+          infoWindow: InfoWindow(
+            title: currentStop.isPickup ? 'Next pickup stop' : 'Next drop-off stop',
+            snippet: currentStop.stopName,
+          ),
+        ),
+      );
+    } else if (!passengerPickedUp && _isValidLatLng(originLat, originLng)) {
       markers.add(
         Marker(
           markerId: const MarkerId('origin'),
@@ -262,7 +281,7 @@ class OperatorMapLayers {
 
     final destLat = activeBooking.destinationLat;
     final destLng = activeBooking.destinationLng;
-    if (_isValidLatLng(destLat, destLng)) {
+    if (currentStop == null && _isValidLatLng(destLat, destLng)) {
       markers.add(
         Marker(
           markerId: const MarkerId('destination'),
@@ -444,6 +463,16 @@ class OperatorMapLayers {
     final liveOperatorPoint =
         operatorPoint ??
         _latLngOrNull(booking.operatorLat, booking.operatorLng);
+    final currentStop = booking.currentPoolStop;
+    if (currentStop != null &&
+        liveOperatorPoint != null &&
+        _isValidLatLng(liveOperatorPoint.latitude, liveOperatorPoint.longitude) &&
+        _isValidLatLng(currentStop.lat, currentStop.lng)) {
+      return <LatLng>[
+        liveOperatorPoint,
+        LatLng(currentStop.lat, currentStop.lng),
+      ];
+    }
     switch (phase) {
       case OperatorRoutePhase.toPickup:
         if (liveOperatorPoint != null &&
@@ -500,17 +529,20 @@ class OperatorMapLayers {
             _latLngOrNull(booking.operatorLat, booking.operatorLng),
       OperatorRoutePhase.none => null,
     };
-    final endPoint = switch (phase) {
-      OperatorRoutePhase.toPickup => LatLng(
-        booking.originLat,
-        booking.originLng,
-      ),
-      OperatorRoutePhase.toDestination => LatLng(
-        booking.destinationLat,
-        booking.destinationLng,
-      ),
-      OperatorRoutePhase.none => null,
-    };
+    final currentStop = booking.currentPoolStop;
+    final endPoint = currentStop != null
+        ? LatLng(currentStop.lat, currentStop.lng)
+        : switch (phase) {
+            OperatorRoutePhase.toPickup => LatLng(
+              booking.originLat,
+              booking.originLng,
+            ),
+            OperatorRoutePhase.toDestination => LatLng(
+              booking.destinationLat,
+              booking.destinationLng,
+            ),
+            OperatorRoutePhase.none => null,
+          };
 
     if (startPoint == null ||
         endPoint == null ||

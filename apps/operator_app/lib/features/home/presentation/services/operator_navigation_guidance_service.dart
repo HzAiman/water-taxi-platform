@@ -89,8 +89,11 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
           .toList(growable: false);
   final startLat = currentLat;
   final startLng = currentLng;
-  final endLat = passengerPickedUp ? booking.destinationLat : booking.originLat;
-  final endLng = passengerPickedUp ? booking.destinationLng : booking.originLng;
+  final currentStop = booking.currentPoolStop;
+  final endLat =
+      currentStop?.lat ?? (passengerPickedUp ? booking.destinationLat : booking.originLat);
+  final endLng =
+      currentStop?.lng ?? (passengerPickedUp ? booking.destinationLng : booking.originLng);
   final projection = _projectProgressOnRoute(
     currentLat: currentLat,
     currentLng: currentLng,
