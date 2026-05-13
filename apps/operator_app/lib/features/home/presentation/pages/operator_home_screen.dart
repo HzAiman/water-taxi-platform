@@ -654,8 +654,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : _formatEta(guidance?.eta);
     final currentStop = booking.currentPoolStop;
     final isPickupStop = currentStop?.isPickup ?? !passengerPickedUp;
+    final isGroupedStop = (currentStop?.bookingIds.length ?? 1) > 1;
     final actionLabel = currentStop == null
         ? (passengerPickedUp ? 'Complete Trip' : 'Passenger Picked Up')
+        : !isGroupedStop
+        ? (isPickupStop ? 'Mark Picked Up' : 'Complete Trip')
         : isPickupStop
         ? 'Complete Pickup Stop'
         : 'Complete Dropoff Stop';

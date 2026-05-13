@@ -315,6 +315,9 @@ class OperatorActiveBookingCard extends StatelessWidget {
 String _poolStopTitle(PoolStopPlanItem stop) {
   final verb = stop.isPickup ? 'Pick up' : 'Drop off';
   final count = stop.bookingIds.length;
+  if (count <= 1) {
+    return stop.isPickup ? 'Current Pickup' : 'Current Dropoff';
+  }
   final bookingText = count <= 1 ? '1 booking' : '$count bookings';
   return '$verb $bookingText';
 }
