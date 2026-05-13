@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/utils/operator_id_input_formatter.dart';
+import 'package:operator_app/core/utils/operator_phone_number.dart';
 import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/core/widgets/app_action_button.dart';
 import 'package:operator_app/features/auth/presentation/widgets/operator_auth_hero.dart';
@@ -72,6 +74,8 @@ class OperatorProfileSetupForm extends StatelessWidget {
           TextFormField(
             controller: idController,
             enabled: !isSaving,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: const [UpperCaseTextFormatter()],
             decoration: const InputDecoration(
               labelText: 'Operator ID',
               hintText: 'e.g. OP-001',
@@ -94,10 +98,16 @@ class OperatorProfileSetupForm extends StatelessWidget {
             keyboardType: TextInputType.phone,
             decoration: const InputDecoration(
               labelText: 'Phone Number',
-              hintText: 'e.g. +6012-345 6789',
+              hintText: 'e.g. 12 345 6789',
               prefixIcon: Icon(
                 Icons.phone_outlined,
                 color: OperatorBrand.magenta,
+              ),
+              prefixText: '$operatorMalaysiaCountryCode  ',
+              prefixStyle: TextStyle(
+                color: OperatorBrand.magenta,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
               ),
             ),
             validator: (value) {

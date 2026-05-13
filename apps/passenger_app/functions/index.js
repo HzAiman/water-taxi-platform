@@ -26,6 +26,7 @@ const COLLECTIONS = {
   fares: "fares",
   jetties: "jetties",
   operators: "operators",
+  operatorIdIndex: "operator_id_index",
   operatorPresence: "operator_presence",
   operatorDevices: "operator_devices",
   userDevices: "user_devices",
@@ -1042,6 +1043,132 @@ function appendStatusHistory({
     [STATUS_HISTORY_FIELDS.timestamp]: FieldValue.serverTimestamp(),
   });
 }
+
+function normalizeOperatorDisplayId(value) {
+  return asString(value).toUpperCase();
+}
+
+exports.saveOperatorProfile = onCall(
+  {
+    region: "asia-southeast1",
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in is required.");
+    }
+
+    const uid = request.auth.uid;
+    const name = asString(request.data?.name);
+    const email = asString(request.data?.email);
+    const operatorId = normalizeOperatorDisplayId(request.data?.operatorId);
+    const phoneNumber = asString(request.data?.phoneNumber);
+
+    if (!name || !email || !operatorId || !phoneNumber) {
+      throw new HttpsError(
+        "invalid-argument",
+        "Name, email, operator ID, and phone number are required."
+      );
+    }
+
+    const operatorRef = db.collection(COLLECTIONS.operators).doc(uid);
+    const presenceRef = db.collection(COLLECTIONS.operatorPresence).doc(uid);
+    const operatorIdIndexRef = db
+      .collection(COLLECTIONS.operatorIdIndex)
+      .doc(operatorId);
+    const duplicateOperatorIdQuery = db
+      .collection(COLLECTIONS.operators)
+      .where("operatorId", "==", operatorId)
+      .limit(2);
+
+    await db.runTransaction(async (tx) => {
+      const [
+        operatorSnap,
+        presenceSnap,
+        operatorIdIndexSnap,
+        duplicateOperatorIdSnap,
+      ] = await Promise.all([
+        tx.get(operatorRef),
+        tx.get(presenceRef),
+        tx.get(operatorIdIndexRef),
+        tx.get(duplicateOperatorIdQuery),
+      ]);
+
+      duplicateOperatorIdSnap.docs.forEach((doc) => {
+        if (doc.id !== uid) {
+          throw new HttpsError(
+            "already-exists",
+            `Operator ID ${operatorId} is already used.`
+          );
+        }
+      });
+
+      if (operatorIdIndexSnap.exists) {
+        const claimedBy = asString(operatorIdIndexSnap.data()?.uid);
+        if (claimedBy && claimedBy !== uid) {
+          throw new HttpsError(
+            "already-exists",
+            `Operator ID ${operatorId} is already used.`
+          );
+        }
+      }
+
+      const existingOperator = operatorSnap.data() || {};
+      const previousOperatorId = normalizeOperatorDisplayId(
+        existingOperator.operatorId
+      );
+      const presenceData = presenceSnap.data() || {};
+      const resolvedOnline = presenceData.isOnline === true;
+
+      tx.set(
+        operatorRef,
+        {
+          name,
+          email,
+          operatorId,
+          phoneNumber,
+          updatedAt: FieldValue.serverTimestamp(),
+          ...(!operatorSnap.exists
+            ? { createdAt: FieldValue.serverTimestamp() }
+            : {}),
+        },
+        { merge: true }
+      );
+
+      tx.set(
+        operatorIdIndexRef,
+        {
+          uid,
+          operatorId,
+          updatedAt: FieldValue.serverTimestamp(),
+          ...(!operatorIdIndexSnap.exists
+            ? { createdAt: FieldValue.serverTimestamp() }
+            : {}),
+        },
+        { merge: true }
+      );
+
+      if (previousOperatorId && previousOperatorId !== operatorId) {
+        tx.delete(
+          db.collection(COLLECTIONS.operatorIdIndex).doc(previousOperatorId)
+        );
+      }
+
+      tx.set(
+        presenceRef,
+        {
+          isOnline: resolvedOnline,
+          updatedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+    });
+
+    return {
+      status: "saved",
+      operatorId,
+    };
+  }
+);
 
 /**
  * Validates payment intent creation parameters.

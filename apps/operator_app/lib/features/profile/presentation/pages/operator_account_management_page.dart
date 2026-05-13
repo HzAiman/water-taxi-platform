@@ -1,5 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/utils/operator_id_input_formatter.dart';
+import 'package:operator_app/core/utils/operator_phone_number.dart';
 import 'package:operator_app/core/widgets/gradient_app_bar.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
@@ -45,9 +47,9 @@ class _OperatorAccountManagementPageState
 
     setState(() {
       _nameController.text = op?.name ?? '';
-      _idController.text = op?.operatorId ?? '';
+      _idController.text = normalizeOperatorId(op?.operatorId ?? '');
       _emailController.text = user.email ?? op?.email ?? '';
-      _phoneController.text = op?.phoneNumber ?? '';
+      _phoneController.text = operatorPhoneLocalPart(op?.phoneNumber ?? '');
     });
   }
 
@@ -71,8 +73,8 @@ class _OperatorAccountManagementPageState
         uid: user.uid,
         name: _nameController.text,
         email: _emailController.text,
-        operatorId: _idController.text,
-        phoneNumber: _phoneController.text,
+        operatorId: normalizeOperatorId(_idController.text),
+        phoneNumber: formatOperatorMalaysiaPhoneNumber(_phoneController.text),
       );
 
       if (!mounted) {
@@ -84,6 +86,12 @@ class _OperatorAccountManagementPageState
       });
 
       showTopSuccess(context, message: 'Profile updated successfully');
+    } on StateError catch (e) {
+      if (!mounted) {
+        return;
+      }
+
+      showTopError(context, message: e.message, title: 'Profile update failed');
     } catch (e) {
       if (!mounted) {
         return;

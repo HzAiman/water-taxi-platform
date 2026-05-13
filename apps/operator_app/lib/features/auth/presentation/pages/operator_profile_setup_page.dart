@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/utils/operator_id_input_formatter.dart';
+import 'package:operator_app/core/utils/operator_phone_number.dart';
 import 'package:operator_app/core/widgets/gradient_app_bar.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/auth/presentation/widgets/operator_profile_setup_form.dart';
@@ -45,9 +47,17 @@ class _OperatorProfileSetupPageState extends State<OperatorProfileSetupPage> {
         uid: widget.uid,
         name: _nameController.text,
         email: widget.email,
-        operatorId: _idController.text,
-        phoneNumber: _phoneController.text,
+        operatorId: normalizeOperatorId(_idController.text),
+        phoneNumber: formatOperatorMalaysiaPhoneNumber(_phoneController.text),
       );
+    } on StateError catch (e) {
+      if (mounted) {
+        showTopError(
+          context,
+          message: e.message,
+          title: 'Profile setup failed',
+        );
+      }
     } catch (e) {
       if (mounted) {
         showTopError(

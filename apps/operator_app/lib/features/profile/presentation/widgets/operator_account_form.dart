@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/utils/operator_id_input_formatter.dart';
+import 'package:operator_app/core/utils/operator_phone_number.dart';
 import 'package:operator_app/core/widgets/app_action_button.dart';
 import 'package:operator_app/core/theme/operator_brand.dart';
 
@@ -73,6 +75,8 @@ class OperatorAccountForm extends StatelessWidget {
           TextFormField(
             controller: idController,
             enabled: isEditing,
+            textCapitalization: TextCapitalization.characters,
+            inputFormatters: const [UpperCaseTextFormatter()],
             decoration: const InputDecoration(
               hintText: 'Enter your operator ID',
               prefixIcon: Icon(Icons.badge_outlined, color: _brandMagenta),
@@ -101,6 +105,12 @@ class OperatorAccountForm extends StatelessWidget {
             decoration: const InputDecoration(
               hintText: 'Enter your phone number',
               prefixIcon: Icon(Icons.phone_outlined, color: _brandMagenta),
+              prefixText: '$operatorMalaysiaCountryCode  ',
+              prefixStyle: TextStyle(
+                color: _brandMagenta,
+                fontWeight: FontWeight.w700,
+                fontSize: 16,
+              ),
             ),
             validator: (value) {
               if (isEditing && (value == null || value.trim().isEmpty)) {

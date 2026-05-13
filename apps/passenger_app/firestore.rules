@@ -219,6 +219,22 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    match /operator_id_index/{operatorId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && !exists(/databases/$(database)/documents/operator_id_index/$(operatorId))
+        && request.resource.data.keys().hasOnly(['uid', 'operatorId', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.operatorId == operatorId;
+      allow update: if isSignedIn()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly(['uid', 'operatorId', 'createdAt', 'updatedAt'])
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.operatorId == operatorId;
+      allow delete: if isSignedIn()
+        && resource.data.uid == request.auth.uid;
+    }
+
     match /operator_presence/{operatorUid} {
       allow read: if isSignedIn();
       allow create: if isOwner(operatorUid)
