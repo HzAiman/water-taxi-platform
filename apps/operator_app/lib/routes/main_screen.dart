@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:operator_app/core/services/firebase_session_service.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
@@ -22,11 +23,15 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+  static const Duration _sessionRecoveryIdleThreshold = Duration(minutes: 5);
+
   int _selectedIndex = 0;
   OperatorNotificationCoordinator? _notificationCoordinator;
   PushNotificationService? _pushNotificationService;
   StreamSubscription<RemoteMessage>? _fcmOpenedSub;
   StreamSubscription<OperatorNavigationAlert>? _navigationAlertSub;
+  DateTime? _lastBackgroundedAt;
+  bool _isRecoveringSession = false;
 
   final List<Widget> _screens = const [
     OperatorHomeScreen(),
@@ -101,6 +106,60 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final isForeground = state == AppLifecycleState.resumed;
     _notificationCoordinator?.setForeground(isForeground);
+
+    if (isForeground) {
+      unawaited(_recoverSessionAfterResume());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _lastBackgroundedAt = DateTime.now();
+    }
+  }
+
+  Future<void> _recoverSessionAfterResume() async {
+    if (_isRecoveringSession) {
+      return;
+    }
+
+    final idleDuration = _lastBackgroundedAt == null
+        ? null
+        : DateTime.now().difference(_lastBackgroundedAt!);
+    if (idleDuration != null && idleDuration < _sessionRecoveryIdleThreshold) {
+      return;
+    }
+
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      return;
+    }
+
+    _isRecoveringSession = true;
+    try {
+      await FirebaseSessionService.refreshIdToken();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      if (FirebaseSessionService.shouldReturnToLogin(error)) {
+        showTopError(
+          context,
+          title: 'Session expired',
+          message: 'Please sign in again to continue.',
+        );
+        await FirebaseAuth.instance.signOut();
+        return;
+      }
+
+      showTopInfo(
+        context,
+        title: 'Session refresh delayed',
+        message: 'We will retry when your connection is stable.',
+      );
+    } finally {
+      _isRecoveringSession = false;
+      _lastBackgroundedAt = null;
+    }
   }
 
   void _onItemTapped(int index) {

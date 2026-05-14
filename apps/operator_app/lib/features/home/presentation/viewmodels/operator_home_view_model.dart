@@ -10,6 +10,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
+import 'package:operator_app/core/services/firebase_session_service.dart';
 import 'package:operator_app/features/home/presentation/map/operator_map_layers.dart';
 import 'package:operator_app/features/home/presentation/services/operator_navigation_guidance_service.dart';
 import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
@@ -60,6 +61,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   DateTime? _lastNavigationSampleAt;
   Position? _lastNavigationSample;
   final Queue<double> _recentNavigationSpeeds = Queue<double>();
+  DateTime? _lastNavigationSessionRefreshAt;
   Timer? _liveLocationStaleTimer;
   int _emptyActiveReconcileVersion = 0;
   int? _maxReachedRouteMarker;
@@ -75,6 +77,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
   static const double _locationPublishMinDistanceMeters = 20;
   static const Duration _liveLocationRefreshInterval = Duration(seconds: 2);
   static const Duration _liveLocationStaleThreshold = Duration(seconds: 45);
+  static const Duration _navigationSessionRefreshInterval = Duration(
+    minutes: 1,
+  );
   static const int _maxSpeedSamples = 6;
 
   // ── Getters ──────────────────────────────────────────────────────────────
@@ -813,11 +818,43 @@ class OperatorHomeViewModel extends ChangeNotifier {
       return;
     }
 
+    final sessionReady = await _refreshSessionBeforeNavigation();
+    if (!sessionReady) {
+      return;
+    }
+
     await _startLocationSharing(
       tracked.bookingId,
       operatorId,
       initial: _latestOperatorPosition,
     );
+  }
+
+  Future<bool> _refreshSessionBeforeNavigation() async {
+    final lastRefreshAt = _lastNavigationSessionRefreshAt;
+    final now = DateTime.now();
+    if (lastRefreshAt != null &&
+        now.difference(lastRefreshAt) < _navigationSessionRefreshInterval) {
+      return true;
+    }
+
+    try {
+      await FirebaseSessionService.refreshIdToken();
+      _lastNavigationSessionRefreshAt = now;
+      return true;
+    } catch (error, stackTrace) {
+      developer.log(
+        'navigation_session_refresh_failed',
+        name: 'operator_home_vm',
+        error: error,
+        stackTrace: stackTrace,
+      );
+      _locationWarningHandler?.call(
+        'Session refresh needed',
+        'Navigation is paused until your sign-in session is refreshed.',
+      );
+      return false;
+    }
   }
 
   Future<bool> _canUseLocation() async {
@@ -1346,10 +1383,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
       :final message,
       :final isInfo,
     )) {
-      if (_isPermissionDenied(message)) {
+      if (_isPermissionDenied(message) ||
+          FirebaseSessionService.isSessionPermissionError(message)) {
         final friendly = OperationFailure(
           'Permission denied',
-          'You no longer have permission to perform this action. Refresh, then sign in again if needed.',
+          'Your sign-in session could not be refreshed. Please sign in again if this continues.',
           isInfo: false,
         );
         _logFailure(

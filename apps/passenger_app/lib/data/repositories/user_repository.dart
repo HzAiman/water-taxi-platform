@@ -1,10 +1,11 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:passenger_app/core/services/firebase_session_service.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 /// Data-access layer for the `users` Firestore collection.
 class UserRepository {
   UserRepository({FirebaseFirestore? firestore})
-      : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _db;
 
@@ -21,42 +22,38 @@ class UserRepository {
 
   /// Creates a user document (merges if already exists).
   Future<void> createUser(UserModel user) async {
-    final payload = Map<String, dynamic>.from(user.toMap())
-      ..remove(UserFields.uid);
-    await _db
-        .collection(FirestoreCollections.users)
-        .doc(user.uid)
-        .set({
-      ...payload,
-      UserFields.createdAt: FieldValue.serverTimestamp(),
-      UserFields.updatedAt: FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await FirebaseSessionService.runWithFreshToken(() async {
+      final payload = Map<String, dynamic>.from(user.toMap())
+        ..remove(UserFields.uid);
+      await _db.collection(FirestoreCollections.users).doc(user.uid).set({
+        ...payload,
+        UserFields.createdAt: FieldValue.serverTimestamp(),
+        UserFields.updatedAt: FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
   }
 
   /// Updates mutable user profile fields.
-  Future<void> updateUser(
-    String uid, {
-    String? name,
-    String? email,
-  }) async {
-    final updates = <String, dynamic>{
-      UserFields.updatedAt: FieldValue.serverTimestamp(),
-    };
-    if (name != null) updates[UserFields.name] = name;
-    if (email != null) updates[UserFields.email] = email;
+  Future<void> updateUser(String uid, {String? name, String? email}) async {
+    await FirebaseSessionService.runWithFreshToken(() async {
+      final updates = <String, dynamic>{
+        UserFields.updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (name != null) updates[UserFields.name] = name;
+      if (email != null) updates[UserFields.email] = email;
 
-    await _db
-        .collection(FirestoreCollections.users)
-        .doc(uid)
-        .set(updates, SetOptions(merge: true));
+      await _db
+          .collection(FirestoreCollections.users)
+          .doc(uid)
+          .set(updates, SetOptions(merge: true));
+    });
   }
 
   /// Deletes the user Firestore document.
   Future<void> deleteUser(String uid) async {
-    await _db
-        .collection(FirestoreCollections.users)
-        .doc(uid)
-        .delete();
+    await FirebaseSessionService.runWithFreshToken(() async {
+      await _db.collection(FirestoreCollections.users).doc(uid).delete();
+    });
   }
 
   static UserModel _fromDoc(String uid, Map<String, dynamic> data) {

@@ -4,6 +4,7 @@ import 'package:app_links/app_links.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
+import 'package:passenger_app/core/services/firebase_session_service.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
@@ -24,17 +25,18 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
+  static const Duration _sessionRecoveryIdleThreshold = Duration(minutes: 5);
+
   int _selectedIndex = 0;
   PassengerNotificationCoordinator? _notificationCoordinator;
   PushNotificationService? _pushNotificationService;
   StreamSubscription<RemoteMessage>? _fcmOpenedSub;
   StreamSubscription<Uri>? _deepLinkSub;
+  DateTime? _lastBackgroundedAt;
+  bool _isRecoveringSession = false;
   final AppLinks _appLinks = AppLinks();
 
-  final List<Widget> _screens = [
-    const HomeScreen(),
-    const ProfileScreen(),
-  ];
+  final List<Widget> _screens = [const HomeScreen(), const ProfileScreen()];
 
   @override
   void initState() {
@@ -57,11 +59,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         localNotifications: localNotifications,
         onForegroundMessage: (message) {
           if (!mounted) return;
-          showTopInfo(
-            context,
-            title: message.title,
-            message: message.body,
-          );
+          showTopInfo(context, title: message.title, message: message.body);
         },
       );
       await _notificationCoordinator?.start(userId: userId);
@@ -70,8 +68,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       LocalNotificationService.setOnTapHandler(_handleNotificationTap);
 
       // Handle FCM tap from terminated state.
-      final initialMessage =
-          await FirebaseMessaging.instance.getInitialMessage();
+      final initialMessage = await FirebaseMessaging.instance
+          .getInitialMessage();
       if (!mounted) return;
       if (initialMessage != null) _handleFcmTap(initialMessage);
 
@@ -79,8 +77,9 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       if (launchPayload != null) _handleNotificationTap(launchPayload);
 
       // Handle FCM tap from background state.
-      _fcmOpenedSub =
-          FirebaseMessaging.onMessageOpenedApp.listen(_handleFcmTap);
+      _fcmOpenedSub = FirebaseMessaging.onMessageOpenedApp.listen(
+        _handleFcmTap,
+      );
 
       _pushNotificationService = PushNotificationService();
       _pushNotificationService?.startForPassenger(
@@ -97,6 +96,60 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   void didChangeAppLifecycleState(AppLifecycleState state) {
     final isForeground = state == AppLifecycleState.resumed;
     _notificationCoordinator?.setForeground(isForeground);
+
+    if (isForeground) {
+      unawaited(_recoverSessionAfterResume());
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _lastBackgroundedAt = DateTime.now();
+    }
+  }
+
+  Future<void> _recoverSessionAfterResume() async {
+    if (_isRecoveringSession) {
+      return;
+    }
+
+    final idleDuration = _lastBackgroundedAt == null
+        ? null
+        : DateTime.now().difference(_lastBackgroundedAt!);
+    if (idleDuration != null && idleDuration < _sessionRecoveryIdleThreshold) {
+      return;
+    }
+
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      return;
+    }
+
+    _isRecoveringSession = true;
+    try {
+      await FirebaseSessionService.refreshIdToken();
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      if (FirebaseSessionService.shouldReturnToLogin(error)) {
+        showTopError(
+          context,
+          title: 'Session expired',
+          message: 'Please sign in again to continue.',
+        );
+        await FirebaseAuth.instance.signOut();
+        return;
+      }
+
+      showTopInfo(
+        context,
+        title: 'Session refresh delayed',
+        message: 'We will retry when your connection is stable.',
+      );
+    } finally {
+      _isRecoveringSession = false;
+      _lastBackgroundedAt = null;
+    }
   }
 
   void _onItemTapped(int index) {
@@ -136,7 +189,8 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         bookingId: bookingId,
         origin: uri.queryParameters['origin'] ?? '',
         destination: uri.queryParameters['destination'] ?? '',
-        passengerCount: int.tryParse(uri.queryParameters['passengerCount'] ?? '') ??
+        passengerCount:
+            int.tryParse(uri.queryParameters['passengerCount'] ?? '') ??
             int.tryParse(uri.queryParameters['passenger_count'] ?? '') ??
             1,
       );
@@ -171,7 +225,11 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
   // Called for local-notification taps (payload = bookingId only).
   void _handleNotificationTap(String bookingId) {
     _navigateToBooking(
-        bookingId: bookingId, origin: '', destination: '', passengerCount: 1);
+      bookingId: bookingId,
+      origin: '',
+      destination: '',
+      passengerCount: 1,
+    );
   }
 
   void _navigateToBooking({

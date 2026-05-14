@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:cloud_functions/cloud_functions.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:operator_app/core/services/firebase_session_service.dart';
 import 'package:operator_app/core/utils/operator_id_input_formatter.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -145,12 +146,14 @@ class OperatorRepository {
     required String phoneNumber,
   }) async {
     try {
-      final callable = _functions.httpsCallable('saveOperatorProfile');
-      await callable.call(<String, dynamic>{
-        'name': name,
-        'email': email,
-        'operatorId': operatorId,
-        'phoneNumber': phoneNumber,
+      await FirebaseSessionService.runWithFreshToken(() async {
+        final callable = _functions.httpsCallable('saveOperatorProfile');
+        await callable.call(<String, dynamic>{
+          'name': name,
+          'email': email,
+          'operatorId': operatorId,
+          'phoneNumber': phoneNumber,
+        });
       });
     } on FirebaseFunctionsException catch (e) {
       if (e.code == 'already-exists') {
@@ -200,62 +203,66 @@ class OperatorRepository {
     required String phoneNumber,
     bool? isOnline,
   }) async {
-    final operatorRef = _db.collection(FirestoreCollections.operators).doc(uid);
-    final operatorIdIndexRef = _db
-        .collection('operator_id_index')
-        .doc(operatorId);
-    final presenceRef = _db
-        .collection(FirestoreCollections.operatorPresence)
-        .doc(uid);
+    await FirebaseSessionService.runWithFreshToken(() async {
+      final operatorRef = _db
+          .collection(FirestoreCollections.operators)
+          .doc(uid);
+      final operatorIdIndexRef = _db
+          .collection('operator_id_index')
+          .doc(operatorId);
+      final presenceRef = _db
+          .collection(FirestoreCollections.operatorPresence)
+          .doc(uid);
 
-    await _db.runTransaction((tx) async {
-      final operatorSnap = await tx.get(operatorRef);
-      final operatorIdIndexSnap = await tx.get(operatorIdIndexRef);
-      final presenceSnap = await tx.get(presenceRef);
+      await _db.runTransaction((tx) async {
+        final operatorSnap = await tx.get(operatorRef);
+        final operatorIdIndexSnap = await tx.get(operatorIdIndexRef);
+        final presenceSnap = await tx.get(presenceRef);
 
-      final currentOperatorId = normalizeOperatorId(
-        operatorSnap.data()?[OperatorFields.operatorId]?.toString() ?? '',
-      );
-      if (operatorIdIndexSnap.exists) {
-        final claimedBy = operatorIdIndexSnap.data()?['uid']?.toString();
-        if (claimedBy != null && claimedBy.isNotEmpty && claimedBy != uid) {
-          throw StateError('Operator ID $operatorId is already used.');
+        final currentOperatorId = normalizeOperatorId(
+          operatorSnap.data()?[OperatorFields.operatorId]?.toString() ?? '',
+        );
+        if (operatorIdIndexSnap.exists) {
+          final claimedBy = operatorIdIndexSnap.data()?['uid']?.toString();
+          if (claimedBy != null && claimedBy.isNotEmpty && claimedBy != uid) {
+            throw StateError('Operator ID $operatorId is already used.');
+          }
         }
-      }
 
-      final presenceData = presenceSnap.data() ?? const <String, dynamic>{};
-      final resolvedOnline =
-          isOnline ?? (presenceData[OperatorPresenceFields.isOnline] == true);
+        final presenceData = presenceSnap.data() ?? const <String, dynamic>{};
+        final resolvedOnline =
+            isOnline ?? (presenceData[OperatorPresenceFields.isOnline] == true);
 
-      tx.set(operatorRef, {
-        OperatorFields.name: name,
-        OperatorFields.email: email,
-        OperatorFields.operatorId: operatorId,
-        OperatorFields.phoneNumber: phoneNumber,
-        OperatorFields.updatedAt: FieldValue.serverTimestamp(),
-        if (!operatorSnap.exists)
-          OperatorFields.createdAt: FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+        tx.set(operatorRef, {
+          OperatorFields.name: name,
+          OperatorFields.email: email,
+          OperatorFields.operatorId: operatorId,
+          OperatorFields.phoneNumber: phoneNumber,
+          OperatorFields.updatedAt: FieldValue.serverTimestamp(),
+          if (!operatorSnap.exists)
+            OperatorFields.createdAt: FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
-      tx.set(operatorIdIndexRef, {
-        'uid': uid,
-        OperatorFields.operatorId: operatorId,
-        OperatorFields.updatedAt: FieldValue.serverTimestamp(),
-        if (!operatorIdIndexSnap.exists)
-          OperatorFields.createdAt: FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+        tx.set(operatorIdIndexRef, {
+          'uid': uid,
+          OperatorFields.operatorId: operatorId,
+          OperatorFields.updatedAt: FieldValue.serverTimestamp(),
+          if (!operatorIdIndexSnap.exists)
+            OperatorFields.createdAt: FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
 
-      if (currentOperatorId.isNotEmpty && currentOperatorId != operatorId) {
-        final oldOperatorIdIndexRef = _db
-            .collection('operator_id_index')
-            .doc(currentOperatorId);
-        tx.delete(oldOperatorIdIndexRef);
-      }
+        if (currentOperatorId.isNotEmpty && currentOperatorId != operatorId) {
+          final oldOperatorIdIndexRef = _db
+              .collection('operator_id_index')
+              .doc(currentOperatorId);
+          tx.delete(oldOperatorIdIndexRef);
+        }
 
-      tx.set(presenceRef, {
-        OperatorPresenceFields.isOnline: resolvedOnline,
-        OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
-      }, SetOptions(merge: true));
+        tx.set(presenceRef, {
+          OperatorPresenceFields.isOnline: resolvedOnline,
+          OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      });
     });
   }
 
@@ -266,37 +273,45 @@ class OperatorRepository {
     String? email,
     String? phoneNumber,
   }) async {
-    final updates = <String, dynamic>{
-      OperatorFields.updatedAt: FieldValue.serverTimestamp(),
-    };
-    if (name != null) updates[OperatorFields.name] = name;
-    if (email != null) updates[OperatorFields.email] = email;
-    if (phoneNumber != null) updates[OperatorFields.phoneNumber] = phoneNumber;
+    await FirebaseSessionService.runWithFreshToken(() async {
+      final updates = <String, dynamic>{
+        OperatorFields.updatedAt: FieldValue.serverTimestamp(),
+      };
+      if (name != null) updates[OperatorFields.name] = name;
+      if (email != null) updates[OperatorFields.email] = email;
+      if (phoneNumber != null) {
+        updates[OperatorFields.phoneNumber] = phoneNumber;
+      }
 
-    await _db
-        .collection(FirestoreCollections.operators)
-        .doc(uid)
-        .update(updates);
+      await _db
+          .collection(FirestoreCollections.operators)
+          .doc(uid)
+          .update(updates);
+    });
   }
 
   /// Sets the operator's online status.
   Future<void> setOnlineStatus(String uid, {required bool isOnline}) async {
-    final presenceRef = _db
-        .collection(FirestoreCollections.operatorPresence)
-        .doc(uid);
+    await FirebaseSessionService.runWithFreshToken(() async {
+      final presenceRef = _db
+          .collection(FirestoreCollections.operatorPresence)
+          .doc(uid);
 
-    await presenceRef.set({
-      OperatorPresenceFields.isOnline: isOnline,
-      OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+      await presenceRef.set({
+        OperatorPresenceFields.isOnline: isOnline,
+        OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
   }
 
   /// Mirrors the current online flag into the presence collection.
   Future<void> syncPresence(String uid, {required bool isOnline}) async {
-    await _db.collection(FirestoreCollections.operatorPresence).doc(uid).set({
-      OperatorPresenceFields.isOnline: isOnline,
-      OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    await FirebaseSessionService.runWithFreshToken(() async {
+      await _db.collection(FirestoreCollections.operatorPresence).doc(uid).set({
+        OperatorPresenceFields.isOnline: isOnline,
+        OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
   }
 
   static OperatorModel _fromDocs(

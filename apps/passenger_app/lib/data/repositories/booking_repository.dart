@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:passenger_app/core/services/firebase_session_service.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 /// Parameters required to create a new booking document.
@@ -58,92 +59,99 @@ class BookingRepository {
 
   /// Creates a new booking document and returns the generated booking ID.
   Future<String> createBooking(BookingCreationParams p) async {
-    final ref = _db.collection(FirestoreCollections.bookings).doc();
-    final id = ref.id;
-    final passengerCount = p.adultCount + p.childCount;
-    final routeSelection = await _buildRouteSelectionForBooking(
-      originJettyId: p.originJettyId,
-      destinationJettyId: p.destinationJettyId,
-      originLat: p.originLat,
-      originLng: p.originLng,
-      destinationLat: p.destinationLat,
-      destinationLng: p.destinationLng,
-    );
+    return FirebaseSessionService.runWithFreshToken(() async {
+      final ref = _db.collection(FirestoreCollections.bookings).doc();
+      final id = ref.id;
+      final passengerCount = p.adultCount + p.childCount;
+      final routeSelection = await _buildRouteSelectionForBooking(
+        originJettyId: p.originJettyId,
+        destinationJettyId: p.destinationJettyId,
+        originLat: p.originLat,
+        originLng: p.originLng,
+        destinationLat: p.destinationLat,
+        destinationLng: p.destinationLng,
+      );
 
-    await ref.set({
-      BookingFields.bookingId: id,
-      BookingFields.userId: p.userId,
-      BookingFields.userName: p.userName,
-      BookingFields.userPhone: p.userPhone,
-      BookingFields.origin: p.origin,
-      BookingFields.destination: p.destination,
-      BookingFields.originJettyId: p.originJettyId,
-      BookingFields.destinationJettyId: p.destinationJettyId,
-      BookingFields.originCoords: GeoPoint(p.originLat, p.originLng),
-      BookingFields.destinationCoords: GeoPoint(
-        p.destinationLat,
-        p.destinationLng,
-      ),
-      BookingFields.adultCount: p.adultCount,
-      BookingFields.childCount: p.childCount,
-      BookingFields.passengerCount: passengerCount,
-      BookingFields.totalFare: p.totalFare,
-      BookingFields.fareSnapshotId: p.fareSnapshotId,
-      BookingFields.paymentMethod: p.paymentMethod,
-      // Payment is authorized/held first and captured after trip completion.
-      BookingFields.paymentStatus: 'authorized',
-      if (p.orderNumber != null) BookingFields.orderNumber: p.orderNumber,
-      if (p.transactionId != null) BookingFields.transactionId: p.transactionId,
-      BookingFields.status: BookingStatus.pending.firestoreValue,
-      BookingFields.operatorUid: null,
-      if (routeSelection.routePolylineId != null)
-        BookingFields.routePolylineId: routeSelection.routePolylineId,
-      if (routeSelection.routePolyline != null &&
-          routeSelection.routePolyline!.isNotEmpty)
-        BookingFields.routePolyline: routeSelection.routePolyline,
-      BookingFields.createdAt: FieldValue.serverTimestamp(),
-      BookingFields.updatedAt: FieldValue.serverTimestamp(),
+      await ref.set({
+        BookingFields.bookingId: id,
+        BookingFields.userId: p.userId,
+        BookingFields.userName: p.userName,
+        BookingFields.userPhone: p.userPhone,
+        BookingFields.origin: p.origin,
+        BookingFields.destination: p.destination,
+        BookingFields.originJettyId: p.originJettyId,
+        BookingFields.destinationJettyId: p.destinationJettyId,
+        BookingFields.originCoords: GeoPoint(p.originLat, p.originLng),
+        BookingFields.destinationCoords: GeoPoint(
+          p.destinationLat,
+          p.destinationLng,
+        ),
+        BookingFields.adultCount: p.adultCount,
+        BookingFields.childCount: p.childCount,
+        BookingFields.passengerCount: passengerCount,
+        BookingFields.totalFare: p.totalFare,
+        BookingFields.fareSnapshotId: p.fareSnapshotId,
+        BookingFields.paymentMethod: p.paymentMethod,
+        // Payment is authorized/held first and captured after trip completion.
+        BookingFields.paymentStatus: 'authorized',
+        if (p.orderNumber != null) BookingFields.orderNumber: p.orderNumber,
+        if (p.transactionId != null)
+          BookingFields.transactionId: p.transactionId,
+        BookingFields.status: BookingStatus.pending.firestoreValue,
+        BookingFields.operatorUid: null,
+        if (routeSelection.routePolylineId != null)
+          BookingFields.routePolylineId: routeSelection.routePolylineId,
+        if (routeSelection.routePolyline != null &&
+            routeSelection.routePolyline!.isNotEmpty)
+          BookingFields.routePolyline: routeSelection.routePolyline,
+        BookingFields.createdAt: FieldValue.serverTimestamp(),
+        BookingFields.updatedAt: FieldValue.serverTimestamp(),
+      });
+
+      return id;
     });
-
-    return id;
   }
 
   /// Cancels a booking owned by the current passenger.
   Future<void> cancelBooking(String bookingId) async {
-    await _db.runTransaction((tx) async {
-      final ref = _db.collection(FirestoreCollections.bookings).doc(bookingId);
-      final snap = await tx.get(ref);
-      if (!snap.exists || snap.data() == null) {
-        throw StateError('Booking does not exist.');
-      }
+    await FirebaseSessionService.runWithFreshToken(() async {
+      await _db.runTransaction((tx) async {
+        final ref = _db
+            .collection(FirestoreCollections.bookings)
+            .doc(bookingId);
+        final snap = await tx.get(ref);
+        if (!snap.exists || snap.data() == null) {
+          throw StateError('Booking does not exist.');
+        }
 
-      final data = snap.data()!;
-      final fromStatus = BookingStatus.fromString(
-        (data[BookingFields.status] ?? '').toString(),
-      );
+        final data = snap.data()!;
+        final fromStatus = BookingStatus.fromString(
+          (data[BookingFields.status] ?? '').toString(),
+        );
 
-      tx.update(ref, {
-        BookingFields.status: BookingStatus.cancelled.firestoreValue,
-        BookingFields.updatedAt: FieldValue.serverTimestamp(),
-        BookingFields.cancelledAt: FieldValue.serverTimestamp(),
-      });
+        tx.update(ref, {
+          BookingFields.status: BookingStatus.cancelled.firestoreValue,
+          BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          BookingFields.cancelledAt: FieldValue.serverTimestamp(),
+        });
 
-      tx.set(ref.collection(BookingSubcollections.statusHistory).doc(), {
-        BookingStatusHistoryFields.from: fromStatus.firestoreValue,
-        BookingStatusHistoryFields.to: BookingStatus.cancelled.firestoreValue,
-        BookingStatusHistoryFields.changedBy:
-            data[BookingFields.userId] ?? 'passenger',
-        BookingStatusHistoryFields.source: 'passenger_app',
-        BookingStatusHistoryFields.timestamp: FieldValue.serverTimestamp(),
-      });
+        tx.set(ref.collection(BookingSubcollections.statusHistory).doc(), {
+          BookingStatusHistoryFields.from: fromStatus.firestoreValue,
+          BookingStatusHistoryFields.to: BookingStatus.cancelled.firestoreValue,
+          BookingStatusHistoryFields.changedBy:
+              data[BookingFields.userId] ?? 'passenger',
+          BookingStatusHistoryFields.source: 'passenger_app',
+          BookingStatusHistoryFields.timestamp: FieldValue.serverTimestamp(),
+        });
 
-      tx.set(_archiveRef(bookingId), {
-        ...data,
-        BookingFields.status: BookingStatus.cancelled.firestoreValue,
-        BookingFields.cancelledAt: FieldValue.serverTimestamp(),
-        BookingFields.updatedAt: FieldValue.serverTimestamp(),
-        'archivedAt': FieldValue.serverTimestamp(),
-        'archivedStatus': BookingStatus.cancelled.firestoreValue,
+        tx.set(_archiveRef(bookingId), {
+          ...data,
+          BookingFields.status: BookingStatus.cancelled.firestoreValue,
+          BookingFields.cancelledAt: FieldValue.serverTimestamp(),
+          BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          'archivedAt': FieldValue.serverTimestamp(),
+          'archivedStatus': BookingStatus.cancelled.firestoreValue,
+        });
       });
     });
   }
@@ -152,22 +160,24 @@ class BookingRepository {
     required String orderNumber,
     required String userId,
   }) async {
-    await _db.runTransaction((tx) async {
-      final ref = _db
-          .collection(FirestoreCollections.orderNumberIndex)
-          .doc(orderNumber);
-      final snap = await tx.get(ref);
-      if (snap.exists) {
-        throw StateError('Order number is already in use.');
-      }
+    await FirebaseSessionService.runWithFreshToken(() async {
+      await _db.runTransaction((tx) async {
+        final ref = _db
+            .collection(FirestoreCollections.orderNumberIndex)
+            .doc(orderNumber);
+        final snap = await tx.get(ref);
+        if (snap.exists) {
+          throw StateError('Order number is already in use.');
+        }
 
-      tx.set(ref, {
-        'orderNumber': orderNumber,
-        'userId': userId,
-        'reservedAt': FieldValue.serverTimestamp(),
-        'expiresAt': Timestamp.fromDate(
-          DateTime.now().toUtc().add(const Duration(hours: 24)),
-        ),
+        tx.set(ref, {
+          'orderNumber': orderNumber,
+          'userId': userId,
+          'reservedAt': FieldValue.serverTimestamp(),
+          'expiresAt': Timestamp.fromDate(
+            DateTime.now().toUtc().add(const Duration(hours: 24)),
+          ),
+        });
       });
     });
   }

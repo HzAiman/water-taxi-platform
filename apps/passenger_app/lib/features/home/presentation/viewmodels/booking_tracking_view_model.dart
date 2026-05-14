@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
+import 'package:passenger_app/core/services/firebase_session_service.dart';
 import 'package:passenger_app/data/repositories/booking_repository.dart';
 import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 
@@ -147,6 +148,12 @@ class BookingTrackingViewModel extends ChangeNotifier {
       return const OperationSuccess('Booking cancelled successfully.');
     } catch (e) {
       _debugLog('cancelBooking exception: ${e.toString()}');
+      if (FirebaseSessionService.isSessionPermissionError(e)) {
+        return const OperationFailure(
+          'Session needs refresh',
+          'Your sign-in session could not be refreshed. Please sign in again.',
+        );
+      }
       return OperationFailure(
         'Cancel failed',
         'Failed to cancel booking: ${e.toString()}',

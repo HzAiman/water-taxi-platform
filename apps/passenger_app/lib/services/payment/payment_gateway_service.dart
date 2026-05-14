@@ -5,10 +5,11 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_stripe/flutter_stripe.dart';
 import 'package:http/http.dart' as http;
 import 'package:cloud_functions/cloud_functions.dart';
+import 'package:passenger_app/core/services/firebase_session_service.dart';
 
 enum PaymentGatewayStatus {
-  authorized,    // ← NEW: Payment held, not captured
-  success,       // (keep for backward compatibility, but now means captured)
+  authorized, // ← NEW: Payment held, not captured
+  success, // (keep for backward compatibility, but now means captured)
   failed,
   cancelled,
 }
@@ -23,9 +24,15 @@ class PaymentGatewayConfig {
 
   factory PaymentGatewayConfig.fromDartDefine() {
     return const PaymentGatewayConfig(
-      stripePublishableKey: String.fromEnvironment('STRIPE_PUBLISHABLE_KEY', defaultValue: 'pk_test_51T97A8DffuNgYO2I26KHN9DHMPqilZ5ZxO5KYwUxUA1X153WZNcMk1eO9jXCBQqo3Fcb9012xTIRovouQekYCuNS00SCObGaWN'),
-      merchantDisplayName:
-          String.fromEnvironment('STRIPE_MERCHANT_DISPLAY_NAME', defaultValue: 'Water Taxi'),
+      stripePublishableKey: String.fromEnvironment(
+        'STRIPE_PUBLISHABLE_KEY',
+        defaultValue:
+            'pk_test_51T97A8DffuNgYO2I26KHN9DHMPqilZ5ZxO5KYwUxUA1X153WZNcMk1eO9jXCBQqo3Fcb9012xTIRovouQekYCuNS00SCObGaWN',
+      ),
+      merchantDisplayName: String.fromEnvironment(
+        'STRIPE_MERCHANT_DISPLAY_NAME',
+        defaultValue: 'Water Taxi',
+      ),
       returnUrlScheme: String.fromEnvironment(
         'STRIPE_RETURN_URL',
         defaultValue: 'watertaxistripe://stripe-redirect',
@@ -88,13 +95,13 @@ class PaymentGatewayResult {
 
 abstract class PaymentGatewayService {
   Future<PaymentGatewayResult> charge(PaymentGatewayRequest request);
-  
+
   /// Captures a held payment intent. Returns success/failure.
   Future<PaymentGatewayResult> capturePayment({
     required String paymentIntentId,
     required String orderNumber,
   });
-  
+
   /// Cancels a held payment intent. Returns success/failure.
   Future<PaymentGatewayResult> cancelPayment({
     required String paymentIntentId,
@@ -106,9 +113,8 @@ abstract class PaymentGatewayService {
 /// Production-oriented gateway service that delegates sensitive payment logic
 /// to a secured Cloud Function.
 class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
-  CloudFunctionPaymentGatewayService({
-    PaymentGatewayConfig? config,
-  }) : _config = config ?? PaymentGatewayConfig.fromDartDefine();
+  CloudFunctionPaymentGatewayService({PaymentGatewayConfig? config})
+    : _config = config ?? PaymentGatewayConfig.fromDartDefine();
 
   final PaymentGatewayConfig _config;
 
@@ -131,28 +137,36 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
         );
       }
 
-      final idToken = await currentUser.getIdToken();
       final uri = Uri.parse(_config.paymentIntentEndpoint);
-      final response = await http
-          .post(
-            uri,
-            headers: <String, String>{
-              'Content-Type': 'application/json',
-              'Authorization': 'Bearer $idToken',
-            },
-            body: jsonEncode(<String, dynamic>{
-              'amount': request.amount,
-              'currency': request.currency,
-              'userId': request.userId,
-              'orderNumber': request.orderNumber,
-              'payerName': request.payerName,
-              'payerEmail': request.payerEmail,
-              'payerTelephoneNumber': request.payerTelephoneNumber,
-              'idempotencyKey': request.idempotencyKey,
-              'description': request.description,
-            }),
-          )
-          .timeout(const Duration(seconds: 20));
+      Future<http.Response> postPaymentIntent() async {
+        final idToken = await currentUser.getIdToken(true);
+        return http
+            .post(
+              uri,
+              headers: <String, String>{
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer $idToken',
+              },
+              body: jsonEncode(<String, dynamic>{
+                'amount': request.amount,
+                'currency': request.currency,
+                'userId': request.userId,
+                'orderNumber': request.orderNumber,
+                'payerName': request.payerName,
+                'payerEmail': request.payerEmail,
+                'payerTelephoneNumber': request.payerTelephoneNumber,
+                'idempotencyKey': request.idempotencyKey,
+                'description': request.description,
+              }),
+            )
+            .timeout(const Duration(seconds: 20));
+      }
+
+      var response = await postPaymentIntent();
+      if (response.statusCode == 401 || response.statusCode == 403) {
+        await FirebaseSessionService.refreshIdToken();
+        response = await postPaymentIntent();
+      }
 
       final bodyMap = response.body.isNotEmpty
           ? Map<String, dynamic>.from(jsonDecode(response.body) as Map)
@@ -161,7 +175,8 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
       if (response.statusCode < 200 || response.statusCode >= 300) {
         return PaymentGatewayResult(
           status: PaymentGatewayStatus.failed,
-          errorMessage: (bodyMap['message'] ?? 'Payment service error').toString(),
+          errorMessage: (bodyMap['message'] ?? 'Payment service error')
+              .toString(),
         );
       }
 
@@ -170,7 +185,9 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
       final clientSecret = (data['clientSecret'] ?? '').toString();
       final paymentIntentId = (data['paymentIntentId'] ?? '').toString();
 
-      if (status == 'ready' && clientSecret.isNotEmpty && paymentIntentId.isNotEmpty) {
+      if (status == 'ready' &&
+          clientSecret.isNotEmpty &&
+          paymentIntentId.isNotEmpty) {
         await Stripe.instance.initPaymentSheet(
           paymentSheetParameters: SetupPaymentSheetParameters(
             paymentIntentClientSecret: clientSecret,
@@ -182,7 +199,8 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
         await Stripe.instance.presentPaymentSheet();
 
         return PaymentGatewayResult(
-          status: PaymentGatewayStatus.authorized,  // ← CHANGE: Now returns "authorized" not "success"
+          status: PaymentGatewayStatus
+              .authorized, // ← CHANGE: Now returns "authorized" not "success"
           transactionId: paymentIntentId.isNotEmpty ? paymentIntentId : null,
         );
       }
@@ -204,7 +222,8 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
       return PaymentGatewayResult(
         status: PaymentGatewayStatus.failed,
         errorMessage:
-            e.error.localizedMessage ?? 'Stripe payment failed. Please try again.',
+            e.error.localizedMessage ??
+            'Stripe payment failed. Please try again.',
       );
     } catch (e) {
       final details = e.toString();
@@ -231,12 +250,14 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
         );
       }
 
-      final result = await FirebaseFunctions.instance
-          .httpsCallable('capturePaymentIntent')
-          .call({
-            'paymentIntentId': paymentIntentId,
-            'orderNumber': orderNumber,
-          });
+      final result = await FirebaseSessionService.runWithFreshToken(() {
+        return FirebaseFunctions.instance
+            .httpsCallable('capturePaymentIntent')
+            .call({
+              'paymentIntentId': paymentIntentId,
+              'orderNumber': orderNumber,
+            });
+      });
 
       final data = result.data as Map<String, dynamic>?;
       if (data?['status'] == 'captured') {
@@ -280,13 +301,15 @@ class CloudFunctionPaymentGatewayService implements PaymentGatewayService {
         );
       }
 
-      final result = await FirebaseFunctions.instance
-          .httpsCallable('cancelPaymentIntent')
-          .call({
-            'paymentIntentId': paymentIntentId,
-            'orderNumber': orderNumber,
-            'reason': reason,
-          });
+      final result = await FirebaseSessionService.runWithFreshToken(() {
+        return FirebaseFunctions.instance
+            .httpsCallable('cancelPaymentIntent')
+            .call({
+              'paymentIntentId': paymentIntentId,
+              'orderNumber': orderNumber,
+              'reason': reason,
+            });
+      });
 
       final data = result.data as Map<String, dynamic>?;
       final status = (data?['status'] ?? '').toString();
@@ -324,10 +347,10 @@ class SimulatedExternalPaymentGatewayService implements PaymentGatewayService {
     Duration? simulatedLatency,
     PaymentGatewayConfig? config,
     bool requireStripeKey = false,
-  })  : _requireStripeKey = requireStripeKey,
-        _config = config ?? PaymentGatewayConfig.fromDartDefine(),
-        _simulatedLatency =
-            simulatedLatency ?? const Duration(milliseconds: 800);
+  }) : _requireStripeKey = requireStripeKey,
+       _config = config ?? PaymentGatewayConfig.fromDartDefine(),
+       _simulatedLatency =
+           simulatedLatency ?? const Duration(milliseconds: 800);
 
   final Duration _simulatedLatency;
   final bool _requireStripeKey;
