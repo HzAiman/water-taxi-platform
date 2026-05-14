@@ -481,6 +481,58 @@ void main() {
       expect(viewModel.navigationGuidance!.totalRouteMarkers, equals(4));
     });
 
+    test(
+      'refresh keeps active navigation when replacement stream briefly emits empty',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final operatorRepo = FakeOperatorRepository(
+          operator: const OperatorModel(
+            uid: 'operator-1',
+            operatorId: 'OP-1',
+            name: 'Captain Aiman',
+            email: 'captain@example.com',
+            isOnline: true,
+          ),
+        );
+        final viewModel = OperatorHomeViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: operatorRepo,
+        );
+        final activeBooking = _sampleBooking(
+          id: 'trip-preserve',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2012,
+          operatorLng: 102.2512,
+          routeToOriginPolyline: const [
+            BookingRoutePoint(lat: 2.2012, lng: 102.2512),
+            BookingRoutePoint(lat: 1.8000, lng: 101.8000),
+            BookingRoutePoint(lat: 1.4000, lng: 101.4000),
+          ],
+        );
+
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([activeBooking]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(viewModel.activeBookings, hasLength(1));
+        expect(
+          viewModel.homeSnapshot.activeBooking?.bookingId,
+          'trip-preserve',
+        );
+
+        bookingRepo.bookingById['trip-preserve'] = activeBooking;
+        await viewModel.refresh('operator-1');
+        bookingRepo.emitActive(const <BookingModel>[]);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+
+        expect(viewModel.activeBookings, hasLength(1));
+        expect(
+          viewModel.homeSnapshot.activeBooking?.bookingId,
+          'trip-preserve',
+        );
+        expect(viewModel.navigationGuidance, isNotNull);
+      },
+    );
+
     test('navigation lifecycle emits route progress alert', () async {
       final bookingRepo = FakeOperatorBookingRepository();
       final operatorRepo = FakeOperatorRepository(
@@ -1204,6 +1256,7 @@ class FakeOperatorBookingRepository extends BookingRepository {
     'Trip completed successfully.',
   );
   Completer<OperationResult>? acceptCompleter;
+  final Map<String, BookingModel?> bookingById = <String, BookingModel?>{};
 
   @override
   Stream<List<BookingModel>> streamActiveBookings(String operatorId) {
@@ -1215,6 +1268,11 @@ class FakeOperatorBookingRepository extends BookingRepository {
   Stream<List<BookingModel>> streamPendingBookings() {
     pendingListenCount += 1;
     return _pendingController.stream;
+  }
+
+  @override
+  Future<BookingModel?> getBooking(String bookingId) async {
+    return bookingById[bookingId];
   }
 
   @override

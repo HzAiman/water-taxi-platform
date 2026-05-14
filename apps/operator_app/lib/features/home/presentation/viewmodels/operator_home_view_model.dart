@@ -61,6 +61,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   Position? _lastNavigationSample;
   final Queue<double> _recentNavigationSpeeds = Queue<double>();
   Timer? _liveLocationStaleTimer;
+  int _emptyActiveReconcileVersion = 0;
   int? _maxReachedRouteMarker;
   int? _lastAlertRouteMarker;
   bool _wasOffRoute = false;
@@ -460,12 +461,14 @@ class OperatorHomeViewModel extends ChangeNotifier {
               onFirstActiveEmission();
             }
 
-            _activeBookings = list
-                .where(
-                  (booking) =>
-                      !_locallyCompletedBookingIds.contains(booking.bookingId),
-                )
-                .toList(growable: false);
+            if (list.isEmpty && _shouldVerifyEmptyActiveEmission()) {
+              unawaited(_verifyEmptyActiveEmission(operatorId));
+              notifyListeners();
+              return;
+            }
+
+            _emptyActiveReconcileVersion += 1;
+            _activeBookings = _filterLocallyCompleted(list);
             _refreshNavigationGuidance(notify: false);
 
             unawaited(_syncNavigationLifecycle(operatorId));
@@ -526,7 +529,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
       (item) => item.bookingId == booking.bookingId,
     );
     if (existingIndex == -1) {
-      _activeBookings = <BookingModel>[acceptedBooking, ..._activeBookings];
+      _activeBookings = <BookingModel>[..._activeBookings, acceptedBooking];
     } else {
       final updated = [..._activeBookings];
       updated[existingIndex] = acceptedBooking;
@@ -1001,7 +1004,108 @@ class OperatorHomeViewModel extends ChangeNotifier {
     if (_activeBookings.isEmpty) {
       return null;
     }
+    for (final booking in _activeBookings) {
+      if (booking.status == BookingStatus.onTheWay) {
+        return booking;
+      }
+    }
     return _activeBookings.first;
+  }
+
+  List<BookingModel> _filterLocallyCompleted(List<BookingModel> bookings) {
+    return bookings
+        .where(
+          (booking) => !_locallyCompletedBookingIds.contains(booking.bookingId),
+        )
+        .toList(growable: false);
+  }
+
+  bool _shouldVerifyEmptyActiveEmission() {
+    if (_activeBookings.isEmpty) {
+      return false;
+    }
+    final trackedId = _trackingBookingId;
+    if (trackedId != null) {
+      return _activeBookings.any((booking) => booking.bookingId == trackedId);
+    }
+    return _resolveActiveBooking() != null;
+  }
+
+  Future<void> _verifyEmptyActiveEmission(String operatorId) async {
+    final candidate = _resolveActiveBooking();
+    final bookingId = _trackingBookingId ?? candidate?.bookingId;
+    if (bookingId == null) {
+      return;
+    }
+
+    final version = ++_emptyActiveReconcileVersion;
+    try {
+      final booking = await _bookingRepo.getBooking(bookingId);
+      if (version != _emptyActiveReconcileVersion) {
+        return;
+      }
+
+      if (booking != null &&
+          booking.operatorUid == operatorId &&
+          _isRepositoryActiveBooking(booking) &&
+          !_locallyCompletedBookingIds.contains(booking.bookingId)) {
+        final updated = [..._activeBookings];
+        final index = updated.indexWhere((b) => b.bookingId == bookingId);
+        if (index >= 0) {
+          updated[index] = booking;
+        } else {
+          updated.add(booking);
+        }
+        _activeBookings = updated..sort(_compareActiveBookingSequence);
+        _refreshNavigationGuidance(notify: false);
+        unawaited(_syncNavigationLifecycle(operatorId));
+        notifyListeners();
+        return;
+      }
+
+      _activeBookings = const <BookingModel>[];
+      _stopLocationSharing();
+      _refreshNavigationGuidance(notify: false);
+      notifyListeners();
+    } catch (error, stackTrace) {
+      developer.log(
+        'verify_empty_active_emission_failed',
+        name: 'operator_home_vm',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+  }
+
+  static bool _isRepositoryActiveBooking(BookingModel booking) {
+    return booking.status == BookingStatus.accepted ||
+        booking.status == BookingStatus.onTheWay;
+  }
+
+  static int _compareActiveBookingSequence(BookingModel a, BookingModel b) {
+    if (a.status == BookingStatus.onTheWay &&
+        b.status != BookingStatus.onTheWay) {
+      return -1;
+    }
+    if (b.status == BookingStatus.onTheWay &&
+        a.status != BookingStatus.onTheWay) {
+      return 1;
+    }
+
+    final aSeq = a.poolSequence;
+    final bSeq = b.poolSequence;
+    if (aSeq != null && bSeq != null && aSeq != bSeq) {
+      return aSeq.compareTo(bSeq);
+    }
+    if (aSeq != null && bSeq == null) return -1;
+    if (aSeq == null && bSeq != null) return 1;
+
+    final at = a.updatedAt;
+    final bt = b.updatedAt;
+    if (at == null && bt == null) return 0;
+    if (at == null) return 1;
+    if (bt == null) return -1;
+    return bt.compareTo(at);
   }
 
   OperatorHomeSnapshot _resolveHomeSnapshot() {
@@ -1015,7 +1119,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
       operatorPoint: operatorPoint,
     );
     final isLiveLocationStale = _isLiveLocationStale(DateTime.now());
-    final destinationPoint = activeBooking == null
+    final currentStop = activeBooking?.currentPoolStop;
+    final destinationPoint = currentStop != null
+        ? LatLng(currentStop.lat, currentStop.lng)
+        : activeBooking == null
         ? null
         : LatLng(activeBooking.destinationLat, activeBooking.destinationLng);
     final pendingBookings = operatorId == null
@@ -1030,6 +1137,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
       operatorId ?? '-',
       activeBooking?.bookingId ?? '-',
       activeBooking?.status.firestoreValue ?? '-',
+      activeBooking?.currentStopId ??
+          activeBooking?.currentPoolStop?.stopId ??
+          '-',
       activeBooking?.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ??
           '-',
       routeHealth.source.name,

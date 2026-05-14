@@ -10,9 +10,11 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 /// All write operations that can race (accept, reject, release) use Firestore
 /// transactions. Start and complete use a lightweight retry wrapper.
 class BookingRepository {
-  BookingRepository({FirebaseFirestore? firestore, FirebaseFunctions? functions})
-    : _db = firestore ?? FirebaseFirestore.instance,
-      _functions = functions;
+  BookingRepository({
+    FirebaseFirestore? firestore,
+    FirebaseFunctions? functions,
+  }) : _db = firestore ?? FirebaseFirestore.instance,
+       _functions = functions;
 
   final FirebaseFirestore _db;
   final FirebaseFunctions? _functions;
@@ -46,6 +48,18 @@ class BookingRepository {
                 ..sort(_compareActiveBookingSequence);
           return active;
         });
+  }
+
+  Future<BookingModel?> getBooking(String bookingId) async {
+    final snap = await _db
+        .collection(FirestoreCollections.bookings)
+        .doc(bookingId)
+        .get();
+    final data = snap.data();
+    if (!snap.exists || data == null) {
+      return null;
+    }
+    return _fromDoc(snap.id, data);
   }
 
   /// Streams all pending bookings (no driver assigned yet), ordered by
@@ -419,9 +433,9 @@ class BookingRepository {
         final batch = _db.batch();
         for (final ref in bookingRefs) {
           batch.set(ref, {
-          BookingFields.operatorLat: operatorLat,
-          BookingFields.operatorLng: operatorLng,
-          BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            BookingFields.operatorLat: operatorLat,
+            BookingFields.operatorLng: operatorLng,
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
 
           batch.set(

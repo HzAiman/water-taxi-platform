@@ -492,17 +492,15 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     String operatorId,
     OperatorHomeViewModel viewModel,
   ) {
-    final activeBooking = viewModel.activeBookings.isNotEmpty
-        ? viewModel.activeBookings.first
-        : null;
     final pendingBookings = viewModel.visiblePendingBookings(operatorId);
     final topPendingBooking = pendingBookings.isNotEmpty
         ? pendingBookings.first
         : null;
     final pendingCount = pendingBookings.length;
-    final activeCount = activeBooking == null ? 0 : 1;
     final guidance = viewModel.navigationGuidance;
     final snapshot = viewModel.homeSnapshot;
+    final activeBooking = snapshot.activeBooking;
+    final activeCount = viewModel.activeBookings.length;
     final isOnTheWay =
         activeBooking != null && activeBooking.status == BookingStatus.onTheWay;
     final passengerPickedUp =
@@ -609,6 +607,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       booking: booking,
       isUpdating: viewModel.isUpdatingBooking,
       detailText: _buildBookingDetailText(booking),
+      poolBookings: viewModel.activeBookings,
       onCallCustomer: () => _callCustomer(booking),
       onStartTrip: () async {
         final result = await viewModel.startTrip(booking.bookingId);
@@ -704,10 +703,20 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     final verb = stop.isPickup ? 'Pick up' : 'Drop off';
     final count = stop.bookingIds.length;
     final bookingText = count <= 1 ? '1 booking' : '$count bookings';
-    final stopName = stop.stopName.trim().isEmpty
-        ? 'next jetty'
-        : stop.stopName.trim();
+    final stopName = _poolStopDisplayName(stop);
     return '$verb $bookingText at $stopName';
+  }
+
+  String _poolStopDisplayName(PoolStopPlanItem stop) {
+    final stopName = stop.stopName.trim();
+    if (stopName.isNotEmpty) {
+      return stopName;
+    }
+    final stopJettyId = stop.stopJettyId?.trim();
+    if (stopJettyId != null && stopJettyId.isNotEmpty) {
+      return stopJettyId;
+    }
+    return stop.isPickup ? 'pickup stop' : 'dropoff stop';
   }
 
   String? _formatRouteDirectionLabel(String? routeDirection) {
@@ -842,9 +851,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     if (result is OperationSuccess && currentStop != null) {
       final count = currentStop.bookingIds.length;
       final bookingText = count <= 1 ? '1 booking' : '$count bookings';
-      final stopName = currentStop.stopName.trim().isEmpty
-          ? 'this stop'
-          : currentStop.stopName.trim();
+      final stopName = _poolStopDisplayName(currentStop);
       showTopSuccess(
         context,
         message: isPickupStop
@@ -891,6 +898,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
     final rejoinPoint = guidance?.rejoinPoint;
     if (guidance != null &&
+        activeBooking?.currentPoolStop == null &&
         operatorPoint != null &&
         rejoinPoint != null &&
         guidance.offRouteSeverity.index >=

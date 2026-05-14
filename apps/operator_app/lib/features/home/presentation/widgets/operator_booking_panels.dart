@@ -108,6 +108,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
     required this.booking,
     required this.isUpdating,
     required this.detailText,
+    this.poolBookings = const <BookingModel>[],
     required this.onStartTrip,
     required this.onRelease,
     required this.onCallCustomer,
@@ -116,6 +117,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
   final BookingModel booking;
   final bool isUpdating;
   final String detailText;
+  final List<BookingModel> poolBookings;
   final Future<void> Function() onStartTrip;
   final Future<void> Function() onRelease;
   final Future<void> Function() onCallCustomer;
@@ -137,8 +139,11 @@ class OperatorActiveBookingCard extends StatelessWidget {
         ? formatCurrency(booking.totalFare)
         : 'Fare N/A';
     final currentStop = booking.currentPoolStop;
+    final nextStop = currentStop == null
+        ? null
+        : _nextStopAfter(booking.poolStopPlan, currentStop);
     var subtitle = currentStop != null
-        ? _poolStopSubtitle(currentStop, booking)
+        ? _poolStopSubtitle(currentStop, poolBookings)
         : isOnTheWay
         ? '${booking.origin} → ${booking.destination}\n$passengerSummary - $fareSummary'
         : detailText;
@@ -149,7 +154,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(14),
@@ -169,18 +174,18 @@ class OperatorActiveBookingCard extends StatelessWidget {
               Icon(
                 isAccepted ? Icons.directions_boat : Icons.route,
                 color: actionColor,
-                size: 20,
+                size: currentStop != null ? 22 : 20,
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   currentStop != null
-                      ? _poolStopTitle(currentStop)
+                      ? 'Next Stop'
                       : booking.userName.trim().isEmpty
                       ? 'Current Trip'
                       : booking.userName,
                   style: TextStyle(
-                    fontSize: 14,
+                    fontSize: currentStop != null ? 16 : 14,
                     fontWeight: FontWeight.w800,
                     color: Colors.grey[850],
                   ),
@@ -208,17 +213,19 @@ class OperatorActiveBookingCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[700],
-              height: 1.25,
-              fontWeight: FontWeight.w500,
-            ),
-            maxLines: isStale ? 4 : 2,
-            overflow: TextOverflow.ellipsis,
-          ),
+          currentStop != null
+              ? _buildCurrentStopSummary(currentStop, nextStop)
+              : Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Colors.grey[700],
+                    height: 1.25,
+                    fontWeight: FontWeight.w500,
+                  ),
+                  maxLines: isStale ? 4 : 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
           if (currentStop != null) ...[
             const SizedBox(height: 8),
             Wrap(
@@ -231,12 +238,30 @@ class OperatorActiveBookingCard extends StatelessWidget {
                   Icons.groups_2,
                 ),
                 _buildPoolChip(
-                  '${currentStop.bookingIds.length} stop booking${currentStop.bookingIds.length == 1 ? '' : 's'}',
+                  _stopOccupancyLabel(currentStop, poolBookings),
                   Colors.blueGrey,
                   Icons.alt_route,
                 ),
               ],
             ),
+            if (booking.poolStopPlan.length > 1) ...[
+              const SizedBox(height: 8),
+              ExpansionTile(
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: EdgeInsets.zero,
+                dense: true,
+                visualDensity: VisualDensity.compact,
+                title: const Text(
+                  'View route order',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w800,
+                    color: OperatorBrand.magenta,
+                  ),
+                ),
+                children: [_buildRouteOrder(booking.poolStopPlan, currentStop)],
+              ),
+            ],
           ],
           const SizedBox(height: 10),
           Row(
@@ -253,8 +278,12 @@ class OperatorActiveBookingCard extends StatelessWidget {
                     side: BorderSide(
                       color: OperatorBrand.magenta.withValues(alpha: 0.20),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    textStyle: const TextStyle(fontSize: 12),
+                    padding: EdgeInsets.symmetric(
+                      vertical: currentStop != null ? 11 : 8,
+                    ),
+                    textStyle: TextStyle(
+                      fontSize: currentStop != null ? 13 : 12,
+                    ),
                   ),
                 ),
               ),
@@ -267,8 +296,12 @@ class OperatorActiveBookingCard extends StatelessWidget {
                       backgroundColor: const Color(0xFFFFF1F1),
                       foregroundColor: const Color(0xFFB42318),
                       side: const BorderSide(color: Color(0x33B42318)),
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      textStyle: const TextStyle(fontSize: 12),
+                      padding: EdgeInsets.symmetric(
+                        vertical: currentStop != null ? 11 : 8,
+                      ),
+                      textStyle: TextStyle(
+                        fontSize: currentStop != null ? 13 : 12,
+                      ),
                     ),
                     child: const Text('Release'),
                   ),
@@ -282,8 +315,12 @@ class OperatorActiveBookingCard extends StatelessWidget {
                     style: ElevatedButton.styleFrom(
                       backgroundColor: actionColor,
                       foregroundColor: Colors.white,
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      textStyle: const TextStyle(fontSize: 12),
+                      padding: EdgeInsets.symmetric(
+                        vertical: currentStop != null ? 11 : 8,
+                      ),
+                      textStyle: TextStyle(
+                        fontSize: currentStop != null ? 13 : 12,
+                      ),
                     ),
                     child: isUpdating
                         ? const SizedBox(
@@ -310,23 +347,256 @@ class OperatorActiveBookingCard extends StatelessWidget {
       ),
     );
   }
-}
 
-String _poolStopTitle(PoolStopPlanItem stop) {
-  final verb = stop.isPickup ? 'Pick up' : 'Drop off';
-  final count = stop.bookingIds.length;
-  if (count <= 1) {
-    return stop.isPickup ? 'Current Pickup' : 'Current Dropoff';
+  Widget _buildCurrentStopSummary(
+    PoolStopPlanItem currentStop,
+    PoolStopPlanItem? nextStop,
+  ) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _stopActionLabel(currentStop, poolBookings),
+          style: TextStyle(
+            fontSize: 18,
+            color: Colors.grey[900],
+            height: 1.15,
+            fontWeight: FontWeight.w900,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        const SizedBox(height: 3),
+        Text(
+          _stopDisplayName(currentStop),
+          style: const TextStyle(
+            fontSize: 16,
+            color: OperatorBrand.magenta,
+            height: 1.15,
+            fontWeight: FontWeight.w900,
+          ),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+        if (nextStop != null) ...[
+          const SizedBox(height: 7),
+          _buildNextStopPreview(nextStop),
+        ],
+      ],
+    );
   }
-  final bookingText = count <= 1 ? '1 booking' : '$count bookings';
-  return '$verb $bookingText';
+
+  Widget _buildNextStopPreview(PoolStopPlanItem nextStop) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 7),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            nextStop.isPickup ? Icons.login : Icons.logout,
+            size: 15,
+            color: Colors.blueGrey,
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              'Next: ${_stopActionLabel(nextStop, poolBookings)} - ${_stopDisplayName(nextStop)}',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[700],
+                fontWeight: FontWeight.w700,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRouteOrder(
+    List<PoolStopPlanItem> stops,
+    PoolStopPlanItem currentStop,
+  ) {
+    final visibleStops = stops.take(4).toList(growable: false);
+    final hiddenCount = stops.length - visibleStops.length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Route Order',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey[700],
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final stop in visibleStops)
+            _buildRouteOrderRow(stop, currentStop),
+          if (hiddenCount > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: 2, left: 22),
+              child: Text(
+                '+ $hiddenCount more stop${hiddenCount == 1 ? '' : 's'}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[600],
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRouteOrderRow(
+    PoolStopPlanItem stop,
+    PoolStopPlanItem currentStop,
+  ) {
+    final isCurrent = stop.stopId == currentStop.stopId;
+    final isCompleted = stop.status == 'completed';
+    final color = isCurrent
+        ? OperatorBrand.magenta
+        : isCompleted
+        ? OperatorBrand.goOnlineGreen
+        : Colors.blueGrey;
+    final icon = isCompleted
+        ? Icons.check_circle
+        : isCurrent
+        ? Icons.navigation
+        : stop.isPickup
+        ? Icons.login
+        : Icons.logout;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 5),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 1),
+            child: Icon(icon, size: 14, color: color),
+          ),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  _stopActionLabel(stop, poolBookings),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: isCurrent ? OperatorBrand.magenta : Colors.grey[850],
+                    fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w700,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                Text(
+                  _stopDisplayName(stop),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: Colors.grey[600],
+                    fontWeight: FontWeight.w600,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
-String _poolStopSubtitle(PoolStopPlanItem stop, BookingModel booking) {
-  final stopName = stop.stopName.trim().isEmpty
-      ? 'Next jetty'
-      : stop.stopName.trim();
-  return '$stopName\n${_routeDirectionLabel(booking.routeDirection)} - ${_poolPhaseLabel(booking)}';
+String _poolStopSubtitle(
+  PoolStopPlanItem stop,
+  List<BookingModel> poolBookings,
+) {
+  return '${_stopActionLabel(stop, poolBookings)}\n${_stopDisplayName(stop)}';
+}
+
+String _stopDisplayName(PoolStopPlanItem stop) {
+  final stopName = stop.stopName.trim();
+  if (stopName.isNotEmpty) {
+    return stopName;
+  }
+  final stopJettyId = stop.stopJettyId?.trim();
+  if (stopJettyId != null && stopJettyId.isNotEmpty) {
+    return stopJettyId;
+  }
+  return stop.isPickup ? 'Pickup stop' : 'Dropoff stop';
+}
+
+String _stopActionLabel(
+  PoolStopPlanItem stop,
+  List<BookingModel> poolBookings,
+) {
+  final verb = stop.isPickup ? 'Pick up' : 'Drop off';
+  final passengerCount = _stopPassengerCount(stop, poolBookings);
+  final noun = passengerCount == 1 ? 'passenger' : 'passengers';
+  return '$verb $passengerCount $noun';
+}
+
+String _stopOccupancyLabel(
+  PoolStopPlanItem stop,
+  List<BookingModel> poolBookings,
+) {
+  final passengerCount = _stopPassengerCount(stop, poolBookings);
+  final noun = passengerCount == 1 ? 'passenger' : 'passengers';
+  return '$passengerCount $noun at stop';
+}
+
+int _stopPassengerCount(
+  PoolStopPlanItem stop,
+  List<BookingModel> poolBookings,
+) {
+  final stopBookingIds = stop.bookingIds.toSet();
+  final count = poolBookings
+      .where((booking) => stopBookingIds.contains(booking.bookingId))
+      .fold<int>(0, (sum, booking) => sum + booking.passengerCount);
+  if (count > 0) {
+    return count;
+  }
+  return stop.bookingIds.isEmpty ? 1 : stop.bookingIds.length;
+}
+
+PoolStopPlanItem? _nextStopAfter(
+  List<PoolStopPlanItem> stops,
+  PoolStopPlanItem currentStop,
+) {
+  final currentIndex = stops.indexWhere(
+    (stop) => stop.stopId == currentStop.stopId,
+  );
+  if (currentIndex < 0) {
+    return null;
+  }
+  for (var i = currentIndex + 1; i < stops.length; i++) {
+    final stop = stops[i];
+    if (stop.status != 'completed' && stop.status != 'skipped') {
+      return stop;
+    }
+  }
+  return null;
 }
 
 String _routeDirectionLabel(String? routeDirection) {

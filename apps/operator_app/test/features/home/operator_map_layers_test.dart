@@ -14,6 +14,8 @@ BookingModel _bookingFixture({
   List<BookingRoutePoint> routeToDestinationPolyline =
       const <BookingRoutePoint>[],
   List<BookingRoutePoint> routePolyline = const <BookingRoutePoint>[],
+  List<PoolStopPlanItem> poolStopPlan = const <PoolStopPlanItem>[],
+  String? currentStopId,
 }) {
   return BookingModel(
     bookingId: bookingId,
@@ -29,6 +31,8 @@ BookingModel _bookingFixture({
     routePolyline: routePolyline,
     routeToOriginPolyline: routeToOriginPolyline,
     routeToDestinationPolyline: routeToDestinationPolyline,
+    poolStopPlan: poolStopPlan,
+    currentStopId: currentStopId,
     adultCount: 1,
     childCount: 0,
     passengerCount: 1,
@@ -102,43 +106,49 @@ void main() {
       );
     });
 
-    test('uses live operator point for accepted preview marker when provided', () {
-      final booking = _bookingFixture(
-        bookingId: 'm-live',
-        status: BookingStatus.accepted,
-        operatorLat: 2.2100,
-        operatorLng: 102.2500,
-      );
+    test(
+      'uses live operator point for accepted preview marker when provided',
+      () {
+        final booking = _bookingFixture(
+          bookingId: 'm-live',
+          status: BookingStatus.accepted,
+          operatorLat: 2.2100,
+          operatorLng: 102.2500,
+        );
 
-      final markers = OperatorMapLayers.buildMarkers(
-        booking,
-        operatorPoint: const LatLng(2.2050, 102.2550),
-      );
+        final markers = OperatorMapLayers.buildMarkers(
+          booking,
+          operatorPoint: const LatLng(2.2050, 102.2550),
+        );
 
-      final operatorMarker = markers.singleWhere(
-        (marker) => marker.markerId.value == 'operator_location',
-      );
-      expect(operatorMarker.position, const LatLng(2.2050, 102.2550));
-    });
+        final operatorMarker = markers.singleWhere(
+          (marker) => marker.markerId.value == 'operator_location',
+        );
+        expect(operatorMarker.position, const LatLng(2.2050, 102.2550));
+      },
+    );
 
-    test('hides operator marker during live navigation so blue dot is primary', () {
-      final booking = _bookingFixture(
-        bookingId: 'm-live-nav',
-        status: BookingStatus.onTheWay,
-        operatorLat: 2.2100,
-        operatorLng: 102.2500,
-      );
+    test(
+      'hides operator marker during live navigation so blue dot is primary',
+      () {
+        final booking = _bookingFixture(
+          bookingId: 'm-live-nav',
+          status: BookingStatus.onTheWay,
+          operatorLat: 2.2100,
+          operatorLng: 102.2500,
+        );
 
-      final markers = OperatorMapLayers.buildMarkers(
-        booking,
-        operatorPoint: const LatLng(2.2050, 102.2550),
-      );
+        final markers = OperatorMapLayers.buildMarkers(
+          booking,
+          operatorPoint: const LatLng(2.2050, 102.2550),
+        );
 
-      expect(
-        markers.any((marker) => marker.markerId.value == 'operator_location'),
-        isFalse,
-      );
-    });
+        expect(
+          markers.any((marker) => marker.markerId.value == 'operator_location'),
+          isFalse,
+        );
+      },
+    );
 
     test('does not show operator marker before acceptance', () {
       final pendingBooking = _bookingFixture(
@@ -170,6 +180,24 @@ void main() {
       expect(
         markers.any((marker) => marker.markerId.value == 'destination'),
         isTrue,
+      );
+    });
+
+    test('hides dropoff marker while navigating to pickup', () {
+      final booking = _bookingFixture(
+        bookingId: 'm5',
+        status: BookingStatus.onTheWay,
+      );
+
+      final markers = OperatorMapLayers.buildMarkers(booking);
+
+      expect(
+        markers.any((marker) => marker.markerId.value == 'origin'),
+        isTrue,
+      );
+      expect(
+        markers.any((marker) => marker.markerId.value == 'destination'),
+        isFalse,
       );
     });
   });
@@ -413,6 +441,95 @@ void main() {
       expect(polyline.color, const Color(0xFFF59E0B));
       expect(polyline.patterns, isNotEmpty);
     });
+
+    test(
+      'stop-first route uses stored route geometry to current pickup stop',
+      () {
+        final booking = _bookingFixture(
+          bookingId: 'stop-first-pickup',
+          operatorLat: 2.0,
+          operatorLng: 102.0,
+          passengerPickedUpAt: DateTime(2024, 1, 1, 10, 30),
+          routeToDestinationPolyline: const <BookingRoutePoint>[
+            BookingRoutePoint(lat: 9, lng: 109),
+            BookingRoutePoint(lat: 8, lng: 108),
+          ],
+          routePolyline: const <BookingRoutePoint>[
+            BookingRoutePoint(lat: 2.0, lng: 102.0),
+            BookingRoutePoint(lat: 2.001, lng: 102.001),
+            BookingRoutePoint(lat: 2.002, lng: 102.002),
+            BookingRoutePoint(lat: 2.003, lng: 102.003),
+          ],
+          currentStopId: 'pickup-stop-1',
+          poolStopPlan: const <PoolStopPlanItem>[
+            PoolStopPlanItem(
+              stopId: 'pickup-stop-1',
+              index: 0,
+              stopType: 'pickup',
+              stopJettyId: 'jetty-15',
+              stopName: 'The Shore',
+              lat: 2.002,
+              lng: 102.002,
+              bookingIds: <String>['stop-first-pickup'],
+              status: 'active',
+            ),
+          ],
+        );
+
+        final polylines = OperatorMapLayers.buildPolylines(
+          booking,
+          passengerPickedUp: true,
+        );
+
+        expect(polylines, hasLength(1));
+        final points = polylines.first.points;
+        expect(points, contains(const LatLng(2.001, 102.001)));
+        expect(points.last, const LatLng(2.002, 102.002));
+        expect(points, isNot(contains(const LatLng(9, 109))));
+      },
+    );
+
+    test(
+      'stop-first route suppresses long straight live-location connector',
+      () {
+        final booking = _bookingFixture(
+          bookingId: 'stop-first-no-long-anchor',
+          operatorLat: 2.0005,
+          operatorLng: 102.010,
+          routePolyline: const <BookingRoutePoint>[
+            BookingRoutePoint(lat: 2.0, lng: 102.0),
+            BookingRoutePoint(lat: 2.001, lng: 102.0),
+            BookingRoutePoint(lat: 2.002, lng: 102.0),
+          ],
+          currentStopId: 'pickup-stop-1',
+          poolStopPlan: const <PoolStopPlanItem>[
+            PoolStopPlanItem(
+              stopId: 'pickup-stop-1',
+              index: 0,
+              stopType: 'pickup',
+              stopJettyId: 'jetty-15',
+              stopName: 'The Shore',
+              lat: 2.002,
+              lng: 102.0,
+              bookingIds: <String>['stop-first-no-long-anchor'],
+              status: 'active',
+            ),
+          ],
+        );
+
+        final polylines = OperatorMapLayers.buildPolylines(
+          booking,
+          passengerPickedUp: false,
+        );
+
+        expect(polylines, hasLength(1));
+        expect(
+          polylines.first.points.first,
+          isNot(const LatLng(2.0005, 102.010)),
+        );
+        expect(polylines.first.points.last, const LatLng(2.002, 102.0));
+      },
+    );
   });
 
   group('OperatorMapLayers.resolveRouteHealth', () {

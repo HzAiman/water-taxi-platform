@@ -38,6 +38,7 @@ class OperatorMapLayers {
   const OperatorMapLayers._();
 
   static const double _closedLoopToleranceMeters = 12.0;
+  static const double _maxStopRouteAnchorDistanceMeters = 15.0;
 
   static bool isActiveNavigationBooking(BookingModel booking) {
     return booking.status == BookingStatus.onTheWay ||
@@ -59,6 +60,7 @@ class OperatorMapLayers {
     return [
       booking.bookingId,
       booking.status.firestoreValue,
+      booking.currentStopId ?? booking.currentPoolStop?.stopId ?? '-',
       passengerPickedUp ? '1' : '0',
       booking.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ?? '-',
     ].join('|');
@@ -119,13 +121,18 @@ class OperatorMapLayers {
       return const <LatLng>[];
     }
 
+    final routePoints = resolvedRoutePointsForPhase(
+      booking,
+      passengerPickedUp: passengerPickedUp,
+      operatorPoint: operatorPoint,
+      includeOperatorAnchors: false,
+    );
+    if (booking.currentPoolStop != null) {
+      return routePoints;
+    }
+
     return _trimRouteFromOperatorPosition(
-      resolvedRoutePointsForPhase(
-        booking,
-        passengerPickedUp: passengerPickedUp,
-        operatorPoint: operatorPoint,
-        includeOperatorAnchors: false,
-      ),
+      routePoints,
       booking,
       operatorPoint: operatorPoint,
     );
@@ -140,6 +147,23 @@ class OperatorMapLayers {
     final phase = _resolveRoutePhase(booking, passengerPickedUp);
     if (phase == OperatorRoutePhase.none) {
       return const <LatLng>[];
+    }
+
+    if (booking.currentPoolStop != null) {
+      final stopRoute = _stopFirstRoutePoints(
+        booking,
+        operatorPoint: operatorPoint,
+        includeLiveAnchors: includeOperatorAnchors,
+      );
+      if (_hasUsableStoredRoute(booking)) {
+        return stopRoute;
+      }
+
+      return _phaseFallbackLine(
+        booking,
+        phase,
+        operatorPoint: includeOperatorAnchors ? operatorPoint : null,
+      );
     }
 
     final phaseRoute = _phaseRoutePoints(booking, phase);
@@ -187,11 +211,38 @@ class OperatorMapLayers {
       );
     }
 
+    final currentStop = booking.currentPoolStop;
     final fallbackPoints = _phaseFallbackLine(
       booking,
       phase,
       operatorPoint: operatorPoint,
     );
+    if (currentStop != null) {
+      final stopRoute = _stopFirstRoutePoints(
+        booking,
+        operatorPoint: operatorPoint,
+        includeLiveAnchors: true,
+      );
+      final hasUsableStoredRoute = _hasUsableStoredRoute(booking);
+      return OperatorRouteHealth(
+        phase: phase,
+        source: hasUsableStoredRoute
+            ? currentStop.isPickup
+                  ? OperatorRouteSource.routeToOriginPolyline
+                  : OperatorRouteSource.routeToDestinationPolyline
+            : OperatorRouteSource.straightLineFallback,
+        routePoints: hasUsableStoredRoute ? stopRoute : fallbackPoints,
+        label: hasUsableStoredRoute
+            ? currentStop.isPickup
+                  ? 'Using route to pickup stop'
+                  : 'Using route to dropoff stop'
+            : 'Using straight-line fallback',
+        warning: hasUsableStoredRoute
+            ? null
+            : 'Missing stop route geometry. Showing straight line to current stop.',
+      );
+    }
+
     final phaseRoute = _phaseRoutePoints(booking, phase);
     if (phaseRoute.length >= 2) {
       final segmented = _segmentFromRoutePoints(
@@ -212,12 +263,18 @@ class OperatorMapLayers {
             : OperatorRouteSource.straightLineFallback,
         routePoints: routePoints,
         label: usesSegmentedRoute
-            ? phase == OperatorRoutePhase.toPickup
+            ? currentStop != null
+                  ? currentStop.isPickup
+                        ? 'Using route to pickup stop'
+                        : 'Using route to dropoff stop'
+                  : phase == OperatorRoutePhase.toPickup
                   ? 'Using operator-to-pickup route'
                   : 'Using operator-to-dropoff route'
             : 'Using straight-line fallback',
         warning: usesSegmentedRoute
             ? null
+            : currentStop != null
+            ? 'Missing stop route geometry. Showing straight line to current stop.'
             : phase == OperatorRoutePhase.toPickup
             ? 'Missing routeToOriginPolyline. Showing straight line to pickup.'
             : 'Missing routeToDestinationPolyline. Showing straight line to dropoff.',
@@ -229,7 +286,9 @@ class OperatorMapLayers {
       source: OperatorRouteSource.straightLineFallback,
       routePoints: fallbackPoints,
       label: 'Using straight-line fallback',
-      warning: phase == OperatorRoutePhase.toPickup
+      warning: booking.currentPoolStop != null
+          ? 'Missing stop route geometry. Showing straight line to current stop.'
+          : phase == OperatorRoutePhase.toPickup
           ? 'Missing routeToOriginPolyline. Showing straight line to pickup.'
           : 'Missing routeToDestinationPolyline. Showing straight line to dropoff.',
     );
@@ -246,7 +305,7 @@ class OperatorMapLayers {
     }
 
     final currentStop = activeBooking.currentPoolStop;
-    final passengerPickedUp = activeBooking.passengerPickedUpAt != null;
+    final passengerPickedUp = _isPassengerPickedUp(activeBooking);
     final originLat = activeBooking.originLat;
     final originLng = activeBooking.originLng;
     if (currentStop != null &&
@@ -261,7 +320,9 @@ class OperatorMapLayers {
                 : BitmapDescriptor.hueAzure,
           ),
           infoWindow: InfoWindow(
-            title: currentStop.isPickup ? 'Next pickup stop' : 'Next drop-off stop',
+            title: currentStop.isPickup
+                ? 'Next pickup stop'
+                : 'Next drop-off stop',
             snippet: currentStop.stopName,
           ),
         ),
@@ -281,7 +342,9 @@ class OperatorMapLayers {
 
     final destLat = activeBooking.destinationLat;
     final destLng = activeBooking.destinationLng;
-    if (currentStop == null && _isValidLatLng(destLat, destLng)) {
+    if (currentStop == null &&
+        passengerPickedUp &&
+        _isValidLatLng(destLat, destLng)) {
       markers.add(
         Marker(
           markerId: const MarkerId('destination'),
@@ -341,13 +404,17 @@ class OperatorMapLayers {
     );
     var routePoints = routeHealth.routePoints;
 
-    // Trim the live route so it visually progresses forward from the current
-    // operator position instead of staying static.
-    routePoints = _trimRouteFromOperatorPosition(
-      routePoints,
-      activeBooking,
-      operatorPoint: operatorPoint,
-    );
+    // Stop-first routes are already segmented from the operator to the current
+    // pool stop. Re-trimming them can preserve a straight live connector as
+    // part of the rendered route, so only legacy booking-first phase routes are
+    // trimmed here.
+    if (activeBooking.currentPoolStop == null) {
+      routePoints = _trimRouteFromOperatorPosition(
+        routePoints,
+        activeBooking,
+        operatorPoint: operatorPoint,
+      );
+    }
 
     if (routePoints.length < 2) {
       return const <Polyline>{};
@@ -381,6 +448,13 @@ class OperatorMapLayers {
     BookingModel booking,
     bool passengerPickedUp,
   ) {
+    final currentStop = booking.currentPoolStop;
+    if (currentStop != null) {
+      return currentStop.isPickup
+          ? OperatorRoutePhase.toPickup
+          : OperatorRoutePhase.toDestination;
+    }
+
     switch (booking.status) {
       case BookingStatus.accepted:
         return OperatorRoutePhase.toPickup;
@@ -401,6 +475,13 @@ class OperatorMapLayers {
     BookingModel booking,
     OperatorRoutePhase phase,
   ) {
+    if (booking.currentPoolStop != null && booking.routePolyline.length >= 2) {
+      return booking.routePolyline
+          .map((p) => LatLng(p.lat, p.lng))
+          .where((p) => _isValidLatLng(p.latitude, p.longitude))
+          .toList(growable: false);
+    }
+
     final route = switch (phase) {
       OperatorRoutePhase.toPickup => booking.routeToOriginPolyline,
       OperatorRoutePhase.toDestination => booking.routeToDestinationPolyline,
@@ -411,6 +492,74 @@ class OperatorMapLayers {
         .map((p) => LatLng(p.lat, p.lng))
         .where((p) => _isValidLatLng(p.latitude, p.longitude))
         .toList(growable: false);
+  }
+
+  static List<LatLng> _stopFirstRoutePoints(
+    BookingModel booking, {
+    LatLng? operatorPoint,
+    required bool includeLiveAnchors,
+  }) {
+    final currentStop = booking.currentPoolStop;
+    if (currentStop == null || booking.routePolyline.length < 2) {
+      return const <LatLng>[];
+    }
+
+    final routePoints = booking.routePolyline
+        .map((p) => LatLng(p.lat, p.lng))
+        .where((p) => _isValidLatLng(p.latitude, p.longitude))
+        .toList(growable: false);
+    if (routePoints.length < 2) {
+      return const <LatLng>[];
+    }
+
+    final startPoint =
+        operatorPoint ??
+        _latLngOrNull(booking.operatorLat, booking.operatorLng);
+    final endPoint = LatLng(currentStop.lat, currentStop.lng);
+    if (startPoint == null ||
+        !_isValidLatLng(startPoint.latitude, startPoint.longitude) ||
+        !_isValidLatLng(endPoint.latitude, endPoint.longitude)) {
+      return const <LatLng>[];
+    }
+
+    final startSnap = _snapPointToRoute(startPoint, routePoints);
+    final endSnap = _snapPointToRoute(endPoint, routePoints);
+    if (startSnap == null || endSnap == null) {
+      return const <LatLng>[];
+    }
+
+    final segment = _extractDirectedSegment(
+      routePoints,
+      startSnap,
+      endSnap,
+      routeDirection: booking.routeDirection,
+    );
+    if (!includeLiveAnchors) {
+      return segment;
+    }
+
+    return _attachLiveAnchors(
+      segment,
+      startPoint,
+      endPoint,
+      maxStartAnchorDistanceMeters: _maxStopRouteAnchorDistanceMeters,
+    );
+  }
+
+  static bool _hasUsableStoredRoute(BookingModel booking) {
+    if (booking.routePolyline.length < 2) {
+      return false;
+    }
+    var validPointCount = 0;
+    for (final point in booking.routePolyline) {
+      if (_isValidLatLng(point.lat, point.lng)) {
+        validPointCount++;
+      }
+      if (validPointCount >= 2) {
+        return true;
+      }
+    }
+    return false;
   }
 
   static List<LatLng> _trimRouteFromOperatorPosition(
@@ -466,7 +615,10 @@ class OperatorMapLayers {
     final currentStop = booking.currentPoolStop;
     if (currentStop != null &&
         liveOperatorPoint != null &&
-        _isValidLatLng(liveOperatorPoint.latitude, liveOperatorPoint.longitude) &&
+        _isValidLatLng(
+          liveOperatorPoint.latitude,
+          liveOperatorPoint.longitude,
+        ) &&
         _isValidLatLng(currentStop.lat, currentStop.lng)) {
       return <LatLng>[
         liveOperatorPoint,
@@ -557,21 +709,39 @@ class OperatorMapLayers {
       return const <LatLng>[];
     }
 
-    final segment = _isClosedLoopPolyline(genericPoints)
-        ? _extractShortestLoopSegment(genericPoints, startSnap, endSnap)
-        : _extractLinearSegment(genericPoints, startSnap, endSnap);
+    final segment = _extractDirectedSegment(
+      genericPoints,
+      startSnap,
+      endSnap,
+      routeDirection: booking.routeDirection,
+    );
     if (!includeLiveAnchors) {
       return segment;
     }
-    return _attachLiveAnchors(segment, startPoint, endPoint);
+    return _attachLiveAnchors(
+      segment,
+      startPoint,
+      endPoint,
+      maxStartAnchorDistanceMeters: currentStop == null
+          ? null
+          : _maxStopRouteAnchorDistanceMeters,
+    );
   }
 
   static List<LatLng> _attachLiveAnchors(
     List<LatLng> segmentedRoute,
     LatLng startPoint,
-    LatLng endPoint,
-  ) {
-    final anchored = <LatLng>[startPoint];
+    LatLng endPoint, {
+    double? maxStartAnchorDistanceMeters,
+  }) {
+    final firstRoutePoint = segmentedRoute.isNotEmpty
+        ? segmentedRoute.first
+        : startPoint;
+    final shouldAttachStart =
+        maxStartAnchorDistanceMeters == null ||
+        _distanceMeters(startPoint, firstRoutePoint) <=
+            maxStartAnchorDistanceMeters;
+    final anchored = <LatLng>[if (shouldAttachStart) startPoint];
     for (final point in segmentedRoute) {
       _addIfDistinct(anchored, point);
     }
@@ -654,6 +824,26 @@ class OperatorMapLayers {
         : forward;
   }
 
+  static List<LatLng> _extractDirectedSegment(
+    List<LatLng> routePoints,
+    _SnappedRoutePoint startSnap,
+    _SnappedRoutePoint endSnap, {
+    String? routeDirection,
+  }) {
+    if (!_isClosedLoopPolyline(routePoints)) {
+      return _extractLinearSegment(routePoints, startSnap, endSnap);
+    }
+
+    final normalizedDirection = routeDirection?.trim().toLowerCase();
+    if (normalizedDirection == 'forward') {
+      return _extractLoopSegment(routePoints, startSnap, endSnap, step: 1);
+    }
+    if (normalizedDirection == 'reverse') {
+      return _extractLoopSegment(routePoints, startSnap, endSnap, step: -1);
+    }
+    return _extractShortestLoopSegment(routePoints, startSnap, endSnap);
+  }
+
   static List<LatLng> _extractLoopSegment(
     List<LatLng> routePoints,
     _SnappedRoutePoint startSnap,
@@ -724,6 +914,13 @@ class OperatorMapLayers {
       return null;
     }
     return LatLng(lat, lng);
+  }
+
+  static bool _isPassengerPickedUp(BookingModel booking) {
+    return booking.passengerPickedUpAt != null ||
+        booking.pickedUpAt != null ||
+        booking.onboard ||
+        booking.poolPhase?.trim().toLowerCase() == 'onboard';
   }
 
   static double _distanceMeters(LatLng a, LatLng b) {
