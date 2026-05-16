@@ -118,7 +118,7 @@ class OperatorNotificationCoordinator {
         _deliver(
           NotificationMessage(
             title: 'Booking status updated',
-            body: '${booking.bookingId}: ${_statusLabel(booking.status)}',
+            body: _statusMessage(booking),
           ),
           eventId: booking.bookingId.hashCode,
           payload: booking.bookingId,
@@ -209,8 +209,17 @@ class OperatorNotificationCoordinator {
     return true;
   }
 
-  String _statusLabel(BookingStatus status) {
-    return status.firestoreValue.replaceAll('_', ' ');
+  String _statusMessage(BookingModel booking) {
+    final route = '${booking.origin} to ${booking.destination}';
+    return switch (booking.status) {
+      BookingStatus.pending => '$route is waiting for an operator.',
+      BookingStatus.accepted => '$route was added to your queue.',
+      BookingStatus.onTheWay => '$route is now active.',
+      BookingStatus.completed => '$route has been completed.',
+      BookingStatus.cancelled => '$route was cancelled by the passenger.',
+      BookingStatus.rejected => '$route was declined.',
+      BookingStatus.unknown => '$route status changed.',
+    };
   }
 
   Future<void> dispose() async {

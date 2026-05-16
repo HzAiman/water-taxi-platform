@@ -2472,7 +2472,7 @@ exports.notifyBookingStatusChanged = onDocumentUpdated(
         tokens: [passengerToken],
         notification: {
           title: "Booking status updated",
-          body: `${origin} to ${destination}: ${statusLabel(newStatus)}`,
+          body: passengerStatusMessage(newStatus, origin, destination),
         },
         data: {
           type: "booking_status",
@@ -2498,7 +2498,7 @@ exports.notifyBookingStatusChanged = onDocumentUpdated(
           tokens: [operatorToken],
           notification: {
             title: "Booking status updated",
-            body: `${bookingId}: ${statusLabel(newStatus)}`,
+            body: operatorStatusMessage(newStatus, origin, destination),
           },
           data: {
             type: "booking_status",
@@ -2627,6 +2627,48 @@ function statusLabel(status) {
       return "No operator available";
     default:
       return String(status).replaceAll("_", " ");
+  }
+}
+
+function bookingRouteLabel(origin, destination) {
+  const start = origin || "Pickup";
+  const end = destination || "Dropoff";
+  return `${start} to ${end}`;
+}
+
+function passengerStatusMessage(status, origin, destination) {
+  const route = bookingRouteLabel(origin, destination);
+  switch (status) {
+    case "accepted":
+      return `Your operator has accepted ${route}.`;
+    case "on_the_way":
+      return `Your operator is on the way for ${route}.`;
+    case "completed":
+      return `Your trip from ${route} is complete.`;
+    case "cancelled":
+      return `Your booking from ${route} was cancelled.`;
+    case "rejected":
+      return `No operator is available for ${route} right now.`;
+    default:
+      return `${route}: ${statusLabel(status)}`;
+  }
+}
+
+function operatorStatusMessage(status, origin, destination) {
+  const route = bookingRouteLabel(origin, destination);
+  switch (status) {
+    case "accepted":
+      return `${route} was added to your queue.`;
+    case "on_the_way":
+      return `${route} is now active.`;
+    case "completed":
+      return `${route} has been completed.`;
+    case "cancelled":
+      return `${route} was cancelled by the passenger.`;
+    case "rejected":
+      return `${route} was declined.`;
+    default:
+      return `${route}: ${statusLabel(status)}`;
   }
 }
 

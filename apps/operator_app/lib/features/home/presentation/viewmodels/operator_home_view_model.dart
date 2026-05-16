@@ -1275,8 +1275,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
           eventId: bookingId.hashCode ^ (routeMarker * 31),
           bookingId: bookingId,
           title: 'Route progress',
-          body:
-              'Booking $bookingId reached route marker $routeMarker/${guidance.totalRouteMarkers}. Next: ${guidance.nextRouteMarker}.',
+          body: 'You are progressing along the planned river route.',
         ),
       );
     }
@@ -1290,7 +1289,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
             bookingId: bookingId,
             title: 'Off-route detected',
             body:
-                'Booking $bookingId is off-route by about ${guidance.offRouteDistanceMeters.round()} m. Please rejoin the planned route.',
+                'You are about ${guidance.offRouteDistanceMeters.round()} m from the planned river route. Rejoin the highlighted route to resume guidance.',
           ),
         );
       }
@@ -1304,8 +1303,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
           eventId: bookingId.hashCode ^ 0x0F02,
           bookingId: bookingId,
           title: 'Route resumed',
-          body:
-              'Booking $bookingId has returned to the planned route. Continue to marker ${guidance.nextRouteMarker}.',
+          body: 'You are back on the planned river route.',
         ),
       );
     }

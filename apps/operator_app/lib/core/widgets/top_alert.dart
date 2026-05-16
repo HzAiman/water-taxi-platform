@@ -16,8 +16,10 @@ void showTopAlert(
   String? actionLabel,
   VoidCallback? onAction,
 }) {
+  final displayMessage = _calmAlertMessage(message);
+  final displayTitle = title;
   final now = DateTime.now();
-  final key = '$title|$message|${icon.codePoint}';
+  final key = '$displayTitle|$displayMessage|${icon.codePoint}';
   final lastShownAt = _recentTopAlertKeys[key];
   if (lastShownAt != null &&
       now.difference(lastShownAt) < _duplicateTopAlertWindow) {
@@ -34,8 +36,8 @@ void showTopAlert(
   entry = OverlayEntry(
     builder: (overlayContext) {
       return _TopAlertOverlay(
-        message: message,
-        title: title,
+        message: displayMessage,
+        title: displayTitle,
         iconColor: iconColor,
         icon: icon,
         duration: duration,
@@ -47,6 +49,32 @@ void showTopAlert(
   );
 
   overlayState.insert(entry);
+}
+
+String _calmAlertMessage(String message) {
+  final trimmed = message.trim();
+  final text = trimmed.toLowerCase();
+
+  if (text.contains('securetoken.googleapis.com') ||
+      text.contains('granttoken') ||
+      text.contains('token service api')) {
+    return 'Your sign-in session could not be refreshed. Please check your connection and try again.';
+  }
+
+  if (text.contains('permission-denied') ||
+      text.contains('permission denied') ||
+      text.contains('insufficient permissions')) {
+    return 'You no longer have permission to perform this action. Refresh, then sign in again if needed.';
+  }
+
+  if (text.contains('firebase_auth') ||
+      text.contains('cloud_firestore') ||
+      text.contains('firebaseexception') ||
+      text.contains('platformexception')) {
+    return 'The app could not complete this action right now. Please try again.';
+  }
+
+  return trimmed;
 }
 
 void showTopError(
