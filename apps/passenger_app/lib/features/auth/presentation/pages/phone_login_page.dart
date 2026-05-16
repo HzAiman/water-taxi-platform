@@ -22,6 +22,97 @@ const Map<String, String> countryCodes = {
   'Brunei': '+673',
 };
 
+class _OtpRequestThrottle {
+  static const Duration normalCooldown = Duration(seconds: 60);
+  static const Duration burstWindow = Duration(minutes: 10);
+  static const Duration lockoutCooldown = Duration(minutes: 10);
+  static const int maxAttemptsBeforeLockout = 3;
+
+  static final Map<String, DateTime> _nextAllowedAt = <String, DateTime>{};
+  static final Map<String, List<DateTime>> _attemptsByPhone =
+      <String, List<DateTime>>{};
+
+  static Duration remainingFor(String phoneNumber) {
+    final nextAllowed = _nextAllowedAt[phoneNumber];
+    if (nextAllowed == null) return Duration.zero;
+
+    final remaining = nextAllowed.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  static Duration recordAttempt(String phoneNumber) {
+    final now = DateTime.now();
+    final attempts = _attemptsByPhone.putIfAbsent(
+      phoneNumber,
+      () => <DateTime>[],
+    );
+    attempts.removeWhere((attempt) => now.difference(attempt) > burstWindow);
+    attempts.add(now);
+
+    final cooldown = attempts.length >= maxAttemptsBeforeLockout
+        ? lockoutCooldown
+        : normalCooldown;
+    _nextAllowedAt[phoneNumber] = now.add(cooldown);
+    return cooldown;
+  }
+
+  static void recordThrottleFailure(String phoneNumber) {
+    _nextAllowedAt[phoneNumber] = DateTime.now().add(lockoutCooldown);
+  }
+}
+
+String _formatCooldown(Duration duration) {
+  final totalSeconds = duration.inSeconds;
+  if (totalSeconds <= 0) return 'a moment';
+  if (totalSeconds < 60) {
+    return '$totalSeconds second${totalSeconds == 1 ? '' : 's'}';
+  }
+
+  final minutes = (totalSeconds / 60).ceil();
+  return '$minutes minute${minutes == 1 ? '' : 's'}';
+}
+
+String _friendlyPhoneAuthError(FirebaseAuthException error) {
+  final message = error.message ?? '';
+  final text = '${error.code} $message'.toLowerCase();
+
+  if (error.code == 'too-many-requests' ||
+      text.contains('blocked all requests') ||
+      text.contains('unusual activity') ||
+      text.contains('quota')) {
+    return 'Too many OTP attempts. Please wait about ${_formatCooldown(_OtpRequestThrottle.lockoutCooldown)} before requesting another code.';
+  }
+
+  if (error.code == 'invalid-phone-number') {
+    return 'Please enter a valid phone number, then try again.';
+  }
+
+  if (error.code == 'app-not-authorized' ||
+      error.code == 'missing-client-identifier' ||
+      text.contains('missing a valid app identifier')) {
+    return 'Phone verification could not confirm this app. Please try again later or contact support.';
+  }
+
+  if (message.trim().isNotEmpty) {
+    return message;
+  }
+
+  return 'Phone verification failed. Please try again.';
+}
+
+String _friendlyOtpVerifyError(FirebaseAuthException error) {
+  if (error.code == 'invalid-verification-code' ||
+      error.code == 'invalid-verification-id') {
+    return 'The OTP code is invalid or expired. Please check the code or request a new one after the cooldown.';
+  }
+
+  if (error.code == 'session-expired') {
+    return 'This OTP session has expired. Please request a new code after the cooldown.';
+  }
+
+  return _friendlyPhoneAuthError(error);
+}
+
 class PhoneLoginPage extends StatefulWidget {
   const PhoneLoginPage({super.key});
 
@@ -77,81 +168,124 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
       return;
     }
 
-    setState(() => _isLoading = true);
     final stopwatch = Stopwatch()..start();
     final stageDurations = <String, int>{};
 
     // Combine country code with phone number
     String fullPhoneNumber = "$_countryCode$phoneNumber";
-
-    await FirebaseAuth.instance.verifyPhoneNumber(
-      phoneNumber: fullPhoneNumber,
-      verificationCompleted: (PhoneAuthCredential credential) async {
-        // Android Auto-retrieval: Logs in automatically if SMS is detected
-        _logAuthTiming('sendOtp.verificationCompleted', stopwatch);
-        stageDurations['sendOtp.verificationCompleted'] =
-            stopwatch.elapsedMilliseconds;
-        final signInStopwatch = Stopwatch()..start();
-        await FirebaseAuth.instance.signInWithCredential(credential);
-        _logAuthTiming('sendOtp.autoSignIn', signInStopwatch);
-        stageDurations['sendOtp.autoSignIn'] =
-            signInStopwatch.elapsedMilliseconds;
-        _logAttemptSummary('sendOtp', stopwatch, stageDurations);
-      },
-      verificationFailed: (FirebaseAuthException e) {
-        _logAuthTiming(
-          'sendOtp.verificationFailed',
-          stopwatch,
-          status: 'error',
-          detail: e.code,
-        );
-        stageDurations['sendOtp.verificationFailed'] =
-            stopwatch.elapsedMilliseconds;
-        _logAttemptSummary(
-          'sendOtp',
-          stopwatch,
-          stageDurations,
-          status: 'error',
-        );
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-        showTopError(context, message: 'Error: ${e.message}');
-      },
-      codeSent: (String verificationId, int? resendToken) {
-        _logAuthTiming('sendOtp.codeSent', stopwatch);
-        stageDurations['sendOtp.codeSent'] = stopwatch.elapsedMilliseconds;
-        _logAttemptSummary('sendOtp', stopwatch, stageDurations);
-        if (!mounted) return;
-        setState(() => _isLoading = false);
-        // Navigate to the OTP verification screen
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => OTPScreen(
-              verificationId: verificationId,
-              phoneNumber: fullPhoneNumber,
-              resendToken: resendToken,
-            ),
-          ),
-        );
-      },
-      codeAutoRetrievalTimeout: (String verificationId) {
-        _logAuthTiming(
-          'sendOtp.autoRetrievalTimeout',
-          stopwatch,
-          status: 'timeout',
-        );
-        stageDurations['sendOtp.autoRetrievalTimeout'] =
-            stopwatch.elapsedMilliseconds;
-        _logAttemptSummary(
-          'sendOtp',
-          stopwatch,
-          stageDurations,
-          status: 'timeout',
-        );
-      },
-      timeout: const Duration(seconds: 60),
+    final cooldownRemaining = _OtpRequestThrottle.remainingFor(
+      fullPhoneNumber,
     );
+    if (cooldownRemaining > Duration.zero) {
+      if (!mounted) return;
+      showTopError(
+        context,
+        title: 'Please wait',
+        message:
+            'You can request another OTP in ${_formatCooldown(cooldownRemaining)}.',
+      );
+      return;
+    }
+
+    _OtpRequestThrottle.recordAttempt(fullPhoneNumber);
+    setState(() => _isLoading = true);
+
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: fullPhoneNumber,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          // Android Auto-retrieval: Logs in automatically if SMS is detected
+          _logAuthTiming('sendOtp.verificationCompleted', stopwatch);
+          stageDurations['sendOtp.verificationCompleted'] =
+              stopwatch.elapsedMilliseconds;
+          final signInStopwatch = Stopwatch()..start();
+          await FirebaseAuth.instance.signInWithCredential(credential);
+          _logAuthTiming('sendOtp.autoSignIn', signInStopwatch);
+          stageDurations['sendOtp.autoSignIn'] =
+              signInStopwatch.elapsedMilliseconds;
+          _logAttemptSummary('sendOtp', stopwatch, stageDurations);
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          _logAuthTiming(
+            'sendOtp.verificationFailed',
+            stopwatch,
+            status: 'error',
+            detail: e.code,
+          );
+          stageDurations['sendOtp.verificationFailed'] =
+              stopwatch.elapsedMilliseconds;
+          _logAttemptSummary(
+            'sendOtp',
+            stopwatch,
+            stageDurations,
+            status: 'error',
+          );
+          if (e.code == 'too-many-requests') {
+            _OtpRequestThrottle.recordThrottleFailure(fullPhoneNumber);
+          }
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          showTopError(
+            context,
+            title: 'OTP request failed',
+            message: _friendlyPhoneAuthError(e),
+          );
+        },
+        codeSent: (String verificationId, int? resendToken) {
+          _logAuthTiming('sendOtp.codeSent', stopwatch);
+          stageDurations['sendOtp.codeSent'] = stopwatch.elapsedMilliseconds;
+          _logAttemptSummary('sendOtp', stopwatch, stageDurations);
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          // Navigate to the OTP verification screen
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => OTPScreen(
+                verificationId: verificationId,
+                phoneNumber: fullPhoneNumber,
+                resendToken: resendToken,
+              ),
+            ),
+          );
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          _logAuthTiming(
+            'sendOtp.autoRetrievalTimeout',
+            stopwatch,
+            status: 'timeout',
+          );
+          stageDurations['sendOtp.autoRetrievalTimeout'] =
+              stopwatch.elapsedMilliseconds;
+          _logAttemptSummary(
+            'sendOtp',
+            stopwatch,
+            stageDurations,
+            status: 'timeout',
+          );
+        },
+        timeout: const Duration(seconds: 60),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'too-many-requests') {
+        _OtpRequestThrottle.recordThrottleFailure(fullPhoneNumber);
+      }
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showTopError(
+        context,
+        title: 'OTP request failed',
+        message: _friendlyPhoneAuthError(e),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _isLoading = false);
+      showTopError(
+        context,
+        title: 'OTP request failed',
+        message: 'Unable to request an OTP right now. Please try again later.',
+      );
+    }
   }
 
   @override
@@ -442,7 +576,7 @@ class _OTPScreenState extends State<OTPScreen> {
   late final List<TextEditingController> _otpControllers;
   late final List<FocusNode> _otpFocusNodes;
   bool _isVerifying = false;
-  late Timer _timer;
+  Timer? _timer;
   late String _currentVerificationId;
   int? _currentResendToken;
   int _secondsRemaining = 60;
@@ -492,14 +626,22 @@ class _OTPScreenState extends State<OTPScreen> {
   }
 
   void _startTimer() {
-    _secondsRemaining = 60;
-    _canResend = false;
+    _timer?.cancel();
+    final remaining = _OtpRequestThrottle.remainingFor(widget.phoneNumber);
+    _secondsRemaining = remaining.inSeconds > 0
+        ? remaining.inSeconds
+        : _OtpRequestThrottle.normalCooldown.inSeconds;
+    _canResend = _secondsRemaining <= 0;
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (_secondsRemaining > 0) {
         setState(() => _secondsRemaining--);
       } else {
         setState(() => _canResend = true);
-        _timer.cancel();
+        timer.cancel();
       }
     });
   }
@@ -576,6 +718,28 @@ class _OTPScreenState extends State<OTPScreen> {
           (route) => false,
         );
       }
+    } on FirebaseAuthException catch (e) {
+      _logAuthTiming(
+        'verifyOtp.failed',
+        verifyStopwatch,
+        status: 'error',
+        detail: e.code,
+      );
+      stageDurations['verifyOtp.failed'] = verifyStopwatch.elapsedMilliseconds;
+      _logAttemptSummary(
+        'verifyOtp',
+        verifyStopwatch,
+        stageDurations,
+        status: 'error',
+      );
+      if (!mounted) return;
+
+      setState(() => _isVerifying = false);
+      showTopError(
+        context,
+        title: 'Verification failed',
+        message: _friendlyOtpVerifyError(e),
+      );
     } catch (e) {
       _logAuthTiming(
         'verifyOtp.failed',
@@ -595,81 +759,128 @@ class _OTPScreenState extends State<OTPScreen> {
       setState(() => _isVerifying = false);
       showTopError(
         context,
-        message: 'Invalid code. Please try again. Error: ${e.toString()}',
+        title: 'Verification failed',
+        message: 'Unable to verify the code right now. Please try again.',
       );
     }
   }
 
   Future<void> _resendOTP() async {
+    final cooldownRemaining = _OtpRequestThrottle.remainingFor(
+      widget.phoneNumber,
+    );
+    if (cooldownRemaining > Duration.zero) {
+      showTopError(
+        context,
+        title: 'Please wait',
+        message:
+            'You can request another OTP in ${_formatCooldown(cooldownRemaining)}.',
+      );
+      _startTimer();
+      return;
+    }
+
+    _OtpRequestThrottle.recordAttempt(widget.phoneNumber);
     setState(() => _isVerifying = true);
     final resendStopwatch = Stopwatch()..start();
     final stageDurations = <String, int>{};
 
-    await FirebaseAuth.instance.verifyPhoneNumber(
-      phoneNumber: widget.phoneNumber,
-      forceResendingToken: _currentResendToken,
-      verificationCompleted: (PhoneAuthCredential credential) async {
-        _logAuthTiming('resendOtp.verificationCompleted', resendStopwatch);
-        stageDurations['resendOtp.verificationCompleted'] =
-            resendStopwatch.elapsedMilliseconds;
-        final signInStopwatch = Stopwatch()..start();
-        await FirebaseAuth.instance.signInWithCredential(credential);
-        _logAuthTiming('resendOtp.autoSignIn', signInStopwatch);
-        stageDurations['resendOtp.autoSignIn'] =
-            signInStopwatch.elapsedMilliseconds;
-        _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
-      },
-      verificationFailed: (FirebaseAuthException e) {
-        _logAuthTiming(
-          'resendOtp.verificationFailed',
-          resendStopwatch,
-          status: 'error',
-          detail: e.code,
-        );
-        stageDurations['resendOtp.verificationFailed'] =
-            resendStopwatch.elapsedMilliseconds;
-        _logAttemptSummary(
-          'resendOtp',
-          resendStopwatch,
-          stageDurations,
-          status: 'error',
-        );
-        if (!mounted) return;
-        setState(() => _isVerifying = false);
-        showTopError(context, message: 'Error: ${e.message}');
-      },
-      codeSent: (String newVerificationId, int? newResendToken) {
-        _logAuthTiming('resendOtp.codeSent', resendStopwatch);
-        stageDurations['resendOtp.codeSent'] =
-            resendStopwatch.elapsedMilliseconds;
-        _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
-        if (!mounted) return;
-        setState(() {
-          _isVerifying = false;
-          _currentVerificationId = newVerificationId;
-          _currentResendToken = newResendToken;
-          _clearOtpFields();
-        });
-        _startTimer();
-        showTopSuccess(context, message: 'OTP code sent again');
-      },
-      codeAutoRetrievalTimeout: (String verificationId) {
-        _logAuthTiming(
-          'resendOtp.autoRetrievalTimeout',
-          resendStopwatch,
-          status: 'timeout',
-        );
-        stageDurations['resendOtp.autoRetrievalTimeout'] =
-            resendStopwatch.elapsedMilliseconds;
-        _logAttemptSummary(
-          'resendOtp',
-          resendStopwatch,
-          stageDurations,
-          status: 'timeout',
-        );
-      },
-      timeout: const Duration(seconds: 60),
-    );
+    try {
+      await FirebaseAuth.instance.verifyPhoneNumber(
+        phoneNumber: widget.phoneNumber,
+        forceResendingToken: _currentResendToken,
+        verificationCompleted: (PhoneAuthCredential credential) async {
+          _logAuthTiming('resendOtp.verificationCompleted', resendStopwatch);
+          stageDurations['resendOtp.verificationCompleted'] =
+              resendStopwatch.elapsedMilliseconds;
+          final signInStopwatch = Stopwatch()..start();
+          await FirebaseAuth.instance.signInWithCredential(credential);
+          _logAuthTiming('resendOtp.autoSignIn', signInStopwatch);
+          stageDurations['resendOtp.autoSignIn'] =
+              signInStopwatch.elapsedMilliseconds;
+          _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
+        },
+        verificationFailed: (FirebaseAuthException e) {
+          _logAuthTiming(
+            'resendOtp.verificationFailed',
+            resendStopwatch,
+            status: 'error',
+            detail: e.code,
+          );
+          stageDurations['resendOtp.verificationFailed'] =
+              resendStopwatch.elapsedMilliseconds;
+          _logAttemptSummary(
+            'resendOtp',
+            resendStopwatch,
+            stageDurations,
+            status: 'error',
+          );
+          if (e.code == 'too-many-requests') {
+            _OtpRequestThrottle.recordThrottleFailure(widget.phoneNumber);
+          }
+          if (!mounted) return;
+          setState(() => _isVerifying = false);
+          _startTimer();
+          showTopError(
+            context,
+            title: 'OTP request failed',
+            message: _friendlyPhoneAuthError(e),
+          );
+        },
+        codeSent: (String newVerificationId, int? newResendToken) {
+          _logAuthTiming('resendOtp.codeSent', resendStopwatch);
+          stageDurations['resendOtp.codeSent'] =
+              resendStopwatch.elapsedMilliseconds;
+          _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
+          if (!mounted) return;
+          setState(() {
+            _isVerifying = false;
+            _currentVerificationId = newVerificationId;
+            _currentResendToken = newResendToken;
+            _clearOtpFields();
+          });
+          _startTimer();
+          showTopSuccess(context, message: 'OTP code sent again');
+        },
+        codeAutoRetrievalTimeout: (String verificationId) {
+          _logAuthTiming(
+            'resendOtp.autoRetrievalTimeout',
+            resendStopwatch,
+            status: 'timeout',
+          );
+          stageDurations['resendOtp.autoRetrievalTimeout'] =
+              resendStopwatch.elapsedMilliseconds;
+          _logAttemptSummary(
+            'resendOtp',
+            resendStopwatch,
+            stageDurations,
+            status: 'timeout',
+          );
+        },
+        timeout: const Duration(seconds: 60),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'too-many-requests') {
+        _OtpRequestThrottle.recordThrottleFailure(widget.phoneNumber);
+      }
+      if (!mounted) return;
+      setState(() => _isVerifying = false);
+      _startTimer();
+      showTopError(
+        context,
+        title: 'OTP request failed',
+        message: _friendlyPhoneAuthError(e),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _isVerifying = false);
+      _startTimer();
+      showTopError(
+        context,
+        title: 'OTP request failed',
+        message: 'Unable to request another OTP right now. Please try later.',
+      );
+    }
   }
 
   String get _otpCode => _otpControllers.map((c) => c.text.trim()).join();
@@ -935,7 +1146,7 @@ class _OTPScreenState extends State<OTPScreen> {
     for (final focusNode in _otpFocusNodes) {
       focusNode.dispose();
     }
-    _timer.cancel();
+    _timer?.cancel();
     super.dispose();
   }
 

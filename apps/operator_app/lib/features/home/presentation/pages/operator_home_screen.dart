@@ -64,6 +64,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   bool _hasCheckedMapsConfig = false;
   bool _isInitializingViewModel = false;
   StreamSubscription<User?>? _authSubscription;
+  String? _initializedOperatorId;
   DateTime? _lastRecoveryAttempt;
   DateTime? _lastLocationLookupAt;
   String? _lastNavigationSyncKey;
@@ -106,6 +107,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
 
     _authSubscription = FirebaseAuth.instance.idTokenChanges().listen((user) {
       if (!mounted || user == null) {
+        return;
+      }
+      if (user.uid == _initializedOperatorId) {
         return;
       }
       unawaited(_initializeViewModel(user.uid));
@@ -277,6 +281,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     if (!mounted) {
       return;
     }
+    if (!force && _initializedOperatorId == operatorId) {
+      return;
+    }
 
     setState(() => _isInitializingViewModel = true);
 
@@ -285,6 +292,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         operatorId,
         force: force,
       );
+      _initializedOperatorId = operatorId;
     } catch (e) {
       if (mounted) {
         developer.log(

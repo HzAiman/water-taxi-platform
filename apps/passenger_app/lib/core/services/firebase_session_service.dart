@@ -3,12 +3,15 @@ import 'package:firebase_auth/firebase_auth.dart';
 class FirebaseSessionService {
   const FirebaseSessionService._();
 
-  static Future<void> refreshIdToken({FirebaseAuth? auth}) async {
+  static Future<void> refreshIdToken({
+    FirebaseAuth? auth,
+    bool forceRefresh = false,
+  }) async {
     final user = (auth ?? FirebaseAuth.instance).currentUser;
     if (user == null) {
       throw StateError('Session expired. Please sign in again.');
     }
-    await user.getIdToken(true);
+    await user.getIdToken(forceRefresh);
   }
 
   static Future<T> runWithFreshToken<T>(
@@ -24,7 +27,7 @@ class FirebaseSessionService {
         rethrow;
       }
 
-      await refreshIdToken(auth: auth);
+      await refreshIdToken(auth: auth, forceRefresh: true);
       return action();
     }
   }
