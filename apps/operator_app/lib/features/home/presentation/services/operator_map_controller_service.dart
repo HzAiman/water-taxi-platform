@@ -65,6 +65,7 @@ class OperatorMapControllerService {
   LatLng? _lastCameraTarget;
   double? _lastZoom;
   double? _lastTilt;
+  double? _lastSpeedMps;
   CameraPosition? _visibleCameraPosition;
   double _cameraBoundsPadding = 180;
   bool _use3dNavigationTilt = true;
@@ -109,6 +110,7 @@ class OperatorMapControllerService {
     _lastCameraTarget = null;
     _lastZoom = null;
     _lastTilt = null;
+    _lastSpeedMps = null;
     _visibleCameraPosition = null;
     _lastRouteFitPhaseSignature = null;
     _lastRouteFitPhaseOnlySignature = null;
@@ -118,7 +120,7 @@ class OperatorMapControllerService {
     _emitState();
   }
 
-  Future<void> toggleNavigationTilt() async {
+  Future<void> toggleMapTilt() async {
     _use3dNavigationTilt = !_use3dNavigationTilt;
     final targetTilt = _desiredTrackingTilt;
     final visibleCamera = _visibleCameraPosition;
@@ -152,6 +154,9 @@ class OperatorMapControllerService {
     _lastTilt = targetTilt;
     _emitState();
   }
+
+  @Deprecated('Use toggleMapTilt. The control is available outside navigation.')
+  Future<void> toggleNavigationTilt() => toggleMapTilt();
 
   OperatorMapNavigationMode resolveNavigationMode({
     required BookingModel? activeBooking,
@@ -359,39 +364,34 @@ class OperatorMapControllerService {
         forceFollow ||
         lastPoint == null ||
         (elapsed != null &&
-            elapsed >= const Duration(milliseconds: 700) &&
-            (movementDistance >= 4 || bearingDelta >= 2));
+            elapsed >= const Duration(milliseconds: 250) &&
+            (movementDistance >= 0.8 || bearingDelta >= 1.2));
 
     if (!shouldFollow) {
       return;
     }
 
     try {
-      final speedMps = lastPoint == null || elapsed == null
+      final rawSpeedMps = lastPoint == null || elapsed == null
           ? 0.0
           : _distanceMeters(lastPoint, operatorPoint) /
                 math.max(elapsed.inMilliseconds / 1000, 0.001);
-      final aheadMeters = (85 + (speedMps * 6)).clamp(85.0, 170.0);
-      final targetZoom = (18.45 - (speedMps * 0.08)).clamp(17.4, 18.45);
+      final speedMps = _lastSpeedMps == null
+          ? rawSpeedMps
+          : lerpDouble(_lastSpeedMps!, rawSpeedMps, 0.22)!;
+      final targetZoom = (18.35 - (speedMps * 0.035)).clamp(17.85, 18.35);
       final targetTilt = _desiredTrackingTilt;
       final smoothing = _cameraSmoothingFactor(speedMps);
-      final rawTarget = _offsetPoint(operatorPoint, bearing, aheadMeters);
-      final predictedTarget = lastPoint == null
-          ? rawTarget
-          : _offsetPoint(
-              operatorPoint,
-              bearing,
-              (speedMps * 0.6).clamp(0.0, 18.0),
-            );
-      final easedTarget = _lastCameraTarget == null
-          ? rawTarget
-          : _lerpLatLng(rawTarget, predictedTarget, smoothing * 0.35);
-      final cameraTarget = _lastCameraTarget == null || forceFollow
-          ? easedTarget
-          : _lerpLatLng(_lastCameraTarget!, easedTarget, smoothing);
       final cameraBearing = _lastBearing == null
           ? bearing
           : _lerpAngle(_lastBearing!, bearing, smoothing);
+      final aheadMeters = _trackingAheadMeters(speedMps);
+      final desiredTarget = _offsetPoint(
+        operatorPoint,
+        cameraBearing,
+        aheadMeters,
+      );
+      final cameraTarget = desiredTarget;
       final cameraZoom = lerpDouble(
         _lastZoom ?? targetZoom,
         targetZoom,
@@ -412,6 +412,7 @@ class OperatorMapControllerService {
             bearing: cameraBearing,
           ),
         ),
+        allowIfBusy: true,
       );
       _lastFollowOperatorPoint = operatorPoint;
       _lastFollowAt = now;
@@ -419,6 +420,7 @@ class OperatorMapControllerService {
       _lastCameraTarget = cameraTarget;
       _lastZoom = cameraZoom;
       _lastTilt = cameraTilt;
+      _lastSpeedMps = speedMps;
       _emitState();
     } catch (e) {
       _log('camera_follow_failed', data: {'error': e.toString()});
@@ -579,29 +581,75 @@ class OperatorMapControllerService {
       return null;
     }
 
-    var nearestIndex = 0;
-    var nearestDistance = double.infinity;
-    for (var i = 0; i < routePoints.length; i++) {
-      final distance = _distanceMeters(operatorPoint, routePoints[i]);
-      if (distance < nearestDistance) {
-        nearestDistance = distance;
-        nearestIndex = i;
+    _RouteProjection? nearest;
+    for (var i = 0; i < routePoints.length - 1; i++) {
+      final projection = _projectOntoSegment(
+        operatorPoint,
+        routePoints[i],
+        routePoints[i + 1],
+        i,
+      );
+      if (nearest == null ||
+          projection.distanceMeters < nearest.distanceMeters) {
+        nearest = projection;
       }
     }
 
-    for (var i = nearestIndex + 1; i < routePoints.length; i++) {
-      if (_distanceMeters(operatorPoint, routePoints[i]) >= 8) {
-        return _bearingDegrees(operatorPoint, routePoints[i]);
-      }
+    if (nearest == null) {
+      return null;
     }
 
-    for (var i = nearestIndex - 1; i >= 0; i--) {
-      if (_distanceMeters(operatorPoint, routePoints[i]) >= 8) {
-        return _bearingDegrees(routePoints[i], operatorPoint);
+    const lookAheadMeters = 28.0;
+    var cursor = nearest.point;
+    var remaining = lookAheadMeters;
+    for (var i = nearest.segmentIndex; i < routePoints.length - 1; i++) {
+      final segmentEnd = routePoints[i + 1];
+      final distanceToEnd = _distanceMeters(cursor, segmentEnd);
+      if (distanceToEnd >= remaining) {
+        final fraction = remaining / distanceToEnd;
+        final lookAheadPoint = _lerpLatLng(cursor, segmentEnd, fraction);
+        return _bearingDegrees(operatorPoint, lookAheadPoint);
       }
+      remaining -= distanceToEnd;
+      cursor = segmentEnd;
+    }
+
+    final lastPoint = routePoints.last;
+    if (_distanceMeters(operatorPoint, lastPoint) >= 5) {
+      return _bearingDegrees(operatorPoint, lastPoint);
     }
 
     return null;
+  }
+
+  _RouteProjection _projectOntoSegment(
+    LatLng point,
+    LatLng segmentStart,
+    LatLng segmentEnd,
+    int segmentIndex,
+  ) {
+    final originLatRadians = _degreesToRadians(point.latitude);
+    final metersPerLngDegree = 111320.0 * math.cos(originLatRadians);
+    const metersPerLatDegree = 110540.0;
+
+    final ax = (segmentStart.longitude - point.longitude) * metersPerLngDegree;
+    final ay = (segmentStart.latitude - point.latitude) * metersPerLatDegree;
+    final bx = (segmentEnd.longitude - point.longitude) * metersPerLngDegree;
+    final by = (segmentEnd.latitude - point.latitude) * metersPerLatDegree;
+    final abx = bx - ax;
+    final aby = by - ay;
+    final abLengthSquared = (abx * abx) + (aby * aby);
+    final t = abLengthSquared == 0
+        ? 0.0
+        : ((-ax * abx) + (-ay * aby)) / abLengthSquared;
+    final clampedT = t.clamp(0.0, 1.0).toDouble();
+    final projectedPoint = _lerpLatLng(segmentStart, segmentEnd, clampedT);
+
+    return _RouteProjection(
+      point: projectedPoint,
+      segmentIndex: segmentIndex,
+      distanceMeters: _distanceMeters(point, projectedPoint),
+    );
   }
 
   double _bearingDegrees(LatLng from, LatLng to) {
@@ -653,7 +701,13 @@ class OperatorMapControllerService {
   }
 
   double _cameraSmoothingFactor(double speedMps) {
-    return (0.42 + (speedMps * 0.01)).clamp(0.42, 0.62);
+    return (0.26 + (speedMps * 0.008)).clamp(0.26, 0.42);
+  }
+
+  double _trackingAheadMeters(double speedMps) {
+    final baseAhead = _use3dNavigationTilt ? 95.0 : 42.0;
+    final speedLead = (speedMps * 2.8).clamp(0.0, 28.0);
+    return baseAhead + speedLead;
   }
 
   double _lerpAngle(double from, double to, double t) {
@@ -690,4 +744,16 @@ class OperatorMapControllerService {
       isNavigationTilt3d: _use3dNavigationTilt,
     );
   }
+}
+
+class _RouteProjection {
+  const _RouteProjection({
+    required this.point,
+    required this.segmentIndex,
+    required this.distanceMeters,
+  });
+
+  final LatLng point;
+  final int segmentIndex;
+  final double distanceMeters;
 }

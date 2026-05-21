@@ -141,7 +141,17 @@ class BookingRepository {
           if (routeDirection != null) 'routeDirection': routeDirection,
         });
         final data = result.data is Map ? result.data as Map : const {};
+        final status = data['status']?.toString().trim();
         final message = data['message']?.toString().trim();
+        if (status == 'deferred') {
+          return OperationFailure(
+            'Queued for later route',
+            message != null && message.isNotEmpty
+                ? message
+                : 'This request is queued for a later route sweep.',
+            isInfo: true,
+          );
+        }
         return OperationSuccess(
           message != null && message.isNotEmpty
               ? message

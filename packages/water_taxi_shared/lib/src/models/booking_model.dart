@@ -54,6 +54,12 @@ class BookingModel {
     this.poolDropoffStopId,
     this.poolPhase,
     this.onboard = false,
+    this.poolDeferredForOperatorUid,
+    this.poolDeferredRouteDirection,
+    this.poolDeferredPoolGroupId,
+    this.poolDeferredReason,
+    this.poolDeferredUntil,
+    this.poolDeferredAt,
     this.operatorLat,
     this.operatorLng,
     required this.rejectedBy,
@@ -114,6 +120,12 @@ class BookingModel {
   final String? poolDropoffStopId;
   final String? poolPhase;
   final bool onboard;
+  final String? poolDeferredForOperatorUid;
+  final String? poolDeferredRouteDirection;
+  final String? poolDeferredPoolGroupId;
+  final String? poolDeferredReason;
+  final DateTime? poolDeferredUntil;
+  final DateTime? poolDeferredAt;
   final double? operatorLat;
   final double? operatorLng;
   final List<String> rejectedBy;
@@ -232,6 +244,15 @@ class BookingModel {
       poolDropoffStopId: _nullableString(data['poolDropoffStopId']),
       poolPhase: _nullableString(data['poolPhase']),
       onboard: _bool(data['onboard']),
+      poolDeferredForOperatorUid:
+          _nullableString(data['poolDeferredForOperatorUid']),
+      poolDeferredRouteDirection:
+          _nullableString(data['poolDeferredRouteDirection']),
+      poolDeferredPoolGroupId:
+          _nullableString(data['poolDeferredPoolGroupId']),
+      poolDeferredReason: _nullableString(data['poolDeferredReason']),
+      poolDeferredUntil: _nullableDateTime(data['poolDeferredUntil']),
+      poolDeferredAt: _nullableDateTime(data['poolDeferredAt']),
       operatorLat: _nullableDouble(data['operatorLat']),
       operatorLng: _nullableDouble(data['operatorLng']),
       rejectedBy: _strList(data['rejectedBy']),
@@ -294,6 +315,12 @@ class BookingModel {
     String? poolDropoffStopId,
     String? poolPhase,
     bool? onboard,
+    String? poolDeferredForOperatorUid,
+    String? poolDeferredRouteDirection,
+    String? poolDeferredPoolGroupId,
+    String? poolDeferredReason,
+    DateTime? poolDeferredUntil,
+    DateTime? poolDeferredAt,
     double? operatorLat,
     double? operatorLng,
     List<String>? rejectedBy,
@@ -357,6 +384,15 @@ class BookingModel {
       poolDropoffStopId: poolDropoffStopId ?? this.poolDropoffStopId,
       poolPhase: poolPhase ?? this.poolPhase,
       onboard: onboard ?? this.onboard,
+      poolDeferredForOperatorUid:
+          poolDeferredForOperatorUid ?? this.poolDeferredForOperatorUid,
+      poolDeferredRouteDirection:
+          poolDeferredRouteDirection ?? this.poolDeferredRouteDirection,
+      poolDeferredPoolGroupId:
+          poolDeferredPoolGroupId ?? this.poolDeferredPoolGroupId,
+      poolDeferredReason: poolDeferredReason ?? this.poolDeferredReason,
+      poolDeferredUntil: poolDeferredUntil ?? this.poolDeferredUntil,
+      poolDeferredAt: poolDeferredAt ?? this.poolDeferredAt,
       operatorLat: operatorLat ?? this.operatorLat,
       operatorLng: operatorLng ?? this.operatorLng,
       rejectedBy: rejectedBy ?? this.rejectedBy,

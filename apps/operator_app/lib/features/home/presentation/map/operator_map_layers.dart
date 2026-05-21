@@ -39,6 +39,7 @@ class OperatorMapLayers {
 
   static const double _closedLoopToleranceMeters = 12.0;
   static const double _maxStopRouteAnchorDistanceMeters = 15.0;
+  static const double _maxStopRouteSevereOffRouteMeters = 300.0;
 
   static bool isActiveNavigationBooking(BookingModel booking) {
     return booking.status == BookingStatus.onTheWay ||
@@ -223,7 +224,8 @@ class OperatorMapLayers {
         operatorPoint: operatorPoint,
         includeLiveAnchors: true,
       );
-      final hasUsableStoredRoute = _hasUsableStoredRoute(booking);
+      final hasUsableStoredRoute =
+          _hasUsableStoredRoute(booking) && stopRoute.length >= 2;
       return OperatorRouteHealth(
         phase: phase,
         source: hasUsableStoredRoute
@@ -534,6 +536,10 @@ class OperatorMapLayers {
       endSnap,
       routeDirection: booking.routeDirection,
     );
+    final startSnapDistance = _distanceMeters(startPoint, startSnap.point);
+    if (startSnapDistance > _maxStopRouteSevereOffRouteMeters) {
+      return const <LatLng>[];
+    }
     if (!includeLiveAnchors) {
       return segment;
     }

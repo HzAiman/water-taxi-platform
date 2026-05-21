@@ -69,6 +69,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   bool _wasOffRoute = false;
   OperatorHomeSnapshot? _cachedHomeSnapshot;
   String? _cachedHomeSnapshotKey;
+  OperatorBookingCardSnapshot? _cachedCardSnapshot;
+  String? _cachedCardSnapshotKey;
   Future<void>? _initializationFuture;
   bool _hasInitialized = false;
   void Function(String title, String message)? _locationWarningHandler;
@@ -96,11 +98,64 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   OperatorHomeSnapshot get homeSnapshot => _resolveHomeSnapshot();
 
+  OperatorBookingCardSnapshot get bookingCardSnapshot =>
+      _resolveBookingCardSnapshot();
+
   /// Pending bookings visible to this operator (not already rejected by them).
   List<BookingModel> visiblePendingBookings(String operatorId) =>
       _pendingBookings
           .where((b) => !b.rejectedBy.contains(operatorId))
+          .where((b) => !_isDeferredForCurrentSweep(b, operatorId))
           .toList();
+
+  bool _isDeferredForCurrentSweep(BookingModel booking, String operatorId) {
+    if (booking.poolDeferredForOperatorUid != operatorId) return false;
+    final deferredUntil = booking.poolDeferredUntil;
+    if (deferredUntil == null || DateTime.now().isAfter(deferredUntil)) {
+      return false;
+    }
+    if (_activeBookings.isEmpty) {
+      return false;
+    }
+
+    final activePoolGroupId = _firstNonEmpty(
+      _activeBookings.map((b) => b.poolGroupId),
+    );
+    if (activePoolGroupId == null) {
+      return false;
+    }
+    final deferredPoolGroupId = booking.poolDeferredPoolGroupId;
+    if (deferredPoolGroupId != null &&
+        deferredPoolGroupId.isNotEmpty &&
+        deferredPoolGroupId != activePoolGroupId) {
+      return false;
+    }
+
+    final activeDirection = _firstNonEmpty(
+      _activeBookings.map((b) => b.routeDirection),
+    );
+    if (activeDirection == null) {
+      return false;
+    }
+    final deferredDirection = booking.poolDeferredRouteDirection;
+    if (deferredDirection != null &&
+        deferredDirection.isNotEmpty &&
+        deferredDirection != activeDirection) {
+      return false;
+    }
+
+    return true;
+  }
+
+  String? _firstNonEmpty(Iterable<String?> values) {
+    for (final value in values) {
+      final normalized = value?.trim();
+      if (normalized != null && normalized.isNotEmpty) {
+        return normalized;
+      }
+    }
+    return null;
+  }
 
   String? get lastCancelledNoticeBookingId => _lastCancelledNoticeBookingId;
   OperatorNavigationGuidance? get navigationGuidance => _navigationGuidance;
@@ -604,8 +659,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     } else {
       _refreshNavigationGuidance(notify: false);
     }
-    _cachedHomeSnapshot = null;
-    _cachedHomeSnapshotKey = null;
+    _clearSnapshotCaches();
     notifyListeners();
   }
 
@@ -621,8 +675,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     if (clearBookings) {
       _activeBookings = [];
       _pendingBookings = [];
-      _cachedHomeSnapshot = null;
-      _cachedHomeSnapshotKey = null;
+      _clearSnapshotCaches();
     }
   }
 
@@ -1041,6 +1094,15 @@ class OperatorHomeViewModel extends ChangeNotifier {
     if (_activeBookings.isEmpty) {
       return null;
     }
+    final trackedId = _trackingBookingId;
+    if (trackedId != null) {
+      for (final booking in _activeBookings) {
+        if (booking.bookingId == trackedId &&
+            booking.status == BookingStatus.onTheWay) {
+          return booking;
+        }
+      }
+    }
     for (final booking in _activeBookings) {
       if (booking.status == BookingStatus.onTheWay) {
         return booking;
@@ -1145,10 +1207,90 @@ class OperatorHomeViewModel extends ChangeNotifier {
     return bt.compareTo(at);
   }
 
+  void _clearSnapshotCaches() {
+    _cachedHomeSnapshot = null;
+    _cachedHomeSnapshotKey = null;
+    _cachedCardSnapshot = null;
+    _cachedCardSnapshotKey = null;
+  }
+
+  OperatorBookingCardSnapshot _resolveBookingCardSnapshot() {
+    final activeBooking = _resolveActiveBooking();
+    final operatorId = _operatorId;
+    final passengerPickedUp = _isPassengerPickedUp(activeBooking);
+    final pendingBookings = operatorId == null
+        ? const <BookingModel>[]
+        : _pendingBookings
+              .where((booking) => !booking.rejectedBy.contains(operatorId))
+              .where(
+                (booking) => !_isDeferredForCurrentSweep(booking, operatorId),
+              )
+              .toList(growable: false);
+    final topPendingBooking = pendingBookings.isNotEmpty
+        ? pendingBookings.first
+        : null;
+    final activeBookings = List<BookingModel>.unmodifiable(_activeBookings);
+    final activeSignature = activeBookings
+        .map(
+          (booking) => [
+            booking.bookingId,
+            booking.status.firestoreValue,
+            booking.poolSequence?.toString() ?? '-',
+            booking.currentStopId ?? '-',
+            booking.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ??
+                '-',
+          ].join(':'),
+        )
+        .join(',');
+
+    final key = [
+      operatorId ?? '-',
+      activeBooking?.bookingId ?? '-',
+      activeBooking?.status.firestoreValue ?? '-',
+      activeBooking?.currentStopId ??
+          activeBooking?.currentPoolStop?.stopId ??
+          '-',
+      activeBooking?.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ??
+          '-',
+      activeBooking?.poolGroupId ?? '-',
+      activeBooking?.poolStopPlan.length.toString() ?? '-',
+      passengerPickedUp ? '1' : '0',
+      pendingBookings.length.toString(),
+      topPendingBooking?.bookingId ?? '-',
+      _isOnline ? '1' : '0',
+      _isToggling ? '1' : '0',
+      _isUpdatingBooking ? '1' : '0',
+      _isRefreshing ? '1' : '0',
+      _streamVersion.toString(),
+      activeSignature,
+    ].join('|');
+
+    if (_cachedCardSnapshotKey == key && _cachedCardSnapshot != null) {
+      return _cachedCardSnapshot!;
+    }
+
+    final snapshot = OperatorBookingCardSnapshot(
+      isOnline: _isOnline,
+      isToggling: _isToggling,
+      isUpdatingBooking: _isUpdatingBooking,
+      isRefreshing: _isRefreshing,
+      streamVersion: _streamVersion,
+      activeBooking: activeBooking,
+      passengerPickedUp: passengerPickedUp,
+      pendingCount: pendingBookings.length,
+      topPendingBooking: topPendingBooking,
+      activeBookings: activeBookings,
+    );
+
+    _cachedCardSnapshotKey = key;
+    _cachedCardSnapshot = snapshot;
+    return snapshot;
+  }
+
   OperatorHomeSnapshot _resolveHomeSnapshot() {
     final activeBooking = _resolveActiveBooking();
     final operatorId = _operatorId;
-    final passengerPickedUp = activeBooking?.passengerPickedUpAt != null;
+    final passengerPickedUp = _isPassengerPickedUp(activeBooking);
     final operatorPoint = _bookingPoint(activeBooking);
     final routeHealth = OperatorMapLayers.resolveRouteHealth(
       activeBooking,
@@ -1230,6 +1372,16 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _cachedHomeSnapshotKey = key;
     _cachedHomeSnapshot = snapshot;
     return snapshot;
+  }
+
+  bool _isPassengerPickedUp(BookingModel? booking) {
+    if (booking == null) {
+      return false;
+    }
+    return booking.passengerPickedUpAt != null ||
+        booking.pickedUpAt != null ||
+        booking.onboard ||
+        booking.poolPhase == 'onboard';
   }
 
   LatLng? _bookingPoint(BookingModel? booking) {
@@ -1475,6 +1627,33 @@ class OperatorHomeSnapshot {
 }
 
 // ── Stale booking helper (used by widget layer) ──────────────────────────────
+
+@immutable
+class OperatorBookingCardSnapshot {
+  const OperatorBookingCardSnapshot({
+    required this.isOnline,
+    required this.isToggling,
+    required this.isUpdatingBooking,
+    required this.isRefreshing,
+    required this.streamVersion,
+    required this.activeBooking,
+    required this.passengerPickedUp,
+    required this.pendingCount,
+    required this.topPendingBooking,
+    required this.activeBookings,
+  });
+
+  final bool isOnline;
+  final bool isToggling;
+  final bool isUpdatingBooking;
+  final bool isRefreshing;
+  final int streamVersion;
+  final BookingModel? activeBooking;
+  final bool passengerPickedUp;
+  final int pendingCount;
+  final BookingModel? topPendingBooking;
+  final List<BookingModel> activeBookings;
+}
 
 /// Returns `true` if an accepted booking has been sitting for more than
 /// [_staleThreshold] without being started.

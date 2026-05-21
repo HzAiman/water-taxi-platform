@@ -22,6 +22,8 @@ class OperatorNavigationGuidance {
     required this.offRouteSeverity,
     required this.rejoinPoint,
     required this.routeHealth,
+    required this.stopOvershootSeverity,
+    required this.stopOvershootDistanceMeters,
   });
 
   final String bookingId;
@@ -38,6 +40,8 @@ class OperatorNavigationGuidance {
   final OperatorOffRouteSeverity offRouteSeverity;
   final BookingRoutePoint? rejoinPoint;
   final OperatorRouteHealth routeHealth;
+  final OperatorStopOvershootSeverity stopOvershootSeverity;
+  final double stopOvershootDistanceMeters;
 
   bool get shouldPauseProgress =>
       offRouteSeverity == OperatorOffRouteSeverity.severe;
@@ -48,6 +52,8 @@ class OperatorNavigationGuidance {
 }
 
 enum OperatorOffRouteSeverity { onRoute, mild, moderate, severe }
+
+enum OperatorStopOvershootSeverity { none, soft, missed }
 
 OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   required BookingModel booking,
@@ -111,6 +117,11 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   final offRouteSeverity = _resolveOffRouteSeverity(
     offRouteDistanceMeters,
     offRouteToleranceMeters,
+  );
+  final stopOvershoot = _resolveStopOvershoot(
+    booking: booking,
+    currentLat: currentLat,
+    currentLng: currentLng,
   );
 
   if (offRouteDistanceMeters > severeOffRouteCapMeters) {
@@ -194,7 +205,111 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
     offRouteSeverity: offRouteSeverity,
     rejoinPoint: projection.rejoinPoint,
     routeHealth: routeHealth,
+    stopOvershootSeverity: stopOvershoot.severity,
+    stopOvershootDistanceMeters: stopOvershoot.distanceMeters,
   );
+}
+
+_StopOvershoot _resolveStopOvershoot({
+  required BookingModel booking,
+  required double currentLat,
+  required double currentLng,
+}) {
+  final currentStop = booking.currentPoolStop;
+  final stopRoutePosition = currentStop?.routePositionMeters;
+  if (currentStop == null ||
+      stopRoutePosition == null ||
+      booking.routePolyline.length < 2) {
+    return const _StopOvershoot.none();
+  }
+
+  // First-pickup deadhead can legitimately move opposite the passenger route.
+  // Avoid warning before anyone is onboard, otherwise Jetty 18 -> Jetty 15
+  // would look "missed" from the route-direction point of view.
+  final isFirstPickupDeadhead =
+      currentStop.isPickup &&
+      !booking.onboard &&
+      booking.pickedUpAt == null &&
+      booking.passengerPickedUpAt == null &&
+      (booking.currentStopIndex ?? 0) == 0;
+  if (isFirstPickupDeadhead) {
+    return const _StopOvershoot.none();
+  }
+
+  final operatorProjection = _projectRoutePositionOnPolyline(
+    currentLat: currentLat,
+    currentLng: currentLng,
+    routePolyline: booking.routePolyline,
+  );
+  if (operatorProjection == null) {
+    return const _StopOvershoot.none();
+  }
+
+  final direction = booking.routeDirection?.trim().toLowerCase();
+  final overshootDistance = direction == 'reverse'
+      ? stopRoutePosition - operatorProjection
+      : operatorProjection - stopRoutePosition;
+  if (overshootDistance <= 30) {
+    return const _StopOvershoot.none();
+  }
+  if (overshootDistance <= 50) {
+    return _StopOvershoot(
+      severity: OperatorStopOvershootSeverity.soft,
+      distanceMeters: overshootDistance,
+    );
+  }
+  return _StopOvershoot(
+    severity: OperatorStopOvershootSeverity.missed,
+    distanceMeters: overshootDistance,
+  );
+}
+
+double? _projectRoutePositionOnPolyline({
+  required double currentLat,
+  required double currentLng,
+  required List<BookingRoutePoint> routePolyline,
+}) {
+  var totalDistance = 0.0;
+  final cumulative = <double>[0.0];
+  for (var i = 0; i < routePolyline.length - 1; i++) {
+    totalDistance += Geolocator.distanceBetween(
+      routePolyline[i].lat,
+      routePolyline[i].lng,
+      routePolyline[i + 1].lat,
+      routePolyline[i + 1].lng,
+    );
+    cumulative.add(totalDistance);
+  }
+
+  if (totalDistance <= 0) return null;
+
+  var nearestSegmentIndex = 0;
+  var nearestProjectionT = 0.0;
+  var minDistance = double.infinity;
+  for (var i = 0; i < routePolyline.length - 1; i++) {
+    final projection = _projectPointOntoSegmentMeters(
+      pointLat: currentLat,
+      pointLng: currentLng,
+      startLat: routePolyline[i].lat,
+      startLng: routePolyline[i].lng,
+      endLat: routePolyline[i + 1].lat,
+      endLng: routePolyline[i + 1].lng,
+    );
+    if (projection.distanceMeters < minDistance) {
+      minDistance = projection.distanceMeters;
+      nearestSegmentIndex = i;
+      nearestProjectionT = projection.t;
+    }
+  }
+
+  final segmentLength = Geolocator.distanceBetween(
+    routePolyline[nearestSegmentIndex].lat,
+    routePolyline[nearestSegmentIndex].lng,
+    routePolyline[nearestSegmentIndex + 1].lat,
+    routePolyline[nearestSegmentIndex + 1].lng,
+  );
+  return (cumulative[nearestSegmentIndex] + segmentLength * nearestProjectionT)
+      .clamp(0.0, totalDistance);
 }
 
 _RouteProjection _projectProgressOnRoute({
@@ -551,6 +666,20 @@ class _SegmentProjection {
   const _SegmentProjection({required this.t, required this.distanceMeters});
 
   final double t;
+  final double distanceMeters;
+}
+
+class _StopOvershoot {
+  const _StopOvershoot({
+    required this.severity,
+    required this.distanceMeters,
+  });
+
+  const _StopOvershoot.none()
+    : severity = OperatorStopOvershootSeverity.none,
+      distanceMeters = 0;
+
+  final OperatorStopOvershootSeverity severity;
   final double distanceMeters;
 }
 

@@ -499,20 +499,17 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   Widget _buildBookingActionCard(
     String operatorId,
     OperatorHomeViewModel viewModel,
+    OperatorBookingCardSnapshot cardSnapshot,
+    OperatorHomeSnapshot navigationSnapshot,
   ) {
-    final pendingBookings = viewModel.visiblePendingBookings(operatorId);
-    final topPendingBooking = pendingBookings.isNotEmpty
-        ? pendingBookings.first
-        : null;
-    final pendingCount = pendingBookings.length;
-    final guidance = viewModel.navigationGuidance;
-    final snapshot = viewModel.homeSnapshot;
-    final activeBooking = snapshot.activeBooking;
-    final activeCount = viewModel.activeBookings.length;
+    final topPendingBooking = cardSnapshot.topPendingBooking;
+    final pendingCount = cardSnapshot.pendingCount;
+    final guidance = navigationSnapshot.navigationGuidance;
+    final activeBooking = cardSnapshot.activeBooking;
+    final activeCount = cardSnapshot.activeBookings.length;
     final isOnTheWay =
         activeBooking != null && activeBooking.status == BookingStatus.onTheWay;
-    final passengerPickedUp =
-        activeBooking != null && _isPassengerPickedUp(activeBooking);
+    final passengerPickedUp = cardSnapshot.passengerPickedUp;
     final bookingGuidance =
         isOnTheWay &&
             guidance != null &&
@@ -521,7 +518,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : null;
 
     return KeyedSubtree(
-      key: ValueKey('booking-actions-${viewModel.streamVersion}'),
+      key: ValueKey('booking-actions-${cardSnapshot.streamVersion}'),
       child: SingleChildScrollView(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -546,7 +543,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                 });
               },
               onRefresh: () => _refreshBookingData(operatorId),
-              isRefreshing: viewModel.isRefreshing,
+              isRefreshing: cardSnapshot.isRefreshing,
             ),
             AnimatedCrossFade(
               firstChild: const SizedBox.shrink(),
@@ -597,7 +594,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                   booking: activeBooking,
                   guidance: bookingGuidance,
                   passengerPickedUp: passengerPickedUp,
-                  isLiveLocationStale: snapshot.isLiveLocationStale,
+                  isLiveLocationStale: navigationSnapshot.isLiveLocationStale,
                   viewModel: viewModel,
                 ),
               ),
@@ -617,12 +614,16 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       detailText: _buildBookingDetailText(booking),
       poolBookings: viewModel.activeBookings,
       onCallCustomer: () => _callCustomer(booking),
+      onCallPoolCustomer: _callCustomer,
       onStartTrip: () async {
         final result = await viewModel.startTrip(booking.bookingId);
         if (!mounted) {
           return;
         }
         _showOperationResult(result);
+        if (result is OperationSuccess && mounted) {
+          setState(() => _isActiveSectionExpanded = false);
+        }
       },
       onRelease: () async {
         final result = await viewModel.releaseBooking(booking.bookingId);
@@ -661,6 +662,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : _formatEta(guidance?.eta);
     final currentStop = booking.currentPoolStop;
     final isPickupStop = currentStop?.isPickup ?? !passengerPickedUp;
+    final nextStop = currentStop == null
+        ? null
+        : _nextPoolStopAfter(booking.poolStopPlan, currentStop);
     final isGroupedStop = (currentStop?.bookingIds.length ?? 1) > 1;
     final actionLabel = currentStop == null
         ? (passengerPickedUp ? 'Complete Trip' : 'Passenger Picked Up')
@@ -671,7 +675,18 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         : 'Complete Dropoff Stop';
 
     return OperatorCollapsibleNavigationCard(
-      stopLabel: _formatPoolStopLabel(currentStop),
+      currentStopActionLabel: _formatPoolStopActionLabel(
+        currentStop,
+        viewModel.activeBookings,
+      ),
+      currentStopName: currentStop == null
+          ? null
+          : _poolStopDisplayName(currentStop),
+      passengerContextLabel: _formatStopPassengerContext(
+        currentStop,
+        viewModel.activeBookings,
+      ),
+      miniTimelineLabel: _formatStopMiniTimeline(currentStop, nextStop),
       routeDirectionLabel: _formatRouteDirectionLabel(booking.routeDirection),
       progressLabel: hasPausedRecoveryState
           ? 'Paused'
@@ -683,8 +698,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       isUpdating: viewModel.isUpdatingBooking,
       primaryActionLabel: actionLabel,
       routeWarningText: isLiveLocationStale
-          ? 'Live GPS is stale. Progress and ETA are paused until a fresh location arrives.'
-          : _criticalRouteWarningText(guidance),
+          ? 'Waiting for fresh GPS.'
+          : _criticalRouteWarningText(booking, guidance),
       onPrimaryAction: () async {
         final result = !isPickupStop
             ? await viewModel.completeTrip(booking.bookingId)
@@ -704,15 +719,25 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     );
   }
 
-  String? _formatPoolStopLabel(PoolStopPlanItem? stop) {
+  String? _formatPoolStopActionLabel(
+    PoolStopPlanItem? stop,
+    List<BookingModel> poolBookings,
+  ) {
     if (stop == null) {
       return null;
     }
     final verb = stop.isPickup ? 'Pick up' : 'Drop off';
-    final count = stop.bookingIds.length;
-    final bookingText = count <= 1 ? '1 booking' : '$count bookings';
-    final stopName = _poolStopDisplayName(stop);
-    return '$verb $bookingText at $stopName';
+    final stopBookingIds = stop.bookingIds.toSet();
+    final passengerCount = poolBookings
+        .where((booking) => stopBookingIds.contains(booking.bookingId))
+        .fold<int>(0, (sum, booking) => sum + booking.passengerCount);
+    final count = passengerCount > 0
+        ? passengerCount
+        : stop.bookingIds.isEmpty
+        ? 1
+        : stop.bookingIds.length;
+    final noun = count == 1 ? 'passenger' : 'passengers';
+    return '$verb $count $noun';
   }
 
   String _poolStopDisplayName(PoolStopPlanItem stop) {
@@ -725,6 +750,60 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return stopJettyId;
     }
     return stop.isPickup ? 'pickup stop' : 'dropoff stop';
+  }
+
+  PoolStopPlanItem? _nextPoolStopAfter(
+    List<PoolStopPlanItem> stops,
+    PoolStopPlanItem currentStop,
+  ) {
+    final currentIndex = stops.indexWhere(
+      (stop) => stop.stopId == currentStop.stopId,
+    );
+    if (currentIndex < 0) {
+      return null;
+    }
+    for (var i = currentIndex + 1; i < stops.length; i++) {
+      final stop = stops[i];
+      if (stop.status != 'completed' && stop.status != 'skipped') {
+        return stop;
+      }
+    }
+    return null;
+  }
+
+  String? _formatStopMiniTimeline(
+    PoolStopPlanItem? currentStop,
+    PoolStopPlanItem? nextStop,
+  ) {
+    if (currentStop == null) {
+      return null;
+    }
+    final currentName = _poolStopDisplayName(currentStop);
+    if (nextStop == null) {
+      return '$currentName -> Final stop';
+    }
+    return '$currentName -> ${_poolStopDisplayName(nextStop)}';
+  }
+
+  String? _formatStopPassengerContext(
+    PoolStopPlanItem? stop,
+    List<BookingModel> poolBookings,
+  ) {
+    if (stop == null) {
+      return null;
+    }
+    final stopBookingIds = stop.bookingIds.toSet();
+    final count = poolBookings
+        .where((booking) => stopBookingIds.contains(booking.bookingId))
+        .fold<int>(0, (sum, booking) => sum + booking.passengerCount);
+    final passengerCount = count > 0
+        ? count
+        : stop.bookingIds.isEmpty
+        ? 1
+        : stop.bookingIds.length;
+    final noun = passengerCount == 1 ? 'passenger' : 'passengers';
+    final state = stop.isPickup ? 'waiting' : 'onboard';
+    return '$passengerCount $noun $state';
   }
 
   String? _formatRouteDirectionLabel(String? routeDirection) {
@@ -751,6 +830,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       onAccept: () async {
         final result = await viewModel.acceptBooking(booking.bookingId);
         if (!mounted) {
+          return;
+        }
+        if (result case OperationFailure(title: 'Queued for later route')) {
           return;
         }
         _showOperationResult(result);
@@ -934,16 +1016,23 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     return polylines;
   }
 
-  bool _isPassengerPickedUp(BookingModel booking) {
-    return booking.passengerPickedUpAt != null ||
-        booking.pickedUpAt != null ||
-        booking.onboard ||
-        booking.poolPhase == 'onboard';
-  }
-
-  String? _criticalRouteWarningText(OperatorNavigationGuidance? guidance) {
+  String? _criticalRouteWarningText(
+    BookingModel booking,
+    OperatorNavigationGuidance? guidance,
+  ) {
+    final currentStop = booking.currentPoolStop;
+    final stopName = currentStop == null
+        ? 'the current stop'
+        : _poolStopDisplayName(currentStop);
+    if (guidance?.stopOvershootSeverity ==
+        OperatorStopOvershootSeverity.missed) {
+      return 'Missed stop. Return to $stopName.';
+    }
+    if (guidance?.stopOvershootSeverity == OperatorStopOvershootSeverity.soft) {
+      return 'Passed stop slightly. Return safely.';
+    }
     if (guidance?.offRouteSeverity == OperatorOffRouteSeverity.severe) {
-      return 'Too far from the planned river route. Progress is paused and ETA is hidden until you rejoin.';
+      return 'Too far from river route. Move closer to the river before trusting guidance.';
     }
     return null;
   }
@@ -1095,6 +1184,8 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     BuildContext context,
     String? operatorId,
     OperatorHomeViewModel viewModel,
+    OperatorBookingCardSnapshot cardSnapshot,
+    OperatorHomeSnapshot navigationSnapshot,
   ) {
     if (operatorId == null) {
       return const SizedBox.shrink();
@@ -1112,12 +1203,17 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                if (viewModel.isOnline) ...[
+                if (cardSnapshot.isOnline) ...[
                   ConstrainedBox(
                     constraints: BoxConstraints(
                       maxHeight: MediaQuery.sizeOf(context).height * 0.80,
                     ),
-                    child: _buildBookingActionCard(operatorId, viewModel),
+                    child: _buildBookingActionCard(
+                      operatorId,
+                      viewModel,
+                      cardSnapshot,
+                      navigationSnapshot,
+                    ),
                   ),
                 ] else ...[
                   const OperatorInfoCard(
@@ -1137,11 +1233,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
             bottom: 24,
             child: Center(
               child: ElevatedButton.icon(
-                onPressed: (viewModel.isToggling || _isInitializingViewModel)
+                onPressed: (cardSnapshot.isToggling || _isInitializingViewModel)
                     ? null
                     : _toggleStatus,
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: viewModel.isOnline
+                  backgroundColor: cardSnapshot.isOnline
                       ? Colors.red
                       : _goOnlineGreen,
                   padding: const EdgeInsets.symmetric(
@@ -1153,7 +1249,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     borderRadius: BorderRadius.circular(12),
                   ),
                 ),
-                icon: viewModel.isToggling
+                icon: cardSnapshot.isToggling
                     ? const SizedBox(
                         height: 18,
                         width: 18,
@@ -1166,7 +1262,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                       )
                     : const Icon(Icons.power_settings_new),
                 label: Text(
-                  viewModel.isOnline ? 'Go Offline' : 'Go Online',
+                  cardSnapshot.isOnline ? 'Go Offline' : 'Go Online',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -1232,27 +1328,31 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           return Column(
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
-              if (isActiveNavigation)
-                Padding(
-                  padding: EdgeInsets.only(
-                    bottom: cameraState.showRecenterButton ? 8 : 0,
-                  ),
-                  child: FloatingActionButton.small(
-                    heroTag: 'toggle_camera_tilt',
-                    backgroundColor: Colors.white,
-                    foregroundColor: OperatorBrand.magenta,
-                    onPressed: () {
-                      unawaited(_mapCameraService.toggleNavigationTilt());
-                    },
-                    child: Text(
-                      cameraState.isNavigationTilt3d ? '2D' : '3D',
-                      style: const TextStyle(
-                        fontWeight: FontWeight.w800,
-                        fontSize: 12,
-                      ),
+              Padding(
+                padding: EdgeInsets.only(
+                  bottom:
+                      (isActiveNavigation &&
+                          cameraState.showRecenterButton &&
+                          operatorPoint != null)
+                      ? 8
+                      : 0,
+                ),
+                child: FloatingActionButton.small(
+                  heroTag: 'toggle_camera_tilt',
+                  backgroundColor: Colors.white,
+                  foregroundColor: OperatorBrand.magenta,
+                  onPressed: () {
+                    unawaited(_mapCameraService.toggleMapTilt());
+                  },
+                  child: Text(
+                    cameraState.isNavigationTilt3d ? '2D' : '3D',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12,
                     ),
                   ),
                 ),
+              ),
               if (isActiveNavigation &&
                   cameraState.showRecenterButton &&
                   operatorPoint != null)
@@ -1296,6 +1396,10 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         .select<OperatorHomeViewModel, OperatorHomeSnapshot>(
           (viewModel) => viewModel.homeSnapshot,
         );
+    final cardSnapshot = context
+        .select<OperatorHomeViewModel, OperatorBookingCardSnapshot>(
+          (viewModel) => viewModel.bookingCardSnapshot,
+        );
     final viewModel = context.read<OperatorHomeViewModel>();
     final activeBooking = snapshot.activeBooking;
     final trimmedRoutePoints = OperatorMapLayers.trimmedRoutePointsForCamera(
@@ -1329,7 +1433,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
                     const Positioned.fill(
                       child: Center(child: CircularProgressIndicator()),
                     ),
-                  _buildOverlayUI(context, operatorId, viewModel),
+                  _buildOverlayUI(
+                    context,
+                    operatorId,
+                    viewModel,
+                    cardSnapshot,
+                    snapshot,
+                  ),
                   _buildFloatingButtons(
                     activeBooking,
                     trimmedRoutePoints,

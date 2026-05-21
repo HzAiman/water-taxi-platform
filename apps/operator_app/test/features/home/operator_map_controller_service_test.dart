@@ -140,20 +140,20 @@ void main() {
     });
   });
 
-  group('OperatorMapControllerService navigation tilt', () {
-    test('toggles between 3D and 2D navigation tilt preference', () async {
+  group('OperatorMapControllerService map tilt', () {
+    test('toggles between 3D and 2D map tilt preference', () async {
       final service = OperatorMapControllerService(enableDebugLogging: false);
       addTearDown(service.dispose);
 
       expect(service.debugUses3dNavigationTilt, isTrue);
       expect(service.currentState.isNavigationTilt3d, isTrue);
 
-      await service.toggleNavigationTilt();
+      await service.toggleMapTilt();
 
       expect(service.debugUses3dNavigationTilt, isFalse);
       expect(service.currentState.isNavigationTilt3d, isFalse);
 
-      await service.toggleNavigationTilt();
+      await service.toggleMapTilt();
 
       expect(service.debugUses3dNavigationTilt, isTrue);
       expect(service.currentState.isNavigationTilt3d, isTrue);
@@ -165,7 +165,7 @@ void main() {
         final service = OperatorMapControllerService(enableDebugLogging: false);
         addTearDown(service.dispose);
 
-        await service.toggleNavigationTilt();
+        await service.toggleMapTilt();
         expect(service.debugUses3dNavigationTilt, isFalse);
 
         await service.resetForNoActiveBooking();

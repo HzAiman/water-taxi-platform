@@ -75,6 +75,12 @@ const BOOKING_FIELDS = {
   droppedOffAt: "droppedOffAt",
   passengerPickedUpAt: "passengerPickedUpAt",
   onboard: "onboard",
+  poolDeferredForOperatorUid: "poolDeferredForOperatorUid",
+  poolDeferredRouteDirection: "poolDeferredRouteDirection",
+  poolDeferredPoolGroupId: "poolDeferredPoolGroupId",
+  poolDeferredReason: "poolDeferredReason",
+  poolDeferredUntil: "poolDeferredUntil",
+  poolDeferredAt: "poolDeferredAt",
 };
 
 const BOOKING_SUBCOLLECTIONS = {
@@ -99,6 +105,8 @@ const POOLING_POLICY = {
   maxRouteDeviationMeters: 1200,
   maxRouteOvershootRatio: 1.05,
   speedMetersPerSecond: 5.5,
+  nextSweepDeferMinutes: 20,
+  stopArrivalRadiusMeters: 30,
 };
 
 const DEVICE_FIELDS = {
@@ -365,8 +373,31 @@ function isBookingDirectionCompatible(metrics) {
   );
 }
 
+function normalizeRouteDirection(value) {
+  const normalized = asString(value).toLowerCase();
+  return normalized === "forward" || normalized === "reverse"
+    ? normalized
+    : "";
+}
+
+function routeDirectionForMetrics(metrics) {
+  if (!metrics) return "";
+  return metrics.destinationAlongMeters >= metrics.originAlongMeters
+    ? "forward"
+    : "reverse";
+}
+
+function isBookingDirectionValidForPool(metrics, routeDirection) {
+  if (!metrics) return false;
+  const direction = normalizeRouteDirection(routeDirection);
+  if (direction === "reverse") {
+    return metrics.destinationAlongMeters < metrics.originAlongMeters;
+  }
+  return metrics.destinationAlongMeters > metrics.originAlongMeters;
+}
+
 function isBookingWithinCorridor(metrics) {
-  if (!metrics || !isBookingDirectionCompatible(metrics)) return false;
+  if (!metrics) return false;
   const maxDeviation = Math.max(
     metrics.originDeviationMeters,
     metrics.destinationDeviationMeters
@@ -700,11 +731,32 @@ function completedStopsFromPreviousItems(previousItems = [], activeIds = new Set
   return stops;
 }
 
-function buildPoolStopPlan({ items, corridor, previousItems = [] }) {
+function resolvePoolRouteDirection(items, corridor, fallbackDirection = "") {
+  for (const item of items) {
+    const explicit = normalizeRouteDirection(
+      item?.data?.[BOOKING_FIELDS.routeDirection]
+    );
+    if (explicit) return explicit;
+  }
+  for (const item of items) {
+    const metrics = routeMetricsForBooking(corridor, item?.data || {});
+    const inferred = routeDirectionForMetrics(metrics);
+    if (inferred) return inferred;
+  }
+  return normalizeRouteDirection(fallbackDirection) || "forward";
+}
+
+function buildPoolStopPlan({
+  items,
+  corridor,
+  previousItems = [],
+  routeDirection = "",
+}) {
   const activeIds = new Set(items.map((item) => asString(item.id)));
   const completedKeys = completedStopKeysFromPreviousItems(previousItems);
   const completedStops = completedStopsFromPreviousItems(previousItems, activeIds);
   const grouped = new Map();
+  const direction = resolvePoolRouteDirection(items, corridor, routeDirection);
 
   for (const item of items) {
     const booking = item.data || {};
@@ -753,7 +805,9 @@ function buildPoolStopPlan({ items, corridor, previousItems = [] }) {
 
   const pendingStops = [...grouped.values()].sort((a, b) => {
     if (a.routePositionMeters !== b.routePositionMeters) {
-      return a.routePositionMeters - b.routePositionMeters;
+      return direction === "reverse"
+        ? b.routePositionMeters - a.routePositionMeters
+        : a.routePositionMeters - b.routePositionMeters;
     }
     if (a.stopType !== b.stopType) {
       return a.stopType === "pickup" ? -1 : 1;
@@ -811,6 +865,37 @@ function currentStopFromPlan(stopPlan) {
   );
 }
 
+function poolStopStatePayload(stopPlan, poolStatus = "in_progress") {
+  const currentStopIndex = resolveCurrentStopIndex(stopPlan);
+  const plannedStops = applyCurrentStopState(stopPlan, currentStopIndex);
+  const currentStop = currentStopFromPlan(plannedStops);
+  return {
+    plannedStops,
+    currentStopIndex,
+    currentStopId: currentStop?.stopId || null,
+    poolStatus,
+  };
+}
+
+function bookingStopIdsFromPlan(stopPlan, bookingId) {
+  const normalizedBookingId = asString(bookingId);
+  let pickupStopId = null;
+  let dropoffStopId = null;
+  for (const stop of stopPlan) {
+    const bookingIds = Array.isArray(stop.bookingIds)
+      ? stop.bookingIds.map(asString)
+      : [];
+    if (!bookingIds.includes(normalizedBookingId)) continue;
+    if (asString(stop.stopType) === "pickup") {
+      pickupStopId = asString(stop.stopId);
+    }
+    if (asString(stop.stopType) === "dropoff") {
+      dropoffStopId = asString(stop.stopId);
+    }
+  }
+  return { pickupStopId, dropoffStopId };
+}
+
 async function replanRouteAwarePoolForOperator({
   operatorUid,
   anchorBooking = null,
@@ -864,6 +949,18 @@ async function replanRouteAwarePoolForOperator({
     corridor,
     anchor,
   });
+  const stopPlan = buildPoolStopPlan({
+    items: sequencePlan,
+    corridor,
+    previousItems: items,
+  });
+  const hasActiveTrip = items.some(
+    (item) => asString(item.data?.[BOOKING_FIELDS.status]) === "on_the_way"
+  );
+  const stopState = poolStopStatePayload(
+    stopPlan,
+    hasActiveTrip ? "in_progress" : "accepted"
+  );
 
   const batch = db.batch();
   let updated = 0;
@@ -875,7 +972,15 @@ async function replanRouteAwarePoolForOperator({
     const payload = {
       [BOOKING_FIELDS.poolSequence]: item.poolSequence,
       [BOOKING_FIELDS.poolCriteriaVersion]: POOLING_POLICY.criteriaVersion,
+      [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+      [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+      [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+      [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+      [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
     };
+    const stopIds = bookingStopIdsFromPlan(stopState.plannedStops, item.id);
+    payload[BOOKING_FIELDS.poolPickupStopId] = stopIds.pickupStopId;
+    payload[BOOKING_FIELDS.poolDropoffStopId] = stopIds.dropoffStopId;
     if (status === "accepted") {
       payload[BOOKING_FIELDS.pooled] = true;
       payload[BOOKING_FIELDS.poolMax] = POOLING_POLICY.maxConcurrent;
@@ -883,7 +988,9 @@ async function replanRouteAwarePoolForOperator({
     if (
       currentSequence !== item.poolSequence ||
       asString(item.data?.[BOOKING_FIELDS.poolCriteriaVersion]) !==
-        POOLING_POLICY.criteriaVersion
+        POOLING_POLICY.criteriaVersion ||
+      JSON.stringify(item.data?.[BOOKING_FIELDS.poolStopPlan] || []) !==
+        JSON.stringify(stopState.plannedStops)
     ) {
       batch.update(item.ref, payload);
       updated += 1;
@@ -904,7 +1011,11 @@ async function replanRouteAwarePoolForOperator({
   return { updated };
 }
 
-function evaluatePoolingEligibility(activeBookings, candidateBooking) {
+function evaluatePoolingEligibility(
+  activeBookings,
+  candidateBooking,
+  { operatorPoint = null, requestedRouteDirection = "" } = {}
+) {
   const corridor = choosePoolCorridor(activeBookings, candidateBooking);
   if (!corridor) {
     return {
@@ -917,26 +1028,69 @@ function evaluatePoolingEligibility(activeBookings, candidateBooking) {
   const metrics = allBookings.map((booking) =>
     routeMetricsForBooking(corridor, booking)
   );
+  const candidateMetrics = routeMetricsForBooking(corridor, candidateBooking);
+  const activeRouteDirection =
+    currentSweepDirection(activeBookings) ||
+    routeDirectionForMetrics(
+      routeMetricsForBooking(corridor, activeBookings[0] || null)
+    );
+  const requestedDirection = normalizeRouteDirection(requestedRouteDirection);
+  const routeDirection =
+    activeRouteDirection ||
+    requestedDirection ||
+    routeDirectionForMetrics(candidateMetrics);
+
+  if (
+    activeRouteDirection &&
+    requestedDirection &&
+    activeRouteDirection !== requestedDirection
+  ) {
+    return {
+      eligible: false,
+      reason: "mixed_route_direction_not_allowed",
+      corridor,
+      routeDirection: activeRouteDirection,
+      candidateMetrics,
+    };
+  }
+
+  if (!isBookingDirectionValidForPool(candidateMetrics, routeDirection)) {
+    return {
+      eligible: false,
+      reason: "reverse_direction",
+      corridor,
+      routeDirection,
+      candidateMetrics,
+    };
+  }
+
   if (metrics.some((metric) => !isBookingWithinCorridor(metric))) {
     return {
       eligible: false,
       reason: "outside_route_corridor",
       corridor,
-      candidateMetrics: routeMetricsForBooking(corridor, candidateBooking),
+      routeDirection,
+      candidateMetrics,
     };
   }
 
-  const liveOperatorPoint = activeBookings
+  const liveOperatorPoint = isValidPoint(operatorPoint)
+    ? operatorPoint
+    : activeBookings
     .map((booking) => getOperatorPoint(booking))
     .find((point) => isValidPoint(point));
-  const candidateMetrics = routeMetricsForBooking(corridor, candidateBooking);
-  if (liveOperatorPoint && candidateMetrics) {
+  if (activeBookings.length > 0 && liveOperatorPoint && candidateMetrics) {
     const operatorProjection = projectPointToCorridor(corridor, liveOperatorPoint);
-    if (candidateMetrics.originAlongMeters <= operatorProjection.alongMeters) {
+    const pickupBehindOperator =
+      routeDirection === "reverse"
+        ? candidateMetrics.originAlongMeters >= operatorProjection.alongMeters
+        : candidateMetrics.originAlongMeters <= operatorProjection.alongMeters;
+    if (pickupBehindOperator) {
       return {
         eligible: false,
         reason: "pickup_behind_operator",
         corridor,
+        routeDirection,
         operatorRoutePositionMeters: operatorProjection.alongMeters,
         candidateMetrics,
       };
@@ -948,6 +1102,7 @@ function evaluatePoolingEligibility(activeBookings, candidateBooking) {
       eligible: false,
       reason: "max_pool_reached",
       corridor,
+      routeDirection,
       candidateMetrics,
     };
   }
@@ -979,6 +1134,7 @@ function evaluatePoolingEligibility(activeBookings, candidateBooking) {
       eligible: false,
       reason: "added_eta_exceeded",
       corridor,
+      routeDirection,
       addedDistanceMeters,
       addedEtaMinutes,
       maxPerRiderAddedEtaMinutes: riderImpact.maxAddedEtaMinutes,
@@ -999,6 +1155,7 @@ function evaluatePoolingEligibility(activeBookings, candidateBooking) {
       eligible: false,
       reason: "pickup_distance_exceeded",
       corridor,
+      routeDirection,
       pickupDistanceToPoolMeters,
       candidateMetrics,
     };
@@ -1015,6 +1172,7 @@ function evaluatePoolingEligibility(activeBookings, candidateBooking) {
     eligible: true,
     reason: "eligible",
     corridor,
+    routeDirection,
     activeDistanceMeters: activeDistance,
     pooledDistanceMeters: pooledDistance,
     addedDistanceMeters,
@@ -1024,6 +1182,63 @@ function evaluatePoolingEligibility(activeBookings, candidateBooking) {
     pickupDistanceToPoolMeters,
     score: Math.max(0, Math.min(1, 1 / (1 + score))),
     candidateMetrics,
+  };
+}
+
+function isCurrentSweepDeferralReason(reason) {
+  return [
+    "pickup_behind_operator",
+    "reverse_direction",
+    "mixed_route_direction_not_allowed",
+    "route_ahead_distance_exceeded",
+    "pickup_distance_exceeded",
+  ].includes(asString(reason));
+}
+
+function currentSweepDirection(activeBookings) {
+  return (
+    activeBookings
+      .map((booking) => asString(booking?.[BOOKING_FIELDS.routeDirection]))
+      .find((direction) => direction === "forward" || direction === "reverse") ||
+    ""
+  );
+}
+
+function currentSweepPoolGroupId(activeBookings) {
+  return (
+    activeBookings
+      .map((booking) => asString(booking?.[BOOKING_FIELDS.poolGroupId]))
+      .find((poolGroupId) => poolGroupId.length > 0) || ""
+  );
+}
+
+function deferBookingForCurrentSweep({
+  tx,
+  bookingRef,
+  operatorUid,
+  activeBookings,
+  reason,
+  now,
+}) {
+  const deferUntil = new Date(
+    now.getTime() + POOLING_POLICY.nextSweepDeferMinutes * 60 * 1000
+  );
+  tx.update(bookingRef, {
+    [BOOKING_FIELDS.poolDeferredForOperatorUid]: operatorUid,
+    [BOOKING_FIELDS.poolDeferredRouteDirection]: currentSweepDirection(activeBookings),
+    [BOOKING_FIELDS.poolDeferredPoolGroupId]: currentSweepPoolGroupId(activeBookings),
+    [BOOKING_FIELDS.poolDeferredReason]: asString(reason) || "not_for_current_sweep",
+    [BOOKING_FIELDS.poolDeferredUntil]: deferUntil,
+    [BOOKING_FIELDS.poolDeferredAt]: FieldValue.serverTimestamp(),
+    [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
+  });
+
+  return {
+    status: "deferred",
+    reason: asString(reason) || "not_for_current_sweep",
+    message:
+      "This request is queued for a later route sweep. It will stay available when your direction changes.",
+    deferredUntil: deferUntil.toISOString(),
   };
 }
 
@@ -1517,6 +1732,16 @@ exports.acceptPooledBooking = onCall(
       const activeSnap = await tx.get(activeQuery);
       const activeDocs = activeSnap.docs;
       const activeBookings = activeDocs.map((doc) => doc.data() || {});
+      const onTheWayDocs = activeDocs.filter(
+        (doc) => asString(doc.data()?.[BOOKING_FIELDS.status]) === "on_the_way"
+      );
+      if (onTheWayDocs.length > 1) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Operator has more than one active on-the-way booking."
+        );
+      }
+      const hasActiveTrip = onTheWayDocs.length === 1;
 
       const activeCreatedTimes = activeBookings
         .map((activeBooking) =>
@@ -1546,27 +1771,37 @@ exports.acceptPooledBooking = onCall(
         );
       }
 
-      const onTheWayCount = activeBookings.filter(
-        (data) => asString(data[BOOKING_FIELDS.status]) === "on_the_way"
-      ).length;
-      if (onTheWayCount > 1) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Operator has more than one active on-the-way booking."
-        );
-      }
-
-      const eligibility = evaluatePoolingEligibility(activeBookings, booking);
+      const requestOperatorPoint = {
+        lat: Number(request.data?.operatorLat),
+        lng: Number(request.data?.operatorLng),
+      };
+      const eligibility = evaluatePoolingEligibility(activeBookings, booking, {
+        operatorPoint: isValidPoint(requestOperatorPoint)
+          ? requestOperatorPoint
+          : null,
+        requestedRouteDirection: request.data?.routeDirection,
+      });
       if (!eligibility.eligible) {
         logger.info("Pooled booking rejected by eligibility check", {
           bookingId,
           operatorUid,
           reason: eligibility.reason,
+          routeDirection: eligibility.routeDirection,
           candidateMetrics: eligibility.candidateMetrics,
           pickupDistanceToPoolMeters: eligibility.pickupDistanceToPoolMeters,
           addedEtaMinutes: eligibility.addedEtaMinutes,
           maxPerRiderAddedEtaMinutes: eligibility.maxPerRiderAddedEtaMinutes,
         });
+        if (isCurrentSweepDeferralReason(eligibility.reason)) {
+          return deferBookingForCurrentSweep({
+            tx,
+            bookingRef,
+            operatorUid,
+            activeBookings,
+            reason: eligibility.reason,
+            now,
+          });
+        }
         throw new HttpsError(
           "failed-precondition",
           "Booking is not eligible for pooling with the current route."
@@ -1592,6 +1827,7 @@ exports.acceptPooledBooking = onCall(
         ...booking,
         [BOOKING_FIELDS.status]: "accepted",
         [BOOKING_FIELDS.operatorUid]: operatorUid,
+        [BOOKING_FIELDS.routeDirection]: eligibility.routeDirection,
       };
       const activeItems = activeDocs.map((doc) => ({
         id: doc.id,
@@ -1612,20 +1848,64 @@ exports.acceptPooledBooking = onCall(
       });
       const candidatePlan = sequencePlan.find((item) => item.id === bookingId);
       const nextSequence = candidatePlan?.poolSequence || sequencePlan.length;
+      const nextStatus = "accepted";
+      const stopItems = sequencePlan.map((item) =>
+        item.id === bookingId
+          ? {
+              ...item,
+              data: {
+                ...item.data,
+                [BOOKING_FIELDS.status]: nextStatus,
+                [BOOKING_FIELDS.operatorUid]: operatorUid,
+                [BOOKING_FIELDS.routeDirection]: eligibility.routeDirection,
+              },
+            }
+          : item
+      );
+      const stopPlan = buildPoolStopPlan({
+        items: stopItems,
+        corridor: eligibility.corridor,
+        previousItems: activeItems,
+        routeDirection: eligibility.routeDirection,
+      });
+      const stopState = poolStopStatePayload(
+        stopPlan,
+        hasActiveTrip ? "in_progress" : "accepted"
+      );
 
       for (const item of sequencePlan) {
         if (item.id === bookingId) continue;
-        tx.update(item.ref, {
+        const stopIds = bookingStopIdsFromPlan(
+          stopState.plannedStops,
+          item.id
+        );
+        const itemStatus = asString(item.data?.[BOOKING_FIELDS.status]);
+        const payload = {
           [BOOKING_FIELDS.poolGroupId]: poolGroupId,
-          [BOOKING_FIELDS.poolSequence]: item.poolSequence,
           [BOOKING_FIELDS.pooled]: true,
           [BOOKING_FIELDS.poolMax]: POOLING_POLICY.maxConcurrent,
           [BOOKING_FIELDS.poolCriteriaVersion]: POOLING_POLICY.criteriaVersion,
-        });
+          [BOOKING_FIELDS.routeDirection]: eligibility.routeDirection,
+          [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+          [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+          [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+          [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+          [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
+          [BOOKING_FIELDS.poolPickupStopId]: stopIds.pickupStopId,
+          [BOOKING_FIELDS.poolDropoffStopId]: stopIds.dropoffStopId,
+        };
+        if (itemStatus !== "on_the_way") {
+          payload[BOOKING_FIELDS.poolSequence] = item.poolSequence;
+        }
+        tx.update(item.ref, payload);
       }
 
+      const candidateStopIds = bookingStopIdsFromPlan(
+        stopState.plannedStops,
+        bookingId
+      );
       tx.update(bookingRef, {
-        [BOOKING_FIELDS.status]: "accepted",
+        [BOOKING_FIELDS.status]: nextStatus,
         [BOOKING_FIELDS.operatorUid]: operatorUid,
         [BOOKING_FIELDS.assignedOperatorName]: asString(operatorData.name),
         [BOOKING_FIELDS.assignedOperatorDisplayId]: asString(
@@ -1639,7 +1919,23 @@ exports.acceptPooledBooking = onCall(
         [BOOKING_FIELDS.poolGroupId]: poolGroupId,
         [BOOKING_FIELDS.poolSequence]: nextSequence,
         [BOOKING_FIELDS.poolCriteriaVersion]: POOLING_POLICY.criteriaVersion,
+        [BOOKING_FIELDS.routeDirection]: eligibility.routeDirection,
         [BOOKING_FIELDS.poolMax]: POOLING_POLICY.maxConcurrent,
+        [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
+        [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+        [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+        [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+        [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+        [BOOKING_FIELDS.poolPickupStopId]: candidateStopIds.pickupStopId,
+        [BOOKING_FIELDS.poolDropoffStopId]: candidateStopIds.dropoffStopId,
+        [BOOKING_FIELDS.poolPhase]: "waiting_pickup",
+        [BOOKING_FIELDS.onboard]: false,
+        [BOOKING_FIELDS.poolDeferredForOperatorUid]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredRouteDirection]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredPoolGroupId]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredReason]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredUntil]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredAt]: FieldValue.delete(),
         [BOOKING_FIELDS.poolEligibilityScore]: Number(
           eligibility.score.toFixed(3)
         ),
@@ -1674,7 +1970,7 @@ exports.acceptPooledBooking = onCall(
         tx,
         bookingRef,
         from: "pending",
-        to: "accepted",
+        to: nextStatus,
         changedBy: operatorUid,
       });
 
@@ -1689,8 +1985,9 @@ exports.acceptPooledBooking = onCall(
       });
 
       return {
-        status: "accepted",
+        status: nextStatus,
         poolGroupId,
+        poolStatus: stopState.poolStatus,
         poolSequence: nextSequence,
         poolMax: POOLING_POLICY.maxConcurrent,
         criteriaVersion: POOLING_POLICY.criteriaVersion,
@@ -1791,10 +2088,29 @@ exports.startPooledBooking = onCall(
           ? { lat: operatorLat, lng: operatorLng }
           : selectRouteAnchor([], corridor, booking),
       });
+      const stopPlan = buildPoolStopPlan({
+        items: sequencePlan,
+        corridor,
+        previousItems: acceptedItems,
+      });
+      const stopState = poolStopStatePayload(stopPlan, "in_progress");
       for (const item of sequencePlan) {
+        const stopIds = bookingStopIdsFromPlan(
+          stopState.plannedStops,
+          item.id
+        );
         tx.update(item.ref, {
           [BOOKING_FIELDS.poolSequence]: item.poolSequence,
           [BOOKING_FIELDS.poolCriteriaVersion]: POOLING_POLICY.criteriaVersion,
+          [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+          [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+          [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+          [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+          [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
+          [BOOKING_FIELDS.poolPickupStopId]: stopIds.pickupStopId,
+          [BOOKING_FIELDS.poolDropoffStopId]: stopIds.dropoffStopId,
+          [BOOKING_FIELDS.poolPhase]:
+            item.id === bookingId ? "waiting_pickup" : "waiting_pickup",
         });
       }
 
@@ -1809,6 +2125,12 @@ exports.startPooledBooking = onCall(
       const payload = {
         [BOOKING_FIELDS.status]: "on_the_way",
         [BOOKING_FIELDS.operatorUid]: operatorUid,
+        [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+        [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+        [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+        [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+        [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
+        [BOOKING_FIELDS.poolPhase]: "waiting_pickup",
         [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
       };
       if (hasOperatorLocation) {
@@ -1990,7 +2312,6 @@ exports.markPoolStopReached = onCall(
     });
     const operatorUid = request.auth.uid;
     const bookingRef = db.collection(COLLECTIONS.bookings).doc(bookingId);
-    const archiveRef = db.collection(COLLECTIONS.bookingsArchive).doc(bookingId);
 
     return db.runTransaction(async (tx) => {
       const bookingSnap = await tx.get(bookingRef);
@@ -2002,7 +2323,7 @@ exports.markPoolStopReached = onCall(
       if (asString(booking[BOOKING_FIELDS.status]) !== "on_the_way") {
         throw new HttpsError(
           "failed-precondition",
-          "Only the current on-the-way booking can update a pool stop."
+          "Only an active pooled booking can update a pool stop."
         );
       }
       if (asString(booking[BOOKING_FIELDS.operatorUid]) !== operatorUid) {
@@ -2012,120 +2333,247 @@ exports.markPoolStopReached = onCall(
         );
       }
 
-      const activeQuery = db
-        .collection(COLLECTIONS.bookings)
-        .where(BOOKING_FIELDS.operatorUid, "==", operatorUid)
-        .where(BOOKING_FIELDS.status, "==", "on_the_way");
-      const activeSnap = await tx.get(activeQuery);
-      const activeIds = activeSnap.docs.map((doc) => doc.id);
-      if (activeIds.length !== 1 || activeIds[0] !== bookingId) {
-        throw new HttpsError(
-          "failed-precondition",
-          "Update the backend-approved active booking first."
-        );
-      }
-
-      const isAlreadyOnboard =
-        Boolean(booking[BOOKING_FIELDS.onboard]) ||
-        Boolean(booking[BOOKING_FIELDS.passengerPickedUpAt]) ||
-        Boolean(booking[BOOKING_FIELDS.pickedUpAt]) ||
-        asString(booking[BOOKING_FIELDS.poolPhase]) === "onboard";
-
-      if (!isAlreadyOnboard) {
-        const pickupPayload = {
-          [BOOKING_FIELDS.passengerPickedUpAt]: FieldValue.serverTimestamp(),
-          [BOOKING_FIELDS.pickedUpAt]: FieldValue.serverTimestamp(),
-          [BOOKING_FIELDS.poolPhase]: "onboard",
-          [BOOKING_FIELDS.onboard]: true,
-          [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
-        };
-        if (hasOperatorLocation) {
-          pickupPayload[BOOKING_FIELDS.operatorLat] = operatorLat;
-          pickupPayload[BOOKING_FIELDS.operatorLng] = operatorLng;
-        }
-
-        tx.update(bookingRef, pickupPayload);
-
-        logger.info("Pool pickup stop marked reached", {
-          bookingId,
-          operatorUid,
-        });
-
-        return {
-          status: "onboard",
-          bookingId,
-        };
-      }
-
-      const acceptedQuery = db
-        .collection(COLLECTIONS.bookings)
-        .where(BOOKING_FIELDS.operatorUid, "==", operatorUid)
-        .where(BOOKING_FIELDS.status, "==", "accepted");
-      const acceptedSnap = await tx.get(acceptedQuery);
-      const acceptedItems = acceptedSnap.docs.map((doc) => ({
+      const poolGroupId = asString(booking[BOOKING_FIELDS.poolGroupId]);
+      const poolQuery = poolGroupId
+        ? db
+            .collection(COLLECTIONS.bookings)
+            .where(BOOKING_FIELDS.operatorUid, "==", operatorUid)
+            .where(BOOKING_FIELDS.poolGroupId, "==", poolGroupId)
+            .where(BOOKING_FIELDS.status, "in", ["accepted", "on_the_way"])
+        : db
+            .collection(COLLECTIONS.bookings)
+            .where(FieldPath.documentId(), "==", bookingId);
+      const poolSnap = await tx.get(poolQuery);
+      const poolDocs = poolSnap.docs;
+      const poolItems = poolDocs.map((doc) => ({
         id: doc.id,
         ref: doc.ref,
         data: doc.data() || {},
       }));
-      if (acceptedItems.length > 0) {
+      const poolIds = new Set(poolItems.map((item) => item.id));
+      if (!poolIds.has(bookingId)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "This booking is not part of the active pool."
+        );
+      }
+
+      let stopPlan = Array.isArray(booking[BOOKING_FIELDS.poolStopPlan])
+        ? booking[BOOKING_FIELDS.poolStopPlan]
+        : [];
+      if (stopPlan.length === 0) {
         const corridor = choosePoolCorridor(
-          acceptedItems.map((item) => item.data),
+          poolItems.map((item) => item.data),
           booking
         );
-        const bookingEndpoints = getBookingEndpoints(booking);
-        if (corridor) {
-          const sequencePlan = planRouteAwarePoolSequence({
-            items: acceptedItems,
-            corridor,
-            anchor: bookingEndpoints?.destination || corridor.origin,
-          });
-          for (const item of sequencePlan) {
-            tx.update(item.ref, {
-              [BOOKING_FIELDS.poolSequence]: item.poolSequence,
-              [BOOKING_FIELDS.poolCriteriaVersion]:
-                POOLING_POLICY.criteriaVersion,
-            });
-          }
+        if (!corridor) {
+          throw new HttpsError(
+            "failed-precondition",
+            "Unable to determine the current pool stop."
+          );
+        }
+        stopPlan = buildPoolStopPlan({
+          items: poolItems,
+          corridor,
+          previousItems: poolItems,
+        });
+      }
+
+      const currentStop = currentStopFromPlan(stopPlan);
+      if (!currentStop) {
+        throw new HttpsError(
+          "failed-precondition",
+          "There is no active pool stop to complete."
+        );
+      }
+      if (
+        hasOperatorLocation &&
+        Number.isFinite(Number(currentStop.lat)) &&
+        Number.isFinite(Number(currentStop.lng))
+      ) {
+        const distanceToStopMeters = haversineDistanceMeters(
+          { lat: operatorLat, lng: operatorLng },
+          { lat: Number(currentStop.lat), lng: Number(currentStop.lng) }
+        );
+        if (distanceToStopMeters > POOLING_POLICY.stopArrivalRadiusMeters) {
+          throw new HttpsError(
+            "failed-precondition",
+            `Return closer to ${asString(currentStop.stopName || currentStop.jettyName || "the stop")} before completing this stop.`
+          );
         }
       }
 
-      const completedPayload = {
-        [BOOKING_FIELDS.status]: "completed",
-        [BOOKING_FIELDS.operatorUid]: operatorUid,
-        [BOOKING_FIELDS.poolPhase]: "dropped_off",
-        [BOOKING_FIELDS.onboard]: false,
-        [BOOKING_FIELDS.droppedOffAt]: FieldValue.serverTimestamp(),
-        [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
-      };
-      if (hasOperatorLocation) {
-        completedPayload[BOOKING_FIELDS.operatorLat] = operatorLat;
-        completedPayload[BOOKING_FIELDS.operatorLng] = operatorLng;
+      const stopBookingIds = Array.isArray(currentStop.bookingIds)
+        ? currentStop.bookingIds.map(asString).filter((id) => poolIds.has(id))
+        : [];
+      if (stopBookingIds.length === 0) {
+        throw new HttpsError(
+          "failed-precondition",
+          "The current pool stop has no active bookings."
+        );
+      }
+      if (!stopBookingIds.includes(bookingId)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Complete the current pool stop first."
+        );
       }
 
-      tx.update(bookingRef, completedPayload);
-      appendStatusHistory({
-        tx,
-        bookingRef,
-        from: "on_the_way",
-        to: "completed",
-        changedBy: operatorUid,
-      });
-      tx.set(archiveRef, {
-        ...booking,
-        ...completedPayload,
-        bookingId,
-        archivedAt: FieldValue.serverTimestamp(),
-        archivedStatus: "completed",
-      });
+      const stopCompletedAt = new Date().toISOString();
+      const completedStopPlan = stopPlan.map((stop) =>
+        asString(stop.stopId) === asString(currentStop.stopId)
+          ? {
+              ...stop,
+              status: "completed",
+              reachedAt: stop.reachedAt || stopCompletedAt,
+              completedAt: stopCompletedAt,
+            }
+          : stop
+      );
+      const remainingAfterStop = poolItems.filter(
+        (item) =>
+          !(
+            currentStop.stopType === "dropoff" &&
+            stopBookingIds.includes(item.id)
+          )
+      );
+      const poolDone = remainingAfterStop.length === 0;
+      const stopState = poolStopStatePayload(
+        completedStopPlan,
+        poolDone ? "completed" : "in_progress"
+      );
+
+      const archiveSnaps = new Map();
+      if (asString(currentStop.stopType) === "dropoff") {
+        for (const stopBookingId of stopBookingIds) {
+          const item = poolItems.find((candidate) => candidate.id === stopBookingId);
+          if (!item) continue;
+          archiveSnaps.set(
+            stopBookingId,
+            db.collection(COLLECTIONS.bookingsArchive).doc(stopBookingId)
+          );
+        }
+      }
+
+      if (asString(currentStop.stopType) === "pickup") {
+        for (const item of poolItems) {
+          const stopIds = bookingStopIdsFromPlan(
+            stopState.plannedStops,
+            item.id
+          );
+          const isAtStop = stopBookingIds.includes(item.id);
+          const pickupPayload = {
+            [BOOKING_FIELDS.status]: "on_the_way",
+            [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+            [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+            [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+            [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+            [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
+            [BOOKING_FIELDS.poolPickupStopId]: stopIds.pickupStopId,
+            [BOOKING_FIELDS.poolDropoffStopId]: stopIds.dropoffStopId,
+            [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
+          };
+          if (isAtStop) {
+            pickupPayload[BOOKING_FIELDS.passengerPickedUpAt] =
+              FieldValue.serverTimestamp();
+            pickupPayload[BOOKING_FIELDS.pickedUpAt] =
+              FieldValue.serverTimestamp();
+            pickupPayload[BOOKING_FIELDS.poolPhase] = "onboard";
+            pickupPayload[BOOKING_FIELDS.onboard] = true;
+          }
+          if (hasOperatorLocation) {
+            pickupPayload[BOOKING_FIELDS.operatorLat] = operatorLat;
+            pickupPayload[BOOKING_FIELDS.operatorLng] = operatorLng;
+          }
+          tx.update(item.ref, pickupPayload);
+          if (
+            isAtStop &&
+            asString(item.data?.[BOOKING_FIELDS.status]) === "accepted"
+          ) {
+            appendStatusHistory({
+              tx,
+              bookingRef: item.ref,
+              from: "accepted",
+              to: "on_the_way",
+              changedBy: operatorUid,
+            });
+          }
+        }
+
+        logger.info("Pool pickup stop marked reached", {
+          bookingIds: stopBookingIds,
+          operatorUid,
+          stopId: currentStop.stopId,
+        });
+
+        return {
+          status: "pickup_completed",
+          bookingIds: stopBookingIds,
+          currentStopId: stopState.currentStopId,
+        };
+      }
+
+      for (const item of poolItems) {
+        const stopIds = bookingStopIdsFromPlan(stopState.plannedStops, item.id);
+        const isAtStop = stopBookingIds.includes(item.id);
+        const payload = {
+          [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+          [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+          [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+          [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+          [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
+          [BOOKING_FIELDS.poolPickupStopId]: stopIds.pickupStopId,
+          [BOOKING_FIELDS.poolDropoffStopId]: stopIds.dropoffStopId,
+          [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
+        };
+        if (hasOperatorLocation) {
+          payload[BOOKING_FIELDS.operatorLat] = operatorLat;
+          payload[BOOKING_FIELDS.operatorLng] = operatorLng;
+        }
+
+        if (!isAtStop) {
+          tx.update(item.ref, payload);
+          continue;
+        }
+
+        const completedPayload = {
+          ...payload,
+          [BOOKING_FIELDS.status]: "completed",
+          [BOOKING_FIELDS.operatorUid]: operatorUid,
+          [BOOKING_FIELDS.poolPhase]: "dropped_off",
+          [BOOKING_FIELDS.onboard]: false,
+          [BOOKING_FIELDS.droppedOffAt]: FieldValue.serverTimestamp(),
+        };
+        tx.update(item.ref, completedPayload);
+        appendStatusHistory({
+          tx,
+          bookingRef: item.ref,
+          from: asString(item.data?.[BOOKING_FIELDS.status]) || "on_the_way",
+          to: "completed",
+          changedBy: operatorUid,
+        });
+        const archiveRefForItem = archiveSnaps.get(item.id);
+        if (archiveRefForItem) {
+          tx.set(archiveRefForItem, {
+            ...item.data,
+            ...completedPayload,
+            bookingId: item.id,
+            archivedAt: FieldValue.serverTimestamp(),
+            archivedStatus: "completed",
+          });
+        }
+      }
 
       logger.info("Pool dropoff stop marked reached", {
-        bookingId,
+        bookingIds: stopBookingIds,
         operatorUid,
+        stopId: currentStop.stopId,
       });
 
       return {
-        status: "completed",
-        bookingId,
+        status: poolDone ? "pool_completed" : "dropoff_completed",
+        bookingIds: stopBookingIds,
+        currentStopId: stopState.currentStopId,
       };
     });
   }

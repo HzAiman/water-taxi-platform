@@ -490,7 +490,7 @@ void main() {
     );
 
     test(
-      'stop-first route suppresses long straight live-location connector',
+      'stop-first route shows amber fallback when live location is far from route',
       () {
         final booking = _bookingFixture(
           bookingId: 'stop-first-no-long-anchor',
@@ -523,11 +523,10 @@ void main() {
         );
 
         expect(polylines, hasLength(1));
-        expect(
-          polylines.first.points.first,
-          isNot(const LatLng(2.0005, 102.010)),
-        );
+        expect(polylines.first.points.first, const LatLng(2.0005, 102.010));
         expect(polylines.first.points.last, const LatLng(2.002, 102.0));
+        expect(polylines.first.color, const Color(0xFFF59E0B));
+        expect(polylines.first.patterns, isNotEmpty);
       },
     );
   });

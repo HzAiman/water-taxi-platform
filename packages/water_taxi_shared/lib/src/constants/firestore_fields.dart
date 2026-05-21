@@ -57,6 +57,14 @@ abstract final class BookingFields {
   static const String droppedOffAt = 'droppedOffAt';
   static const String completedAt = 'completedAt';
   static const String onboard = 'onboard';
+  static const String poolDeferredForOperatorUid =
+      'poolDeferredForOperatorUid';
+  static const String poolDeferredRouteDirection =
+      'poolDeferredRouteDirection';
+  static const String poolDeferredPoolGroupId = 'poolDeferredPoolGroupId';
+  static const String poolDeferredReason = 'poolDeferredReason';
+  static const String poolDeferredUntil = 'poolDeferredUntil';
+  static const String poolDeferredAt = 'poolDeferredAt';
   static const String operatorLat = 'operatorLat';
   static const String operatorLng = 'operatorLng';
   static const String rejectedBy = 'rejectedBy';

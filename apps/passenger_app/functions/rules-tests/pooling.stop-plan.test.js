@@ -113,7 +113,7 @@ test("complex stop-level pooling scenario follows route-aware stop order", () =>
   );
   assert.equal(
     evaluatePoolingEligibility([a, b], f).reason,
-    "outside_route_corridor",
+    "reverse_direction",
     "F is rejected because it travels backward against the stored route"
   );
 
