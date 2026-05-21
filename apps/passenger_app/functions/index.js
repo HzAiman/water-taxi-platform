@@ -18,6 +18,9 @@ const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
 const STRIPE_CURRENCY = defineString("STRIPE_CURRENCY");
 const MIGRATION_ADMIN_UIDS = defineString("MIGRATION_ADMIN_UIDS");
 const BOOKING_ARCHIVE_RETENTION_DAYS = defineString("BOOKING_ARCHIVE_RETENTION_DAYS");
+const MINIMUM_STRIPE_CHARGE_BY_CURRENCY = {
+  myr: 2.00,
+};
 
 const COLLECTIONS = {
   bookings: "bookings",
@@ -1399,6 +1402,14 @@ function validatePaymentIntentParams(params) {
   if (!currency || typeof currency !== "string") {
     return { valid: false, error: "currency is required and must be a string" };
   }
+  const normalizedCurrency = currency.trim().toLowerCase();
+  const minimumCharge = MINIMUM_STRIPE_CHARGE_BY_CURRENCY[normalizedCurrency];
+  if (minimumCharge != null && amount < minimumCharge) {
+    return {
+      valid: false,
+      error: `${normalizedCurrency.toUpperCase()} payments must be at least ${minimumCharge.toFixed(2)}`,
+    };
+  }
   if (!orderNumber || typeof orderNumber !== "string") {
     return { valid: false, error: "orderNumber is required and must be a string" };
   }
@@ -1427,6 +1438,11 @@ async function createPaymentIntentCore(stripe, params) {
   const amountInMinorUnit = Math.round(amount * 100);
   if (!(amountInMinorUnit > 0)) {
     throw new Error("Amount must be at least 0.01");
+  }
+  const normalizedCurrency = String(currency || "").trim().toLowerCase();
+  const minimumCharge = MINIMUM_STRIPE_CHARGE_BY_CURRENCY[normalizedCurrency];
+  if (minimumCharge != null && amountInMinorUnit < Math.round(minimumCharge * 100)) {
+    throw new Error(`${normalizedCurrency.toUpperCase()} payments must be at least ${minimumCharge.toFixed(2)}`);
   }
 
   const intent = await stripe.paymentIntents.create(

@@ -702,10 +702,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       return const SizedBox.shrink();
     }
 
-    final bookingId = booking.bookingId.isNotEmpty
-        ? booking.bookingId
-        : 'Current booking';
     final statusColor = _statusColor(booking.status);
+    final routeLabel = _formatRoute(booking);
+    final passengerSummary = _formatPassengerSummary(booking);
+    final operatorSummary = _formatOperatorSummary(booking);
 
     return Container(
       width: double.infinity,
@@ -758,7 +758,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 10),
           Text(
-            '${booking.origin} -> ${booking.destination}',
+            routeLabel,
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -767,7 +767,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
           ),
           const SizedBox(height: 4),
           Text(
-            'Booking ID: $bookingId | Passengers: ${booking.passengerCount}',
+            passengerSummary,
+            style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            operatorSummary,
             style: const TextStyle(fontSize: 12, color: Color(0xFF666666)),
           ),
           const SizedBox(height: 12),
@@ -797,6 +802,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         ],
       ),
     );
+  }
+
+  static String _formatRoute(BookingModel booking) {
+    final origin = booking.origin.trim().isEmpty ? 'Origin' : booking.origin;
+    final destination = booking.destination.trim().isEmpty
+        ? 'Destination'
+        : booking.destination;
+    return '$origin → $destination';
+  }
+
+  static String _formatPassengerSummary(BookingModel booking) {
+    return 'Adults: ${booking.adultCount} • Children: ${booking.childCount}';
+  }
+
+  static String _formatOperatorSummary(BookingModel booking) {
+    final name = booking.assignedOperatorName.trim();
+    final displayId = booking.assignedOperatorDisplayId.trim();
+    final fallbackId = booking.operatorId?.trim() ?? '';
+    final operatorId = displayId.isNotEmpty ? displayId : fallbackId;
+
+    if (name.isEmpty && operatorId.isEmpty) {
+      return 'Operator: Not assigned yet';
+    }
+    if (name.isEmpty) {
+      return 'Operator ID: $operatorId';
+    }
+    if (operatorId.isEmpty) {
+      return 'Operator: $name';
+    }
+    return 'Operator: $name • ID: $operatorId';
   }
 
   static String _formatStatusLabel(String status) {

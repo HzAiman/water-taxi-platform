@@ -14,14 +14,21 @@ class FareBreakdown {
     required this.childFarePerPerson,
     required this.adultSubtotal,
     required this.childSubtotal,
-    required this.total,
+    required this.baseTotal,
+    required this.minimumChargeAdjustment,
+    required this.payableTotal,
   });
 
   final double adultFarePerPerson;
   final double childFarePerPerson;
   final double adultSubtotal;
   final double childSubtotal;
-  final double total;
+  final double baseTotal;
+  final double minimumChargeAdjustment;
+  final double payableTotal;
+
+  double get total => payableTotal;
+  bool get hasMinimumChargeAdjustment => minimumChargeAdjustment > 0;
 }
 
 /// ViewModel for [PaymentScreen].
@@ -106,13 +113,21 @@ class PaymentViewModel extends ChangeNotifier {
 
       final adultSubtotal = fare.adultFare * adultCount;
       final childSubtotal = fare.childFare * childCount;
+      final baseTotal = adultSubtotal + childSubtotal;
+      final minimumChargeAdjustment =
+          (PaymentMethods.minimumStripeChargeMyr - baseTotal)
+              .clamp(0.0, double.infinity)
+              .toDouble();
+      final payableTotal = baseTotal + minimumChargeAdjustment;
 
       _fareBreakdown = FareBreakdown(
         adultFarePerPerson: fare.adultFare,
         childFarePerPerson: fare.childFare,
         adultSubtotal: adultSubtotal,
         childSubtotal: childSubtotal,
-        total: adultSubtotal + childSubtotal,
+        baseTotal: baseTotal,
+        minimumChargeAdjustment: minimumChargeAdjustment,
+        payableTotal: payableTotal,
       );
       _fareSnapshotId = fare.snapshotId;
     } catch (_) {

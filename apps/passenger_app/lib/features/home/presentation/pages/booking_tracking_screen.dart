@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
@@ -55,12 +56,20 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
   String? _lastPolylineSetSignature;
   Set<Polyline> _cachedPolylines = <Polyline>{};
   DateTime? _lastMapPayloadLogAt;
+  String? _etaBookingId;
+  LatLng? _previousEtaOperatorPoint;
+  DateTime? _previousEtaOperatorAt;
+  double? _lastEtaSpeedMps;
+  DateTime? _lastEtaSpeedAt;
 
   static const Duration _followRecenterInterval = Duration(seconds: 4);
   static const double _followRecenterDistanceMeters = 20;
   static const double _initialBoundsPadding = 80;
   static const double _operatorFollowZoom = 16.0;
   static const double _singlePointZoom = 15.0;
+  static const Duration _etaSpeedFreshness = Duration(seconds: 45);
+  static const double _etaMinimumSpeedMps = 0.5;
+  static const double _etaLowConfidenceOffRouteMeters = 300;
 
   @override
   void initState() {
@@ -236,6 +245,13 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
     );
     final routePoints = _routePointsFor(booking, originPoint, destinationPoint);
     final operatorPoint = _operatorPointForBooking(booking);
+    final etaDisplay = _passengerEtaForBooking(
+      booking: booking,
+      operatorPoint: operatorPoint,
+      originPoint: originPoint,
+      destinationPoint: destinationPoint,
+      isOperatorLocationStale: isOperatorLocationStale,
+    );
     final markers = _buildMarkers(
       bookingId: booking.bookingId,
       originPoint: originPoint,
@@ -400,6 +416,10 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
                         _buildLocationStatusNotice(
                           isLocating: isLocatingOperator,
                         ),
+                      ],
+                      if (etaDisplay != null) ...[
+                        const SizedBox(height: 12),
+                        _buildEtaCard(etaDisplay),
                       ],
                       const SizedBox(height: 12),
                       _buildCompactRouteCard(
@@ -626,6 +646,47 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
     );
   }
 
+  Widget _buildEtaCard(_PassengerEtaDisplay eta) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: PassengerBrand.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFDDE5F0)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.schedule, color: PassengerBrand.blue, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  eta.label,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF666666),
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 1),
+                Text(
+                  eta.value,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF1A1A1A),
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildCompactInfoContent({
     required IconData icon,
     required String label,
@@ -726,9 +787,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
     );
   }
 
-  Widget _buildAssignedOperatorCard({
-    required BookingModel booking,
-  }) {
+  Widget _buildAssignedOperatorCard({required BookingModel booking}) {
     final name = booking.assignedOperatorName.trim();
     final operatorId = booking.assignedOperatorDisplayId.trim();
     final phone = booking.assignedOperatorPhone.trim();
@@ -1245,6 +1304,316 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
 
   double _toRadians(double deg) => deg * (math.pi / 180);
 
+  _PassengerEtaDisplay? _passengerEtaForBooking({
+    required BookingModel booking,
+    required LatLng? operatorPoint,
+    required LatLng? originPoint,
+    required LatLng? destinationPoint,
+    required bool isOperatorLocationStale,
+  }) {
+    if (booking.status != BookingStatus.onTheWay || operatorPoint == null) {
+      _resetEtaSamplesIfNeeded(booking.bookingId);
+      return null;
+    }
+
+    final target = _etaTargetForBooking(
+      booking: booking,
+      originPoint: originPoint,
+      destinationPoint: destinationPoint,
+    );
+    if (target == null) {
+      return null;
+    }
+
+    if (isOperatorLocationStale) {
+      return _PassengerEtaDisplay(
+        label: target.label,
+        value: 'Waiting for live location',
+      );
+    }
+
+    final now = booking.updatedAt ?? DateTime.now();
+    final speedMps = _resolveEtaSpeed(
+      bookingId: booking.bookingId,
+      operatorPoint: operatorPoint,
+      now: now,
+    );
+    if (speedMps == null) {
+      return _PassengerEtaDisplay(
+        label: target.label,
+        value: 'Calculating ETA',
+      );
+    }
+
+    final phaseRoutePoints = _etaRoutePointsForPhase(
+      booking: booking,
+      operatorPoint: operatorPoint,
+      targetPoint: target.point,
+      passengerPickedUp: target.isDestination,
+    );
+    final remainingDistanceMeters = _remainingDistanceMetersToTarget(
+      operatorPoint: operatorPoint,
+      targetPoint: target.point,
+      routePoints: phaseRoutePoints,
+    );
+    if (remainingDistanceMeters <= 0) {
+      return _PassengerEtaDisplay(label: target.label, value: '< 1 min');
+    }
+
+    final eta = Duration(seconds: (remainingDistanceMeters / speedMps).round());
+    final lowConfidence =
+        phaseRoutePoints.length >= 2 &&
+        _offRouteDistanceMeters(operatorPoint, phaseRoutePoints) >
+            _etaLowConfidenceOffRouteMeters;
+
+    return _PassengerEtaDisplay(
+      label: target.label,
+      value: '${lowConfidence ? '~ ' : ''}${_formatEta(eta)}',
+    );
+  }
+
+  _PassengerEtaTarget? _etaTargetForBooking({
+    required BookingModel booking,
+    required LatLng? originPoint,
+    required LatLng? destinationPoint,
+  }) {
+    final currentStop = booking.currentPoolStop;
+    if (currentStop != null) {
+      final stopPoint = _latLngOrNull(currentStop.lat, currentStop.lng);
+      if (stopPoint == null) {
+        return null;
+      }
+      return _PassengerEtaTarget(
+        label: currentStop.isDropoff ? 'ETA to destination' : 'ETA to pickup',
+        point: stopPoint,
+        isDestination: currentStop.isDropoff,
+      );
+    }
+
+    final passengerPickedUp =
+        booking.passengerPickedUpAt != null ||
+        booking.pickedUpAt != null ||
+        booking.onboard;
+    final targetPoint = passengerPickedUp ? destinationPoint : originPoint;
+    if (targetPoint == null) {
+      return null;
+    }
+    return _PassengerEtaTarget(
+      label: passengerPickedUp ? 'ETA to destination' : 'ETA to pickup',
+      point: targetPoint,
+      isDestination: passengerPickedUp,
+    );
+  }
+
+  List<LatLng> _etaRoutePointsForPhase({
+    required BookingModel booking,
+    required LatLng operatorPoint,
+    required LatLng targetPoint,
+    required bool passengerPickedUp,
+  }) {
+    final source = passengerPickedUp
+        ? (booking.routeToDestinationPolyline.isNotEmpty
+              ? booking.routeToDestinationPolyline
+              : booking.routePolyline)
+        : booking.routeToOriginPolyline;
+    final points = source
+        .where((p) => _isValidCoordinate(p.lat, p.lng))
+        .map((p) => LatLng(p.lat, p.lng))
+        .toList(growable: true);
+
+    if (points.length < 2) {
+      return <LatLng>[operatorPoint, targetPoint];
+    }
+    if (_distanceMeters(points.last, targetPoint) > 5) {
+      points.add(targetPoint);
+    }
+    return points;
+  }
+
+  double _remainingDistanceMetersToTarget({
+    required LatLng operatorPoint,
+    required LatLng targetPoint,
+    required List<LatLng> routePoints,
+  }) {
+    if (routePoints.length < 2) {
+      return _distanceMeters(operatorPoint, targetPoint);
+    }
+
+    final projection = _projectPointOntoRoute(operatorPoint, routePoints);
+    if (projection == null) {
+      return _distanceMeters(operatorPoint, targetPoint);
+    }
+    return (projection.distanceFromRouteMeters +
+            _distanceAlongRouteFromProjection(routePoints, projection))
+        .clamp(0.0, double.infinity);
+  }
+
+  double _offRouteDistanceMeters(LatLng point, List<LatLng> routePoints) {
+    return _projectPointOntoRoute(
+          point,
+          routePoints,
+        )?.distanceFromRouteMeters ??
+        0;
+  }
+
+  _RouteProjectionOnPolyline? _projectPointOntoRoute(
+    LatLng point,
+    List<LatLng> routePoints,
+  ) {
+    if (routePoints.length < 2) {
+      return null;
+    }
+
+    var nearestSegmentIndex = 0;
+    var nearestT = 0.0;
+    var nearestDistance = double.infinity;
+    for (var i = 0; i < routePoints.length - 1; i++) {
+      final projection = _projectPointOntoSegment(
+        point: point,
+        start: routePoints[i],
+        end: routePoints[i + 1],
+      );
+      if (projection.distanceMeters < nearestDistance) {
+        nearestDistance = projection.distanceMeters;
+        nearestSegmentIndex = i;
+        nearestT = projection.t;
+      }
+    }
+
+    return _RouteProjectionOnPolyline(
+      segmentIndex: nearestSegmentIndex,
+      t: nearestT,
+      distanceFromRouteMeters: nearestDistance,
+    );
+  }
+
+  _SegmentProjection _projectPointOntoSegment({
+    required LatLng point,
+    required LatLng start,
+    required LatLng end,
+  }) {
+    final meanLat = _toRadians((start.latitude + end.latitude) / 2);
+    const metersPerDegreeLat = 111320.0;
+    final metersPerDegreeLng = 111320.0 * math.cos(meanLat);
+
+    final sx = start.longitude * metersPerDegreeLng;
+    final sy = start.latitude * metersPerDegreeLat;
+    final ex = end.longitude * metersPerDegreeLng;
+    final ey = end.latitude * metersPerDegreeLat;
+    final px = point.longitude * metersPerDegreeLng;
+    final py = point.latitude * metersPerDegreeLat;
+    final dx = ex - sx;
+    final dy = ey - sy;
+    final lengthSquared = dx * dx + dy * dy;
+
+    if (lengthSquared <= 0) {
+      final ox = px - sx;
+      final oy = py - sy;
+      return _SegmentProjection(
+        t: 0,
+        distanceMeters: math.sqrt((ox * ox) + (oy * oy)),
+      );
+    }
+
+    final t = ((((px - sx) * dx) + ((py - sy) * dy)) / lengthSquared)
+        .clamp(0.0, 1.0)
+        .toDouble();
+    final cx = sx + (dx * t);
+    final cy = sy + (dy * t);
+    final ox = px - cx;
+    final oy = py - cy;
+    return _SegmentProjection(
+      t: t,
+      distanceMeters: math.sqrt((ox * ox) + (oy * oy)),
+    );
+  }
+
+  double _distanceAlongRouteFromProjection(
+    List<LatLng> routePoints,
+    _RouteProjectionOnPolyline projection,
+  ) {
+    var remaining = 0.0;
+    for (var i = projection.segmentIndex; i < routePoints.length - 1; i++) {
+      final segmentDistance = _distanceMeters(
+        routePoints[i],
+        routePoints[i + 1],
+      );
+      remaining += i == projection.segmentIndex
+          ? segmentDistance * (1 - projection.t)
+          : segmentDistance;
+    }
+    return remaining;
+  }
+
+  double? _resolveEtaSpeed({
+    required String bookingId,
+    required LatLng operatorPoint,
+    required DateTime now,
+  }) {
+    if (_etaBookingId != bookingId) {
+      _resetEtaSamples();
+      _etaBookingId = bookingId;
+    }
+
+    double? speedMps;
+    final previousPoint = _previousEtaOperatorPoint;
+    final previousAt = _previousEtaOperatorAt;
+    if (previousPoint != null && previousAt != null) {
+      final elapsedSeconds = now.difference(previousAt).inMilliseconds / 1000;
+      final movedMeters = _distanceMeters(previousPoint, operatorPoint);
+      if (elapsedSeconds >= 0.5 && movedMeters > 0.5) {
+        final derivedSpeed = movedMeters / elapsedSeconds;
+        if (derivedSpeed.isFinite && derivedSpeed >= _etaMinimumSpeedMps) {
+          speedMps = derivedSpeed;
+          _lastEtaSpeedMps = speedMps;
+          _lastEtaSpeedAt = now;
+        }
+      }
+    }
+
+    _previousEtaOperatorPoint = operatorPoint;
+    _previousEtaOperatorAt = now;
+
+    if (speedMps != null) {
+      return speedMps;
+    }
+    final cachedSpeed = _lastEtaSpeedMps;
+    final cachedAt = _lastEtaSpeedAt;
+    if (cachedSpeed != null &&
+        cachedAt != null &&
+        now.difference(cachedAt) <= _etaSpeedFreshness) {
+      return cachedSpeed;
+    }
+    return null;
+  }
+
+  void _resetEtaSamplesIfNeeded(String bookingId) {
+    if (_etaBookingId != null && _etaBookingId != bookingId) {
+      _resetEtaSamples();
+    }
+  }
+
+  void _resetEtaSamples() {
+    _previousEtaOperatorPoint = null;
+    _previousEtaOperatorAt = null;
+    _lastEtaSpeedMps = null;
+    _lastEtaSpeedAt = null;
+  }
+
+  String _formatEta(Duration eta) {
+    final minutes = eta.inMinutes;
+    if (minutes <= 0) {
+      return '< 1 min';
+    }
+    if (minutes < 60) {
+      return '$minutes min';
+    }
+
+    final hours = minutes ~/ 60;
+    final remainder = minutes % 60;
+    return remainder == 0 ? '$hours h' : '$hours h $remainder min';
+  }
+
   Widget _buildStatusTimeline(BookingStatus status) {
     final steps = [
       _TimelineStep('Request'),
@@ -1589,6 +1958,44 @@ class _TimelineStep {
   final String label;
 }
 
+class _PassengerEtaDisplay {
+  const _PassengerEtaDisplay({required this.label, required this.value});
+
+  final String label;
+  final String value;
+}
+
+class _PassengerEtaTarget {
+  const _PassengerEtaTarget({
+    required this.label,
+    required this.point,
+    required this.isDestination,
+  });
+
+  final String label;
+  final LatLng point;
+  final bool isDestination;
+}
+
+class _RouteProjectionOnPolyline {
+  const _RouteProjectionOnPolyline({
+    required this.segmentIndex,
+    required this.t,
+    required this.distanceFromRouteMeters,
+  });
+
+  final int segmentIndex;
+  final double t;
+  final double distanceFromRouteMeters;
+}
+
+class _SegmentProjection {
+  const _SegmentProjection({required this.t, required this.distanceMeters});
+
+  final double t;
+  final double distanceMeters;
+}
+
 enum _StatusRippleMode { outward, inward, none }
 
 class _AutoScrollText extends StatefulWidget {
@@ -1608,6 +2015,7 @@ class _AutoScrollTextState extends State<_AutoScrollText>
   double _scrollDistance = 0;
   Duration? _duration;
   bool _loopScheduled = false;
+  Timer? _scrollPauseTimer;
 
   @override
   void initState() {
@@ -1620,6 +2028,8 @@ class _AutoScrollTextState extends State<_AutoScrollText>
     super.didUpdateWidget(oldWidget);
     if (oldWidget.text != widget.text || oldWidget.style != widget.style) {
       _duration = null;
+      _scrollPauseTimer?.cancel();
+      _loopScheduled = false;
       _controller.stop();
       _controller.value = 0;
     }
@@ -1689,24 +2099,34 @@ class _AutoScrollTextState extends State<_AutoScrollText>
     _duration = duration;
     _loopScheduled = true;
     _controller.duration = duration;
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _duration != duration) {
         _loopScheduled = false;
         return;
       }
-      while (mounted && _duration == duration) {
-        await Future<void>.delayed(_AutoScrollText._pause);
-        if (!mounted || _duration != duration) {
-          return;
-        }
-        await _controller.forward(from: 0);
+      _scheduleNextScrollLoop(duration);
+    });
+  }
+
+  void _scheduleNextScrollLoop(Duration duration) {
+    _scrollPauseTimer?.cancel();
+    _scrollPauseTimer = Timer(_AutoScrollText._pause, () async {
+      if (!mounted || _duration != duration) {
+        _loopScheduled = false;
+        return;
       }
-      _loopScheduled = false;
+      await _controller.forward(from: 0);
+      if (!mounted || _duration != duration) {
+        _loopScheduled = false;
+        return;
+      }
+      _scheduleNextScrollLoop(duration);
     });
   }
 
   @override
   void dispose() {
+    _scrollPauseTimer?.cancel();
     _controller.dispose();
     super.dispose();
   }

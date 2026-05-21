@@ -400,6 +400,52 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                 ),
                               ],
                               const SizedBox(height: 12),
+                              if (fare.hasMinimumChargeAdjustment) ...[
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Base Fare',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Color(0xFF666666),
+                                      ),
+                                    ),
+                                    Text(
+                                      'RM ${fare.baseTotal.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF666666),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 8),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Minimum payment adjustment',
+                                      style: TextStyle(
+                                        fontSize: 14,
+                                        color: Color(0xFF666666),
+                                      ),
+                                    ),
+                                    Text(
+                                      'RM ${fare.minimumChargeAdjustment.toStringAsFixed(2)}',
+                                      style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF666666),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 12),
+                              ],
                               const Divider(
                                 color: Color(0xFFDDE5F0),
                                 height: 1,
@@ -418,7 +464,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                                     ),
                                   ),
                                   Text(
-                                    'RM ${fare.total.toStringAsFixed(2)}',
+                                    'RM ${fare.payableTotal.toStringAsFixed(2)}',
                                     style: const TextStyle(
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
@@ -433,7 +479,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         const SizedBox(height: 32),
                         AppActionButton(
                           label:
-                              'Continue to Payment (RM ${fare.total.toStringAsFixed(2)})',
+                              'Continue to Payment (RM ${fare.payableTotal.toStringAsFixed(2)})',
                           onPressed: viewModel.isProcessing
                               ? null
                               : _processPayment,

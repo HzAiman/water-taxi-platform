@@ -3,6 +3,7 @@ abstract final class PaymentMethods {
   static const String creditCard = 'credit_card';
   static const String eWallet = 'e_wallet';
   static const String onlineBanking = 'online_banking';
+  static const double minimumStripeChargeMyr = 2.00;
 
   /// All supported payment method identifiers.
   static const List<String> all = [creditCard, eWallet, onlineBanking];

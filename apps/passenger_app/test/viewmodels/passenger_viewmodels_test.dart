@@ -80,8 +80,18 @@ void main() {
               userRepo: FakeUserRepository(),
               jettyRepo: FakeJettyRepository(
                 jetties: const [
-                  JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
-                  JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+                  JettyModel(
+                    jettyId: '1',
+                    name: 'Terminal A',
+                    lat: 1,
+                    lng: 101,
+                  ),
+                  JettyModel(
+                    jettyId: '2',
+                    name: 'Terminal B',
+                    lat: 2,
+                    lng: 102,
+                  ),
                 ],
               ),
               fareRepo: fareRepo,
@@ -131,7 +141,85 @@ void main() {
       expect(viewModel.fareBreakdown, isNotNull);
       expect(viewModel.fareBreakdown?.adultSubtotal, 20);
       expect(viewModel.fareBreakdown?.childSubtotal, 4);
+      expect(viewModel.fareBreakdown?.baseTotal, 24);
+      expect(viewModel.fareBreakdown?.minimumChargeAdjustment, 0);
+      expect(viewModel.fareBreakdown?.payableTotal, 24);
       expect(viewModel.fareBreakdown?.total, 24);
+    });
+
+    test('loadFare applies Stripe minimum for low fares', () async {
+      final viewModel = PaymentViewModel(
+        fareRepo: FakeFareRepository(
+          fare: const FareModel(
+            snapshotId: 'fare-a-b',
+            origin: 'Terminal A',
+            destination: 'Terminal B',
+            adultFare: 1.2,
+            childFare: 0.4,
+          ),
+        ),
+        jettyRepo: FakeJettyRepository(
+          jetties: const [
+            JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+            JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+          ],
+        ),
+        userRepo: FakeUserRepository(),
+        bookingRepo: FakeBookingRepository(),
+        paymentGateway: FakePaymentGatewayService(),
+      );
+
+      await viewModel.loadFare(
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 1,
+      );
+
+      expect(viewModel.fareBreakdown, isNotNull);
+      expect(viewModel.fareBreakdown?.baseTotal, closeTo(1.6, 0.001));
+      expect(
+        viewModel.fareBreakdown?.minimumChargeAdjustment,
+        closeTo(0.4, 0.001),
+      );
+      expect(viewModel.fareBreakdown?.payableTotal, 2.0);
+      expect(viewModel.fareBreakdown?.total, 2.0);
+      expect(viewModel.fareBreakdown?.hasMinimumChargeAdjustment, isTrue);
+    });
+
+    test('loadFare does not adjust fares at or above Stripe minimum', () async {
+      final viewModel = PaymentViewModel(
+        fareRepo: FakeFareRepository(
+          fare: const FareModel(
+            snapshotId: 'fare-a-b',
+            origin: 'Terminal A',
+            destination: 'Terminal B',
+            adultFare: 2,
+            childFare: 0,
+          ),
+        ),
+        jettyRepo: FakeJettyRepository(
+          jetties: const [
+            JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+            JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+          ],
+        ),
+        userRepo: FakeUserRepository(),
+        bookingRepo: FakeBookingRepository(),
+        paymentGateway: FakePaymentGatewayService(),
+      );
+
+      await viewModel.loadFare(
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 0,
+      );
+
+      expect(viewModel.fareBreakdown?.baseTotal, 2);
+      expect(viewModel.fareBreakdown?.minimumChargeAdjustment, 0);
+      expect(viewModel.fareBreakdown?.payableTotal, 2);
+      expect(viewModel.fareBreakdown?.hasMinimumChargeAdjustment, isFalse);
     });
 
     test('processPayment returns success and passes booking params', () async {
@@ -192,6 +280,59 @@ void main() {
       expect(bookingRepo.lastCreatedParams?.destinationJettyId, '2');
       expect(paymentGateway.lastRequest?.idempotencyKey, isNotNull);
       expect(paymentGateway.lastRequest?.currency, 'MYR');
+      expect(paymentGateway.lastRequest?.amount, 20);
+      expect(bookingRepo.lastCreatedParams?.totalFare, 20);
+    });
+
+    test('processPayment pays and stores minimum-adjusted fare', () async {
+      final bookingRepo = FakeBookingRepository();
+      final paymentGateway = FakePaymentGatewayService();
+      final viewModel = PaymentViewModel(
+        fareRepo: FakeFareRepository(
+          fare: const FareModel(
+            snapshotId: 'fare-a-b',
+            origin: 'Terminal A',
+            destination: 'Terminal B',
+            adultFare: 1.2,
+            childFare: 0.4,
+          ),
+        ),
+        jettyRepo: FakeJettyRepository(
+          jetties: const [
+            JettyModel(jettyId: '1', name: 'Terminal A', lat: 1, lng: 101),
+            JettyModel(jettyId: '2', name: 'Terminal B', lat: 2, lng: 102),
+          ],
+        ),
+        userRepo: FakeUserRepository(
+          user: const UserModel(
+            uid: 'user-1',
+            name: 'Aiman',
+            email: 'aiman@example.com',
+            phoneNumber: '0123456789',
+          ),
+        ),
+        bookingRepo: bookingRepo,
+        paymentGateway: paymentGateway,
+      );
+
+      await viewModel.loadFare(
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 1,
+      );
+
+      final result = await viewModel.processPayment(
+        userId: 'user-1',
+        origin: 'Terminal A',
+        destination: 'Terminal B',
+        adultCount: 1,
+        childCount: 1,
+      );
+
+      expect(result, isA<OperationSuccess>());
+      expect(paymentGateway.lastRequest?.amount, 2);
+      expect(bookingRepo.lastCreatedParams?.totalFare, 2);
     });
 
     test('processPayment does not create booking when gateway fails', () async {
@@ -513,6 +654,12 @@ class FakeBookingRepository extends BookingRepository {
     lastCreatedParams = p;
     return 'booking-1';
   }
+
+  @override
+  Future<void> reserveOrderNumber({
+    required String orderNumber,
+    required String userId,
+  }) async {}
 
   @override
   Future<void> cancelBooking(String bookingId) async {

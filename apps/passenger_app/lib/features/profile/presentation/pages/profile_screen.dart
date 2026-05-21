@@ -7,7 +7,6 @@ import 'package:passenger_app/core/widgets/app_menu_tile.dart';
 import 'package:passenger_app/core/widgets/gradient_app_bar.dart';
 import 'package:passenger_app/core/widgets/top_alert.dart';
 import 'package:passenger_app/features/auth/presentation/pages/phone_login_page.dart';
-import 'package:passenger_app/features/home/presentation/pages/booking_tracking_screen.dart';
 import 'package:passenger_app/features/profile/presentation/viewmodels/profile_view_model.dart';
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
@@ -187,6 +186,128 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
       ),
     );
+  }
+}
+
+class _HistoryRouteTitle extends StatefulWidget {
+  const _HistoryRouteTitle({required this.route, required this.style});
+
+  final String route;
+  final TextStyle style;
+  static const Duration _pause = Duration(milliseconds: 900);
+
+  @override
+  State<_HistoryRouteTitle> createState() => _HistoryRouteTitleState();
+}
+
+class _HistoryRouteTitleState extends State<_HistoryRouteTitle>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+  double _scrollDistance = 0;
+  Duration? _duration;
+  bool _loopScheduled = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(vsync: this);
+  }
+
+  @override
+  void didUpdateWidget(covariant _HistoryRouteTitle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.route != widget.route || oldWidget.style != widget.style) {
+      _duration = null;
+      _loopScheduled = false;
+      _controller.stop();
+      _controller.value = 0;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final textPainter = TextPainter(
+          text: TextSpan(text: widget.route, style: widget.style),
+          maxLines: 1,
+          textDirection: Directionality.of(context),
+        )..layout();
+        final maxWidth = constraints.maxWidth;
+        final textWidth = textPainter.width;
+
+        if (!maxWidth.isFinite || textWidth <= maxWidth) {
+          _controller.stop();
+          _controller.value = 0;
+          _duration = null;
+          _loopScheduled = false;
+          return Text(
+            widget.route,
+            style: widget.style,
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+          );
+        }
+
+        final distance = textWidth - maxWidth + 24;
+        final duration = Duration(
+          milliseconds: (distance * 42).clamp(2600, 9000).round(),
+        );
+        _configureScrolling(distance: distance, duration: duration);
+
+        return ClipRect(
+          child: AnimatedBuilder(
+            animation: _controller,
+            builder: (context, child) {
+              return Transform.translate(
+                offset: Offset(-_scrollDistance * _controller.value, 0),
+                child: child,
+              );
+            },
+            child: Text(
+              widget.route,
+              style: widget.style,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.visible,
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _configureScrolling({
+    required double distance,
+    required Duration duration,
+  }) {
+    _scrollDistance = distance;
+    if (_duration == duration && _loopScheduled) {
+      return;
+    }
+    _duration = duration;
+    _loopScheduled = true;
+    _controller.duration = duration;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted || _duration != duration) {
+        _loopScheduled = false;
+        return;
+      }
+      while (mounted && _duration == duration) {
+        await Future<void>.delayed(_HistoryRouteTitle._pause);
+        if (!mounted || _duration != duration) {
+          return;
+        }
+        await _controller.forward(from: 0);
+      }
+      _loopScheduled = false;
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 }
 
@@ -866,9 +987,9 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
     final paymentStatusLabel = _formatStatusLabel(booking.paymentStatus);
     final paymentOutcomeMessage = _historyPaymentOutcomeMessage(booking);
     final createdAt = _formatTimestamp(booking.createdAt);
-    final bookingTitle = booking.bookingId.isNotEmpty
-        ? booking.bookingId
-        : 'Booking';
+    final routeTitle = _formatRoute(booking);
+    final passengerSummary = _formatPassengerSummary(booking);
+    final operatorSummary = _formatOperatorSummary(booking);
     final showStaleAction =
         booking.status.isActive &&
         booking.updatedAt != null &&
@@ -890,15 +1011,13 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
           Row(
             children: [
               Expanded(
-                child: Text(
-                  bookingTitle,
+                child: _HistoryRouteTitle(
+                  route: routeTitle,
                   style: const TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
                     color: Color(0xFF1A1A1A),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
               Container(
@@ -922,17 +1041,9 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
             ],
           ),
           const SizedBox(height: 12),
-          _buildHistoryRow(
-            Icons.location_on,
-            'Route',
-            '${booking.origin} -> ${booking.destination}',
-          ),
+          _buildHistoryRow(Icons.people, 'Passengers', passengerSummary),
           const SizedBox(height: 8),
-          _buildHistoryRow(
-            Icons.people,
-            'Passengers',
-            '${booking.passengerCount}',
-          ),
+          _buildHistoryRow(Icons.directions_boat, 'Operator', operatorSummary),
           const SizedBox(height: 8),
           _buildHistoryRow(
             Icons.account_balance_wallet,
@@ -992,15 +1103,6 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                 ],
               ),
             ),
-            const SizedBox(height: 10),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: () => _openTrackingFromHistory(booking),
-                icon: const Icon(Icons.map),
-                label: const Text('Open Live Tracking'),
-              ),
-            ),
           ],
           const SizedBox(height: 2),
           Row(
@@ -1025,19 +1127,6 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
             ],
           ),
         ],
-      ),
-    );
-  }
-
-  void _openTrackingFromHistory(BookingModel booking) {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => BookingTrackingScreen(
-          bookingId: booking.bookingId,
-          origin: booking.origin,
-          destination: booking.destination,
-          passengerCount: booking.passengerCount,
-        ),
       ),
     );
   }
@@ -1067,6 +1156,36 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
         ),
       ],
     );
+  }
+
+  static String _formatRoute(BookingModel booking) {
+    final origin = booking.origin.trim().isEmpty ? 'Origin' : booking.origin;
+    final destination = booking.destination.trim().isEmpty
+        ? 'Destination'
+        : booking.destination;
+    return '$origin → $destination';
+  }
+
+  static String _formatPassengerSummary(BookingModel booking) {
+    return 'Adults: ${booking.adultCount} • Children: ${booking.childCount}';
+  }
+
+  static String _formatOperatorSummary(BookingModel booking) {
+    final name = booking.assignedOperatorName.trim();
+    final displayId = booking.assignedOperatorDisplayId.trim();
+    final fallbackId = booking.operatorId?.trim() ?? '';
+    final operatorId = displayId.isNotEmpty ? displayId : fallbackId;
+
+    if (name.isEmpty && operatorId.isEmpty) {
+      return 'Not assigned yet';
+    }
+    if (name.isEmpty) {
+      return 'Operator ID: $operatorId';
+    }
+    if (operatorId.isEmpty) {
+      return name;
+    }
+    return '$name • ID: $operatorId';
   }
 
   static String _formatTimestamp(DateTime? value) {
