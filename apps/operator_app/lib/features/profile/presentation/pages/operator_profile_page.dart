@@ -7,10 +7,12 @@ import 'package:provider/provider.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
 import 'package:operator_app/data/repositories/operator_repository.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
+import 'package:operator_app/features/home/presentation/viewmodels/operator_home_view_model.dart';
 import 'package:operator_app/features/profile/presentation/pages/operator_transaction_summary_page.dart';
 import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
 import 'package:operator_app/features/profile/presentation/widgets/operator_profile_header.dart';
 import 'package:operator_app/features/profile/presentation/widgets/operator_profile_menu.dart';
+import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 class OperatorProfilePage extends StatefulWidget {
   const OperatorProfilePage({super.key});
@@ -25,6 +27,7 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
   String _email = '';
   String _phoneNumber = '';
   bool _isLoading = true;
+  bool _isLoggingOut = false;
 
   @override
   void initState() {
@@ -58,12 +61,17 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
   }
 
   Future<void> _logout(BuildContext context) async {
+    if (_isLoggingOut) {
+      return;
+    }
     final shouldLogout = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
           title: const Text('Logout'),
-          content: const Text('Are you sure you want to logout?'),
+          content: const Text(
+            'Logging out will set you offline and release accepted bookings back to the queue. Active trips must be completed first.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
@@ -80,11 +88,52 @@ class _OperatorProfilePageState extends State<OperatorProfilePage> {
     );
 
     if (shouldLogout == true && context.mounted) {
-      await FirebaseAuth.instance.signOut();
-      if (!context.mounted) {
-        return;
+      setState(() => _isLoggingOut = true);
+      try {
+        final user = FirebaseAuth.instance.currentUser;
+        if (user != null) {
+          final homeViewModel = context.read<OperatorHomeViewModel>();
+          await homeViewModel.ensureInitialized(user.uid);
+          final offlineResult = await homeViewModel.goOfflineSafely(
+            reason: OfflineReason.logout,
+          );
+          if (!context.mounted) {
+            return;
+          }
+          if (offlineResult is OperationFailure) {
+            _showOperationResult(offlineResult);
+            setState(() => _isLoggingOut = false);
+            return;
+          }
+        }
+        await FirebaseAuth.instance.signOut();
+        if (!context.mounted) {
+          return;
+        }
+        setState(() => _isLoggingOut = false);
+        Navigator.of(context).popUntil((route) => route.isFirst);
+      } catch (error) {
+        if (!context.mounted) {
+          return;
+        }
+        _showOperationResult(
+          OperationFailure('Logout failed', error.toString()),
+        );
+        setState(() => _isLoggingOut = false);
       }
-      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+  }
+
+  void _showOperationResult(OperationResult result) {
+    switch (result) {
+      case OperationSuccess(:final message):
+        showTopSuccess(context, message: message);
+      case OperationFailure(:final title, :final message, :final isInfo):
+        if (isInfo) {
+          showTopInfo(context, title: title, message: message);
+        } else {
+          showTopError(context, title: title, message: message);
+        }
     }
   }
 

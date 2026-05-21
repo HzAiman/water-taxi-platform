@@ -97,9 +97,11 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
   final startLng = currentLng;
   final currentStop = booking.currentPoolStop;
   final endLat =
-      currentStop?.lat ?? (passengerPickedUp ? booking.destinationLat : booking.originLat);
+      currentStop?.lat ??
+      (passengerPickedUp ? booking.destinationLat : booking.originLat);
   final endLng =
-      currentStop?.lng ?? (passengerPickedUp ? booking.destinationLng : booking.originLng);
+      currentStop?.lng ??
+      (passengerPickedUp ? booking.destinationLng : booking.originLng);
   final projection = _projectProgressOnRoute(
     currentLat: currentLat,
     currentLng: currentLng,
@@ -220,19 +222,6 @@ _StopOvershoot _resolveStopOvershoot({
   if (currentStop == null ||
       stopRoutePosition == null ||
       booking.routePolyline.length < 2) {
-    return const _StopOvershoot.none();
-  }
-
-  // First-pickup deadhead can legitimately move opposite the passenger route.
-  // Avoid warning before anyone is onboard, otherwise Jetty 18 -> Jetty 15
-  // would look "missed" from the route-direction point of view.
-  final isFirstPickupDeadhead =
-      currentStop.isPickup &&
-      !booking.onboard &&
-      booking.pickedUpAt == null &&
-      booking.passengerPickedUpAt == null &&
-      (booking.currentStopIndex ?? 0) == 0;
-  if (isFirstPickupDeadhead) {
     return const _StopOvershoot.none();
   }
 
@@ -670,10 +659,7 @@ class _SegmentProjection {
 }
 
 class _StopOvershoot {
-  const _StopOvershoot({
-    required this.severity,
-    required this.distanceMeters,
-  });
+  const _StopOvershoot({required this.severity, required this.distanceMeters});
 
   const _StopOvershoot.none()
     : severity = OperatorStopOvershootSeverity.none,

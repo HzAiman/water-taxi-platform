@@ -653,6 +653,57 @@ void main() {
     );
 
     test(
+      'streamPendingBookings orders by createdAt before applying queue limit',
+      () async {
+        final firestore = FakeFirebaseFirestore();
+        final repository = BookingRepository(firestore: firestore);
+
+        Future<void> seedPending(String id, DateTime createdAt) {
+          return firestore
+              .collection(FirestoreCollections.bookings)
+              .doc(id)
+              .set({
+                BookingFields.bookingId: id,
+                BookingFields.userId: 'user-$id',
+                BookingFields.userName: 'Passenger $id',
+                BookingFields.userPhone: '0123456789',
+                BookingFields.origin: 'Jetty A',
+                BookingFields.destination: 'Jetty B',
+                BookingFields.originCoords: const GeoPoint(2.2, 102.2),
+                BookingFields.destinationCoords: const GeoPoint(2.3, 102.3),
+                BookingFields.adultCount: 1,
+                BookingFields.childCount: 0,
+                BookingFields.passengerCount: 1,
+                BookingFields.totalFare: 10.0,
+                BookingFields.fareSnapshotId: 'fare-snapshot-test',
+                BookingFields.paymentMethod: PaymentMethods.onlineBanking,
+                BookingFields.paymentStatus: 'paid',
+                BookingFields.status: BookingStatus.pending.firestoreValue,
+                BookingFields.createdAt: Timestamp.fromDate(createdAt),
+                BookingFields.updatedAt: Timestamp.fromDate(createdAt),
+              });
+        }
+
+        for (var i = 0; i < 101; i += 1) {
+          await seedPending(
+            'pending-newer-$i',
+            DateTime.utc(2026, 4, 25, 10, 0).add(Duration(minutes: i)),
+          );
+        }
+        await seedPending('pending-oldest', DateTime.utc(2026, 4, 25, 9, 0));
+
+        final pending = await repository.streamPendingBookings().first;
+
+        expect(pending, hasLength(100));
+        expect(pending.first.bookingId, 'pending-oldest');
+        expect(
+          pending.map((b) => b.bookingId),
+          isNot(contains('pending-newer-100')),
+        );
+      },
+    );
+
+    test(
       'streamActiveBookings keeps only accepted and on_the_way statuses',
       () async {
         final firestore = FakeFirebaseFirestore();

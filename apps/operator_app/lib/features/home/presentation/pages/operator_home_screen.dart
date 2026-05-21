@@ -475,9 +475,48 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }
 
   Future<void> _toggleStatus() async {
-    final result = await context
-        .read<OperatorHomeViewModel>()
-        .toggleOnlineStatus();
+    final viewModel = context.read<OperatorHomeViewModel>();
+    final snapshot = viewModel.bookingCardSnapshot;
+    if (snapshot.isOnline &&
+        !snapshot.activeBookings.any(
+          (b) => b.status == BookingStatus.onTheWay,
+        ) &&
+        snapshot.activeBookings.any(
+          (b) => b.status == BookingStatus.accepted,
+        )) {
+      final acceptedCount = snapshot.activeBookings
+          .where((b) => b.status == BookingStatus.accepted)
+          .length;
+      final shouldContinue = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return AlertDialog(
+            title: const Text('Go offline?'),
+            content: Text(
+              '$acceptedCount accepted booking${acceptedCount == 1 ? '' : 's'} will be released back to the queue.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Go Offline'),
+              ),
+            ],
+          );
+        },
+      );
+      if (shouldContinue != true || !mounted) {
+        return;
+      }
+    }
+
+    final result = snapshot.isOnline
+        ? await viewModel.goOfflineSafely()
+        : await viewModel.goOnline();
     if (!mounted) {
       return;
     }
@@ -644,10 +683,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
   }) {
     final hasPausedRecoveryState =
         guidance != null && guidance.shouldPauseProgress;
-    final progressPercent =
-        guidance == null || isLiveLocationStale || hasPausedRecoveryState
-        ? null
-        : (guidance.progressFraction * 100).round();
     final remaining = isLiveLocationStale
         ? 'Waiting for live location'
         : hasPausedRecoveryState
@@ -688,11 +723,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       ),
       miniTimelineLabel: _formatStopMiniTimeline(currentStop, nextStop),
       routeDirectionLabel: _formatRouteDirectionLabel(booking.routeDirection),
-      progressLabel: hasPausedRecoveryState
-          ? 'Paused'
-          : progressPercent == null
-          ? '...'
-          : '$progressPercent%',
       remaining: remaining,
       eta: eta,
       isUpdating: viewModel.isUpdatingBooking,

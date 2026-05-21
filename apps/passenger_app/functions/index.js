@@ -112,6 +112,13 @@ const POOLING_POLICY = {
   stopArrivalRadiusMeters: 30,
 };
 
+const PENDING_NO_OPERATOR_POLICY = {
+  timeoutMinutes: 5,
+  batchLimit: 100,
+  changedBy: "system:no_online_operators",
+  source: "rejectStalePendingBookingsWithoutOnlineOperators",
+};
+
 const DEVICE_FIELDS = {
   token: "token",
   appRole: "appRole",
@@ -1260,6 +1267,133 @@ function appendStatusHistory({
     [STATUS_HISTORY_FIELDS.source]: source,
     [STATUS_HISTORY_FIELDS.timestamp]: FieldValue.serverTimestamp(),
   });
+}
+
+function buildPickupStopUpdatePayload({
+  item,
+  stopBookingIds,
+  stopState,
+  stopIds,
+  hasOperatorLocation = false,
+  operatorLat,
+  operatorLng,
+  fieldValue = FieldValue,
+}) {
+  const isAtStop = stopBookingIds.has(item.id);
+  const payload = {
+    [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
+    [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
+    [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
+    [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
+    [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
+    [BOOKING_FIELDS.poolPickupStopId]: stopIds.pickupStopId,
+    [BOOKING_FIELDS.poolDropoffStopId]: stopIds.dropoffStopId,
+    [BOOKING_FIELDS.updatedAt]: fieldValue.serverTimestamp(),
+  };
+  if (isAtStop) {
+    payload[BOOKING_FIELDS.status] = "on_the_way";
+    payload[BOOKING_FIELDS.passengerPickedUpAt] =
+      fieldValue.serverTimestamp();
+    payload[BOOKING_FIELDS.pickedUpAt] = fieldValue.serverTimestamp();
+    payload[BOOKING_FIELDS.poolPhase] = "onboard";
+    payload[BOOKING_FIELDS.onboard] = true;
+  }
+  if (hasOperatorLocation) {
+    payload[BOOKING_FIELDS.operatorLat] = operatorLat;
+    payload[BOOKING_FIELDS.operatorLng] = operatorLng;
+  }
+  return { payload, isAtStop };
+}
+
+async function rejectStalePendingBookingsWithoutOnlineOperators({
+  firestore = db,
+  now = new Date(),
+  log = logger,
+  fieldValue = FieldValue,
+} = {}) {
+  const onlineOperators = await firestore
+    .collection(COLLECTIONS.operatorPresence)
+    .where("isOnline", "==", true)
+    .limit(1)
+    .get();
+
+  if (!onlineOperators.empty) {
+    const summary = {
+      onlineOperatorsPresent: true,
+      scanned: 0,
+      rejected: 0,
+      skipped: 0,
+    };
+    log.info("Pending no-operator cleanup skipped", summary);
+    return summary;
+  }
+
+  const cutoff = new Date(
+    now.getTime() - PENDING_NO_OPERATOR_POLICY.timeoutMinutes * 60 * 1000
+  );
+  const snapshot = await firestore
+    .collection(COLLECTIONS.bookings)
+    .where(BOOKING_FIELDS.status, "==", "pending")
+    .where(BOOKING_FIELDS.createdAt, "<=", cutoff)
+    .limit(PENDING_NO_OPERATOR_POLICY.batchLimit)
+    .get();
+
+  if (snapshot.empty) {
+    const summary = {
+      onlineOperatorsPresent: false,
+      scanned: 0,
+      rejected: 0,
+      skipped: 0,
+      cutoff: cutoff.toISOString(),
+    };
+    log.info("Pending no-operator cleanup completed", summary);
+    return summary;
+  }
+
+  const batch = firestore.batch();
+  let rejected = 0;
+  let skipped = 0;
+
+  for (const doc of snapshot.docs) {
+    const booking = doc.data() || {};
+    const status = asString(booking[BOOKING_FIELDS.status]).toLowerCase();
+    const operatorUid = asString(booking[BOOKING_FIELDS.operatorUid]);
+
+    if (status !== "pending" || operatorUid) {
+      skipped += 1;
+      continue;
+    }
+
+    batch.update(doc.ref, {
+      [BOOKING_FIELDS.status]: "rejected",
+      [BOOKING_FIELDS.updatedAt]: fieldValue.serverTimestamp(),
+    });
+    appendStatusHistory({
+      tx: batch,
+      bookingRef: doc.ref,
+      from: "pending",
+      to: "rejected",
+      changedBy: PENDING_NO_OPERATOR_POLICY.changedBy,
+      source: PENDING_NO_OPERATOR_POLICY.source,
+    });
+    rejected += 1;
+  }
+
+  if (rejected > 0) {
+    await batch.commit();
+  }
+
+  const summary = {
+    onlineOperatorsPresent: false,
+    scanned: snapshot.size,
+    rejected,
+    skipped,
+    cutoff: cutoff.toISOString(),
+    hasMoreEligibleDocs:
+      snapshot.size >= PENDING_NO_OPERATOR_POLICY.batchLimit,
+  };
+  log.info("Pending no-operator cleanup completed", summary);
+  return summary;
 }
 
 function normalizeOperatorDisplayId(value) {
@@ -2472,35 +2606,22 @@ exports.markPoolStopReached = onCall(
       }
 
       if (asString(currentStop.stopType) === "pickup") {
+        const stopBookingIdSet = new Set(stopBookingIds);
         for (const item of poolItems) {
           const stopIds = bookingStopIdsFromPlan(
             stopState.plannedStops,
             item.id
           );
-          const isAtStop = stopBookingIds.includes(item.id);
-          const pickupPayload = {
-            [BOOKING_FIELDS.status]: "on_the_way",
-            [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
-            [BOOKING_FIELDS.currentStopIndex]: stopState.currentStopIndex,
-            [BOOKING_FIELDS.currentStopId]: stopState.currentStopId,
-            [BOOKING_FIELDS.currentPoolStopId]: stopState.currentStopId,
-            [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
-            [BOOKING_FIELDS.poolPickupStopId]: stopIds.pickupStopId,
-            [BOOKING_FIELDS.poolDropoffStopId]: stopIds.dropoffStopId,
-            [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
-          };
-          if (isAtStop) {
-            pickupPayload[BOOKING_FIELDS.passengerPickedUpAt] =
-              FieldValue.serverTimestamp();
-            pickupPayload[BOOKING_FIELDS.pickedUpAt] =
-              FieldValue.serverTimestamp();
-            pickupPayload[BOOKING_FIELDS.poolPhase] = "onboard";
-            pickupPayload[BOOKING_FIELDS.onboard] = true;
-          }
-          if (hasOperatorLocation) {
-            pickupPayload[BOOKING_FIELDS.operatorLat] = operatorLat;
-            pickupPayload[BOOKING_FIELDS.operatorLng] = operatorLng;
-          }
+          const { payload: pickupPayload, isAtStop } =
+            buildPickupStopUpdatePayload({
+              item,
+              stopBookingIds: stopBookingIdSet,
+              stopState,
+              stopIds,
+              hasOperatorLocation,
+              operatorLat,
+              operatorLng,
+            });
           tx.update(item.ref, pickupPayload);
           if (
             isAtStop &&
@@ -4277,6 +4398,23 @@ exports.reconcileStaleAuthorizedPayments = onSchedule(
 );
 
 /**
+ * Rejects unassigned pending bookings when no operators remain online.
+ *
+ * This prevents passenger requests from waiting indefinitely after the
+ * operator supply disappears during dispatch.
+ */
+exports.rejectStalePendingBookingsWithoutOnlineOperators = onSchedule(
+  {
+    schedule: "* * * * *",
+    timeZone: "Asia/Kuala_Lumpur",
+    region: "asia-southeast1",
+  },
+  async () => {
+    await rejectStalePendingBookingsWithoutOnlineOperators();
+  }
+);
+
+/**
  * Releases accepted pooled bookings that were never started in time.
  *
  * This keeps the backend-owned pool queue from holding stale accepted jobs
@@ -4451,5 +4589,14 @@ if (process.env.NODE_ENV === "test") {
     resolveCurrentStopIndex,
     applyCurrentStopState,
     currentStopFromPlan,
+  };
+  module.exports.__pendingNoOperatorTest = {
+    BOOKING_FIELDS,
+    PENDING_NO_OPERATOR_POLICY,
+    rejectStalePendingBookingsWithoutOnlineOperators,
+  };
+  module.exports.__drtStabilityTest = {
+    BOOKING_FIELDS,
+    buildPickupStopUpdatePayload,
   };
 }

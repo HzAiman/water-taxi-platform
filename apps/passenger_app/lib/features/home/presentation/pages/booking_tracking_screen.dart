@@ -1781,11 +1781,11 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
         final createdAt = booking.createdAt;
         if (createdAt != null &&
             DateTime.now().difference(createdAt) > const Duration(minutes: 1)) {
-          return 'Operator assignment is taking longer than usual. You can keep waiting, or cancel and try another route/time.';
+          return 'Operator assignment is taking longer than usual. You can keep waiting, or cancel if your plans changed.';
         }
         return 'Looking for an available operator. You may keep waiting or cancel if your plans changed.';
       case BookingStatus.rejected:
-        return 'No operator accepted this request. Tap Book Again to return and create a new booking.';
+        return 'No operator is available right now. Tap Book Again to try later.';
       case BookingStatus.accepted:
       case BookingStatus.onTheWay:
       case BookingStatus.completed:
@@ -1927,7 +1927,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
         return const _BookingStatusTheme(
           title: 'Booking Rejected',
           message:
-              'All available operators declined this request. Please create a new booking when an operator becomes available.',
+              'No operator is available right now. Please try again later.',
           color: Colors.deepOrange,
         );
       case BookingStatus.unknown:

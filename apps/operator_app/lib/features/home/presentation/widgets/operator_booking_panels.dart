@@ -171,7 +171,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  isNavigating ? 'Route Plan' : 'Ready To Start',
+                  isNavigating ? 'Trip Route' : 'Ready To Start',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w800,
@@ -181,13 +181,6 @@ class OperatorActiveBookingCard extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
-              if (isNavigating) ...[
-                const SizedBox(width: 6),
-                _PoolPassengersButton(
-                  bookings: _callablePoolBookings,
-                  onCall: onCallPoolCustomer,
-                ),
-              ],
               const SizedBox(width: 6),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
@@ -224,10 +217,16 @@ class OperatorActiveBookingCard extends StatelessWidget {
           ],
           SizedBox(height: isNavigating ? 6 : 8),
           if (routeStops.length > 1) ...[
-            _CompactRouteOrderTile(
+            _CompactCollapsibleSection(
+              title: 'View route order',
               routeOrder: _buildRouteOrder(routeStops, currentStop),
             ),
           ],
+          if (routeStops.length > 1) const SizedBox(height: 4),
+          _CompactCollapsibleSection(
+            title: 'Active booking list',
+            routeOrder: _buildActiveBookingCallList(_callablePoolBookings),
+          ),
           if (!isNavigating && poolBookings.length > 1) ...[
             const SizedBox(height: 8),
             _buildPoolBookingList(poolBookings),
@@ -558,6 +557,79 @@ class OperatorActiveBookingCard extends StatelessWidget {
     }
     return <BookingModel>[booking];
   }
+
+  Widget _buildActiveBookingCallList(List<BookingModel> bookings) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(4, 2, 4, 6),
+      decoration: const BoxDecoration(color: Colors.white),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 210),
+        child: ListView.separated(
+          shrinkWrap: true,
+          physics: const BouncingScrollPhysics(),
+          itemCount: bookings.length,
+          separatorBuilder: (_, __) => const Divider(height: 1),
+          itemBuilder: (context, index) {
+            final item = bookings[index];
+            final customer = item.userName.trim().isEmpty
+                ? 'Passenger'
+                : item.userName.trim();
+            final route = '${item.origin} -> ${item.destination}';
+            return ListTile(
+              dense: true,
+              contentPadding: const EdgeInsets.only(left: 2, right: 0),
+              minLeadingWidth: 28,
+              leading: CircleAvatar(
+                radius: 13,
+                backgroundColor: OperatorBrand.magenta.withValues(alpha: 0.10),
+                child: const Icon(
+                  Icons.person_rounded,
+                  size: 14,
+                  color: OperatorBrand.magenta,
+                ),
+              ),
+              title: Text(
+                customer,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.grey[900],
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              subtitle: Text(
+                route,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Colors.grey[650],
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              trailing: Tooltip(
+                message: 'Call $customer',
+                child: IconButton.filled(
+                  key: ValueKey('active-booking-call-${item.bookingId}'),
+                  style: IconButton.styleFrom(
+                    backgroundColor: OperatorBrand.magenta,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(34, 34),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: EdgeInsets.zero,
+                  ),
+                  onPressed: () => unawaited(onCallPoolCustomer(item)),
+                  icon: const Icon(Icons.call_rounded, size: 18),
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
 }
 
 String _poolStopSubtitle(
@@ -784,16 +856,22 @@ class _AlternatingStopHeadlineState extends State<_AlternatingStopHeadline> {
   }
 }
 
-class _CompactRouteOrderTile extends StatefulWidget {
-  const _CompactRouteOrderTile({required this.routeOrder});
+class _CompactCollapsibleSection extends StatefulWidget {
+  const _CompactCollapsibleSection({
+    required this.title,
+    required this.routeOrder,
+  });
 
+  final String title;
   final Widget routeOrder;
 
   @override
-  State<_CompactRouteOrderTile> createState() => _CompactRouteOrderTileState();
+  State<_CompactCollapsibleSection> createState() =>
+      _CompactCollapsibleSectionState();
 }
 
-class _CompactRouteOrderTileState extends State<_CompactRouteOrderTile> {
+class _CompactCollapsibleSectionState
+    extends State<_CompactCollapsibleSection> {
   bool _isExpanded = false;
 
   @override
@@ -807,9 +885,9 @@ class _CompactRouteOrderTileState extends State<_CompactRouteOrderTile> {
             padding: const EdgeInsets.symmetric(vertical: 3),
             child: Row(
               children: [
-                const Expanded(
+                Expanded(
                   child: Text(
-                    'View route order',
+                    widget.title,
                     style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w800,
@@ -841,132 +919,6 @@ class _CompactRouteOrderTileState extends State<_CompactRouteOrderTile> {
           sizeCurve: Curves.easeOutCubic,
         ),
       ],
-    );
-  }
-}
-
-class _PoolPassengersButton extends StatelessWidget {
-  const _PoolPassengersButton({required this.bookings, required this.onCall});
-
-  final List<BookingModel> bookings;
-  final Future<void> Function(BookingModel booking) onCall;
-
-  @override
-  Widget build(BuildContext context) {
-    final count = bookings.length;
-    return Tooltip(
-      message: count > 1 ? 'Show passengers' : 'Call passenger',
-      child: SizedBox(
-        width: 32,
-        height: 32,
-        child: IconButton(
-          padding: EdgeInsets.zero,
-          visualDensity: VisualDensity.compact,
-          onPressed: () {
-            if (count <= 1) {
-              unawaited(onCall(bookings.first));
-              return;
-            }
-            showModalBottomSheet<void>(
-              context: context,
-              showDragHandle: true,
-              backgroundColor: Colors.white,
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-              ),
-              builder: (context) =>
-                  _PoolPassengerCallSheet(bookings: bookings, onCall: onCall),
-            );
-          },
-          icon: Icon(
-            count > 1 ? Icons.groups_2_rounded : Icons.call_rounded,
-            size: 20,
-            color: OperatorBrand.magenta,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PoolPassengerCallSheet extends StatelessWidget {
-  const _PoolPassengerCallSheet({required this.bookings, required this.onCall});
-
-  final List<BookingModel> bookings;
-  final Future<void> Function(BookingModel booking) onCall;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Passengers',
-              style: TextStyle(
-                fontSize: 18,
-                color: Colors.grey[900],
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-            const SizedBox(height: 10),
-            Flexible(
-              child: ListView.separated(
-                shrinkWrap: true,
-                itemCount: bookings.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final booking = bookings[index];
-                  final name = booking.userName.trim().isEmpty
-                      ? 'Passenger'
-                      : booking.userName.trim();
-                  final route = '${booking.origin} -> ${booking.destination}';
-                  return ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    leading: CircleAvatar(
-                      backgroundColor: OperatorBrand.magenta.withValues(
-                        alpha: 0.10,
-                      ),
-                      child: Text(
-                        '${index + 1}',
-                        style: const TextStyle(
-                          color: OperatorBrand.magenta,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                    ),
-                    title: Text(
-                      name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(fontWeight: FontWeight.w800),
-                    ),
-                    subtitle: Text(
-                      route,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    trailing: IconButton.filled(
-                      style: IconButton.styleFrom(
-                        backgroundColor: OperatorBrand.magenta,
-                        foregroundColor: Colors.white,
-                      ),
-                      onPressed: () {
-                        Navigator.of(context).pop();
-                        unawaited(onCall(booking));
-                      },
-                      icon: const Icon(Icons.call_rounded),
-                    ),
-                  );
-                },
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }
@@ -1032,12 +984,13 @@ class _LoopingTextState extends State<_LoopingText> {
       if (!mounted || !_controller.hasClients) {
         return;
       }
-      await Future<void>.delayed(const Duration(milliseconds: 650));
-      if (!mounted || !_controller.hasClients) {
-        return;
-      }
-      _controller.jumpTo(0);
-      _scheduleLoop();
+      _timer = Timer(const Duration(milliseconds: 650), () {
+        if (!mounted || !_controller.hasClients) {
+          return;
+        }
+        _controller.jumpTo(0);
+        _scheduleLoop();
+      });
     });
   }
 
@@ -1210,7 +1163,6 @@ class OperatorPendingBookingCard extends StatelessWidget {
 class OperatorCollapsibleNavigationCard extends StatefulWidget {
   const OperatorCollapsibleNavigationCard({
     super.key,
-    required this.progressLabel,
     required this.remaining,
     required this.eta,
     this.currentStopActionLabel,
@@ -1224,7 +1176,6 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
     required this.onPrimaryAction,
   });
 
-  final String progressLabel;
   final String remaining;
   final String eta;
   final String? currentStopActionLabel;
@@ -1244,7 +1195,6 @@ class OperatorCollapsibleNavigationCard extends StatefulWidget {
 
 class _OperatorCollapsibleNavigationCardState
     extends State<OperatorCollapsibleNavigationCard> {
-  bool _isExpanded = false;
   bool _isSubmittingPrimaryAction = false;
 
   bool get _isPrimaryActionBusy =>
@@ -1288,44 +1238,26 @@ class _OperatorCollapsibleNavigationCardState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          InkWell(
-            borderRadius: BorderRadius.circular(8),
-            onTap: () => setState(() => _isExpanded = !_isExpanded),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 1),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.navigation_rounded,
-                    color: OperatorBrand.magenta,
-                    size: 18,
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 1),
+            child: Row(
+              key: const ValueKey('now-navigating-header'),
+              children: [
+                const Icon(
+                  Icons.navigation_rounded,
+                  color: OperatorBrand.magenta,
+                  size: 18,
+                ),
+                const SizedBox(width: 7),
+                Text(
+                  'Now Navigating',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.grey[900],
                   ),
-                  const SizedBox(width: 7),
-                  Text(
-                    'Now Navigating',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Colors.grey[900],
-                    ),
-                  ),
-                  const Spacer(),
-                  Text(
-                    widget.progressLabel,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w700,
-                      color: OperatorBrand.magenta,
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  Icon(
-                    _isExpanded ? Icons.expand_less : Icons.expand_more,
-                    color: Colors.grey[700],
-                    size: 18,
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
           const SizedBox(height: 7),

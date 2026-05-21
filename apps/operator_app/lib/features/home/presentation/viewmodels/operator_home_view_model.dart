@@ -24,11 +24,15 @@ class OperatorHomeViewModel extends ChangeNotifier {
   OperatorHomeViewModel({
     required BookingRepository bookingRepo,
     required OperatorRepository operatorRepo,
+    Future<void> Function()? refreshSessionForNavigation,
   }) : _bookingRepo = bookingRepo,
-       _operatorRepo = operatorRepo;
+       _operatorRepo = operatorRepo,
+       _refreshSessionForNavigation =
+           refreshSessionForNavigation ?? FirebaseSessionService.refreshIdToken;
 
   final BookingRepository _bookingRepo;
   final OperatorRepository _operatorRepo;
+  final Future<void> Function() _refreshSessionForNavigation;
 
   // ── State ────────────────────────────────────────────────────────────────
 
@@ -253,59 +257,96 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
   // ── Online / Offline ─────────────────────────────────────────────────────
 
-  Future<OperationResult> toggleOnlineStatus() async {
+  Future<OperationResult> goOnline() async {
     final operatorId = _operatorId;
     if (operatorId == null) {
-      return const OperationFailure(
-        'Not initialised',
-        'No operator ID available.',
-      );
+      return _notInitialised;
     }
 
-    final nextStatus = !_isOnline;
     _isToggling = true;
-    _isOnline = nextStatus; // optimistic update
+    _isOnline = true;
     notifyListeners();
 
     try {
-      int releasedCount = 0;
-      if (!nextStatus) {
-        _stopLocationSharing();
-        releasedCount = await _bookingRepo.releaseAllAcceptedBookings(
-          operatorId,
-        );
-      }
-
       await _operatorRepo
-          .setOnlineStatus(operatorId, isOnline: nextStatus)
+          .setOnlineStatus(operatorId, isOnline: true)
           .timeout(const Duration(seconds: 6));
-
-      if (nextStatus) {
-        unawaited(_syncNavigationLifecycle(operatorId));
-      }
-
-      if (nextStatus) {
-        return const OperationSuccess('You are now online.');
-      }
-      if (releasedCount > 0) {
-        return OperationSuccess(
-          '$releasedCount accepted booking${releasedCount == 1 ? '' : 's'} released. You are now offline.',
-        );
-      }
-      return const OperationSuccess('You are now offline.');
+      unawaited(_syncNavigationLifecycle(operatorId));
+      return const OperationSuccess('You are now online.');
     } on TimeoutException {
-      _isOnline = !nextStatus; // revert
+      _isOnline = false;
       return const OperationFailure(
         'Timeout',
         'Updating status timed out. Check your network.',
       );
     } catch (e) {
-      _isOnline = !nextStatus; // revert
+      _isOnline = false;
       return OperationFailure('Status update failed', e.toString());
     } finally {
       _isToggling = false;
       notifyListeners();
     }
+  }
+
+  Future<OperationResult> goOfflineSafely({
+    OfflineReason reason = OfflineReason.manual,
+  }) async {
+    final operatorId = _operatorId;
+    if (operatorId == null) {
+      return _notInitialised;
+    }
+
+    if (_activeBookings.any((b) => b.status == BookingStatus.onTheWay)) {
+      return const OperationFailure(
+        'Active trip in progress',
+        'Complete this trip before going offline.',
+        isInfo: true,
+      );
+    }
+
+    final wasOnline = _isOnline;
+    _isToggling = true;
+    _isOnline = false;
+    notifyListeners();
+
+    try {
+      final releasedCount = await _bookingRepo.releaseAllAcceptedBookings(
+        operatorId,
+      );
+
+      _stopLocationSharing();
+
+      await _operatorRepo
+          .setOnlineStatus(operatorId, isOnline: false)
+          .timeout(const Duration(seconds: 6));
+
+      if (releasedCount > 0) {
+        return OperationSuccess(
+          '$releasedCount accepted booking${releasedCount == 1 ? '' : 's'} released. You are now offline.',
+        );
+      }
+      return OperationSuccess(
+        reason == OfflineReason.logout
+            ? 'You are now offline and ready to logout.'
+            : 'You are now offline.',
+      );
+    } on TimeoutException {
+      _isOnline = wasOnline;
+      return const OperationFailure(
+        'Timeout',
+        'Updating status timed out. Check your network.',
+      );
+    } catch (e) {
+      _isOnline = wasOnline;
+      return OperationFailure('Status update failed', e.toString());
+    } finally {
+      _isToggling = false;
+      notifyListeners();
+    }
+  }
+
+  Future<OperationResult> toggleOnlineStatus() async {
+    return _isOnline ? goOfflineSafely() : goOnline();
   }
 
   // ── Booking actions ──────────────────────────────────────────────────────
@@ -337,6 +378,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
     if (result is OperationSuccess && pendingBooking != null) {
       _promoteAcceptedBookingLocally(pendingBooking, operatorId);
+    }
+    if (result is OperationSuccess ||
+        (result is OperationFailure &&
+            result.title == 'Queued for later route')) {
+      unawaited(refresh(operatorId));
     }
 
     return result;
@@ -419,6 +465,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
     if (result is OperationSuccess) {
       _markTripCompletedLocally(bookingId);
+      unawaited(refresh(operatorId));
     }
 
     return result;
@@ -443,6 +490,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
     if (result is OperationSuccess) {
       _markPassengerPickedUpLocally(bookingId);
+      unawaited(refresh(operatorId));
       return result;
     }
 
@@ -451,6 +499,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
         // Firestore rules may block custom marker fields; keep the pickup
         // interaction usable and allow progression to trip completion.
         _markPassengerPickedUpLocally(bookingId);
+        unawaited(refresh(operatorId));
         return const OperationSuccess('Passenger marked as picked up.');
       }
     }
@@ -631,22 +680,123 @@ class OperatorHomeViewModel extends ChangeNotifier {
     }
 
     final current = _activeBookings[index];
-    if (current.passengerPickedUpAt != null) {
+    final currentStop = current.currentPoolStop;
+    if (current.passengerPickedUpAt != null && currentStop == null) {
       return;
     }
 
-    final pickedUpBooking = current.copyWith(
-      passengerPickedUpAt: DateTime.now(),
-      updatedAt: DateTime.now(),
-    );
-    final updated = [..._activeBookings];
-    updated[index] = pickedUpBooking;
+    final now = DateTime.now();
+    final stopBookingIds = currentStop?.bookingIds.toSet() ?? {bookingId};
+    final nextStopPlan = currentStop == null
+        ? current.poolStopPlan
+        : _completeAndAdvanceStopPlan(current.poolStopPlan, currentStop, now);
+    final nextCurrentStop = _firstIncompleteStop(nextStopPlan);
+    final updated = _activeBookings
+        .map((booking) {
+          final belongsToPool =
+              current.poolGroupId == null ||
+              current.poolGroupId!.isEmpty ||
+              booking.poolGroupId == current.poolGroupId;
+          if (!belongsToPool && booking.bookingId != bookingId) {
+            return booking;
+          }
+
+          final isAtStop = stopBookingIds.contains(booking.bookingId);
+          return booking.copyWith(
+            status: isAtStop ? BookingStatus.onTheWay : booking.status,
+            passengerPickedUpAt: isAtStop ? now : booking.passengerPickedUpAt,
+            pickedUpAt: isAtStop ? now : booking.pickedUpAt,
+            onboard: isAtStop ? true : booking.onboard,
+            poolPhase: isAtStop ? 'onboard' : booking.poolPhase,
+            poolStopPlan: nextStopPlan,
+            currentStopIndex:
+                nextCurrentStop?.index ?? booking.currentStopIndex,
+            currentStopId: nextCurrentStop?.stopId ?? booking.currentStopId,
+            currentPoolStopId:
+                nextCurrentStop?.stopId ?? booking.currentPoolStopId,
+            updatedAt: now,
+          );
+        })
+        .toList(growable: false);
     _activeBookings = updated;
     _refreshNavigationGuidance(
       currentPosition: _latestOperatorPosition,
       notify: false,
     );
     notifyListeners();
+  }
+
+  List<PoolStopPlanItem> _completeAndAdvanceStopPlan(
+    List<PoolStopPlanItem> stopPlan,
+    PoolStopPlanItem completedStop,
+    DateTime completedAt,
+  ) {
+    final completed = stopPlan
+        .map((stop) {
+          if (stop.stopId == completedStop.stopId) {
+            return _copyStopPlanItem(
+              stop,
+              status: 'completed',
+              reachedAt: stop.reachedAt ?? completedAt,
+              completedAt: completedAt,
+            );
+          }
+          return stop;
+        })
+        .toList(growable: false);
+    return _applyCurrentStopStateLocally(completed);
+  }
+
+  List<PoolStopPlanItem> _applyCurrentStopStateLocally(
+    List<PoolStopPlanItem> stopPlan,
+  ) {
+    final nextStop = _firstIncompleteStop(stopPlan);
+    return stopPlan
+        .map((stop) {
+          if (stop.status == 'completed' || stop.status == 'skipped') {
+            return stop;
+          }
+          return _copyStopPlanItem(
+            stop,
+            status: nextStop != null && stop.stopId == nextStop.stopId
+                ? 'active'
+                : 'pending',
+          );
+        })
+        .toList(growable: false);
+  }
+
+  PoolStopPlanItem? _firstIncompleteStop(List<PoolStopPlanItem> stopPlan) {
+    for (final stop in stopPlan) {
+      if (stop.status != 'completed' && stop.status != 'skipped') {
+        return stop;
+      }
+    }
+    return null;
+  }
+
+  PoolStopPlanItem _copyStopPlanItem(
+    PoolStopPlanItem stop, {
+    String? status,
+    DateTime? reachedAt,
+    DateTime? completedAt,
+  }) {
+    return PoolStopPlanItem(
+      stopId: stop.stopId,
+      index: stop.index,
+      stopType: stop.stopType,
+      stopJettyId: stop.stopJettyId,
+      stopName: stop.stopName,
+      lat: stop.lat,
+      lng: stop.lng,
+      routePositionMeters: stop.routePositionMeters,
+      distanceFromRouteMeters: stop.distanceFromRouteMeters,
+      bookingIds: stop.bookingIds,
+      status: status ?? stop.status,
+      etaToStopMinutes: stop.etaToStopMinutes,
+      reachedAt: reachedAt ?? stop.reachedAt,
+      completedAt: completedAt ?? stop.completedAt,
+    );
   }
 
   void _markTripCompletedLocally(String bookingId) {
@@ -892,7 +1042,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     }
 
     try {
-      await FirebaseSessionService.refreshIdToken();
+      await _refreshSessionForNavigation();
       _lastNavigationSessionRefreshAt = now;
       return true;
     } catch (error, stackTrace) {
@@ -1214,6 +1364,22 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _cachedCardSnapshotKey = null;
   }
 
+  String _stopPlanSignature(List<PoolStopPlanItem> stops) {
+    if (stops.isEmpty) {
+      return '-';
+    }
+    return stops
+        .map(
+          (stop) => [
+            stop.stopId,
+            stop.status,
+            stop.stopType,
+            stop.bookingIds.join('+'),
+          ].join('/'),
+        )
+        .join(',');
+  }
+
   OperatorBookingCardSnapshot _resolveBookingCardSnapshot() {
     final activeBooking = _resolveActiveBooking();
     final operatorId = _operatorId;
@@ -1237,6 +1403,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
             booking.status.firestoreValue,
             booking.poolSequence?.toString() ?? '-',
             booking.currentStopId ?? '-',
+            booking.currentStopIndex?.toString() ?? '-',
+            _stopPlanSignature(booking.poolStopPlan),
             booking.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ??
                 '-',
           ].join(':'),
@@ -1250,6 +1418,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
       activeBooking?.currentStopId ??
           activeBooking?.currentPoolStop?.stopId ??
           '-',
+      activeBooking?.currentStopIndex?.toString() ?? '-',
+      _stopPlanSignature(activeBooking?.poolStopPlan ?? const []),
       activeBooking?.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ??
           '-',
       activeBooking?.poolGroupId ?? '-',
@@ -1319,6 +1489,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
       activeBooking?.currentStopId ??
           activeBooking?.currentPoolStop?.stopId ??
           '-',
+      activeBooking?.currentStopIndex?.toString() ?? '-',
+      _stopPlanSignature(activeBooking?.poolStopPlan ?? const []),
       activeBooking?.passengerPickedUpAt?.millisecondsSinceEpoch.toString() ??
           '-',
       routeHealth.source.name,
@@ -1590,6 +1762,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
     super.dispose();
   }
 }
+
+enum OfflineReason { manual, logout }
 
 @immutable
 class OperatorHomeSnapshot {

@@ -13,7 +13,7 @@ import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 import 'package:operator_app/data/repositories/booking_repository.dart';
 
-enum SummaryPeriod { daily, weekly, monthly, yearly }
+enum SummaryPeriod { daily, weekly, monthly, yearly, custom }
 
 enum HistoryFilter { all, completed, cancelled, active }
 
@@ -25,6 +25,8 @@ class StatementRecord {
     required this.generatedAt,
     required this.totalEarnings,
     required this.completedRides,
+    this.periodStart,
+    this.periodEnd,
   });
 
   final String filePath;
@@ -33,6 +35,8 @@ class StatementRecord {
   final DateTime generatedAt;
   final double totalEarnings;
   final int completedRides;
+  final DateTime? periodStart;
+  final DateTime? periodEnd;
 
   Map<String, dynamic> toMap() => {
     'filePath': filePath,
@@ -41,6 +45,8 @@ class StatementRecord {
     'generatedAt': generatedAt.toIso8601String(),
     'totalEarnings': totalEarnings,
     'completedRides': completedRides,
+    if (periodStart != null) 'periodStart': periodStart!.toIso8601String(),
+    if (periodEnd != null) 'periodEnd': periodEnd!.toIso8601String(),
   };
 
   static StatementRecord fromMap(Map<String, dynamic> map) {
@@ -57,6 +63,8 @@ class StatementRecord {
       completedRides: (map['completedRides'] is num)
           ? (map['completedRides'] as num).toInt()
           : 0,
+      periodStart: DateTime.tryParse((map['periodStart'] ?? '').toString()),
+      periodEnd: DateTime.tryParse((map['periodEnd'] ?? '').toString()),
     );
   }
 
@@ -79,6 +87,8 @@ extension SummaryPeriodX on SummaryPeriod {
         return 'Monthly';
       case SummaryPeriod.yearly:
         return 'Yearly';
+      case SummaryPeriod.custom:
+        return 'Custom';
     }
   }
 }
@@ -127,6 +137,8 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
   String? _error;
   bool _isExporting = false;
   SummaryPeriod _selectedPeriod = SummaryPeriod.daily;
+  DateTime? _customPeriodStart;
+  DateTime? _customPeriodEnd;
   HistoryFilter _selectedHistoryFilter = HistoryFilter.all;
   String _historySearchQuery = '';
 
@@ -136,6 +148,8 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
   SummaryPeriod get selectedPeriod => _selectedPeriod;
   String get selectedPeriodRangeLabel =>
       _formatPeriodRange(_selectedPeriodRange(DateTime.now()));
+  DateTime? get customPeriodStart => _customPeriodStart;
+  DateTime? get customPeriodEnd => _customPeriodEnd;
   HistoryFilter get selectedHistoryFilter => _selectedHistoryFilter;
   String get historySearchQuery => _historySearchQuery;
   List<StatementRecord> get statements => _statements;
@@ -227,6 +241,19 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
+  void selectCustomPeriod(DateTime start, DateTime end) {
+    final normalizedStart = _startOfDay(start);
+    final normalizedEnd = _endOfDay(end);
+    _customPeriodStart = normalizedStart.isAfter(normalizedEnd)
+        ? _startOfDay(end)
+        : normalizedStart;
+    _customPeriodEnd = normalizedStart.isAfter(normalizedEnd)
+        ? _endOfDay(start)
+        : normalizedEnd;
+    _selectedPeriod = SummaryPeriod.custom;
+    notifyListeners();
+  }
+
   void selectHistoryFilter(HistoryFilter filter) {
     if (_selectedHistoryFilter == filter) return;
     _selectedHistoryFilter = filter;
@@ -257,6 +284,7 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
       final period = selectedPeriod.label.toLowerCase();
       final fileName = 'operator_statement_${period}_$timestamp.pdf';
       final filePath = await _persistPdf(bytes, fileName);
+      final periodRange = _selectedPeriodRange(DateTime.now());
 
       final completed = data
           .where((b) => b.status == BookingStatus.completed)
@@ -268,6 +296,8 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
         generatedAt: DateTime.now(),
         totalEarnings: selectedPeriodEarnings,
         completedRides: completed,
+        periodStart: periodRange.start,
+        periodEnd: periodRange.end,
       );
 
       _statements = [record, ..._statements];
@@ -646,6 +676,10 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
       SummaryPeriod.yearly => _StatementPeriodRange(
         start: _startOfYear(now),
         end: _endOfYear(now),
+      ),
+      SummaryPeriod.custom => _StatementPeriodRange(
+        start: _customPeriodStart ?? _startOfDay(now),
+        end: _customPeriodEnd ?? _endOfDay(now),
       ),
     };
   }

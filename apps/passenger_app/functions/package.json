@@ -13,6 +13,8 @@
     "logs": "firebase functions:log",
     "test:rules": "node --test --test-concurrency=1 ./rules-tests/firestore.rules.test.js",
     "test:pooling": "node --test --test-concurrency=1 ./rules-tests/pooling.stop-plan.test.js",
+    "test:pending-no-operator": "node --test --test-concurrency=1 ./rules-tests/pending.no-operator.test.js",
+    "test:drt-stability": "node --test --test-concurrency=1 ./rules-tests/drt.stability.test.js",
     "migrate:schema:dry-run": "node ./scripts/execute_schema_backfills.js --dry-run true",
     "migrate:schema:apply": "node ./scripts/execute_schema_backfills.js --dry-run false",
     "migrate:schema:dry-run:prod": "node ./scripts/execute_schema_backfills.js --dry-run true --project-id melaka-water-taxi",

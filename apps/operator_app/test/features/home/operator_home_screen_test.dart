@@ -222,7 +222,10 @@ void main() {
     await tester.tap(find.byTooltip('Refresh bookings'));
     await tester.pumpAndSettle();
 
-    expect(bookingRepo.activeStreamRequestCount, initialActiveSubscriptions + 1);
+    expect(
+      bookingRepo.activeStreamRequestCount,
+      initialActiveSubscriptions + 1,
+    );
     expect(
       bookingRepo.pendingStreamRequestCount,
       initialPendingSubscriptions + 1,
@@ -278,7 +281,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Passenger One'), findsOneWidget);
-    expect(find.text('Accepted'), findsOneWidget);
+    expect(find.text('Ready To Start'), findsOneWidget);
   });
 
   testWidgets('online operator can expand active trip section', (tester) async {
@@ -312,9 +315,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Passenger One'), findsOneWidget);
-    expect(find.text('Accepted'), findsOneWidget);
+    expect(find.text('Ready To Start'), findsOneWidget);
     expect(find.text('Call'), findsOneWidget);
-    expect(find.text('Start'), findsOneWidget);
+    expect(find.text('Start Route'), findsOneWidget);
     expect(find.text('Release'), findsOneWidget);
   });
 
@@ -350,18 +353,49 @@ void main() {
     await tester.tap(find.text('Active Trip'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Start'));
+    await tester.tap(find.text('Start Route'));
     await tester.pumpAndSettle();
 
     expect(bookingRepo.lastStartedBookingId, 'active-1');
     expect(bookingRepo.lastStartedOperatorId, 'operator-1');
-    expect(find.text('Start'), findsNothing);
-    expect(find.text('Navigation'), findsOneWidget);
+    expect(find.text('Start Route'), findsNothing);
+    expect(find.text('Now Navigating'), findsOneWidget);
+    expect(find.text('Passenger Picked Up'), findsOneWidget);
+  });
 
-    await tester.tap(find.text('Navigation'));
+  testWidgets('go offline is blocked during active trip', (tester) async {
+    final operatorRepo = _FakeOperatorRepository(
+      operator: const OperatorModel(
+        uid: 'operator-1',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
+        isOnline: true,
+      ),
+    );
+    final bookingRepo = _FakeBookingRepository();
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        operatorId: 'operator-1',
+        operatorEmail: 'muzaffar@example.com',
+        operatorRepo: operatorRepo,
+        bookingRepo: bookingRepo,
+      ),
+    );
     await tester.pumpAndSettle();
 
-    expect(find.text('Passenger Picked Up'), findsOneWidget);
+    bookingRepo.emitActive([
+      _sampleBooking(id: 'active-2', status: BookingStatus.onTheWay),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Go Offline'));
+    await tester.pumpAndSettle();
+
+    expect(operatorRepo.lastOnlineStatus, isNull);
+    expect(find.textContaining('Complete this trip'), findsOneWidget);
+    expect(find.text('Go Offline'), findsOneWidget);
   });
 
   testWidgets('online operator pickup then complete delegates to repository', (
@@ -394,9 +428,6 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Active Trip'));
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Navigation'));
     await tester.pumpAndSettle();
 
     expect(find.text('Passenger Picked Up'), findsOneWidget);
@@ -472,9 +503,6 @@ void main() {
     await tester.tap(find.text('Active Trip'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Navigation'));
-    await tester.pumpAndSettle();
-
     expect(find.text('Passenger Picked Up'), findsNothing);
     expect(find.text('Complete Trip'), findsOneWidget);
   });
@@ -522,14 +550,117 @@ void main() {
     await tester.tap(find.text('Active Trip'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Navigation'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Navigation'), findsOneWidget);
+    expect(find.text('Now Navigating'), findsOneWidget);
     expect(find.textContaining('Next marker:'), findsNothing);
     expect(find.text('Remaining'), findsNothing);
     expect(find.text('ETA'), findsNothing);
     expect(find.text('Passenger Picked Up'), findsOneWidget);
+    expect(find.textContaining('%'), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('now-navigating-header')),
+        matching: find.byIcon(Icons.expand_more),
+      ),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('now-navigating-header')),
+        matching: find.byIcon(Icons.expand_less),
+      ),
+      findsNothing,
+    );
+  });
+
+  testWidgets('on-the-way trip shows active booking list with direct calls', (
+    tester,
+  ) async {
+    final dialedPhones = <String>[];
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('operator_app/phone'),
+      (MethodCall call) async {
+        if (call.method == 'dial') {
+          final arguments = Map<String, Object?>.from(
+            call.arguments as Map<Object?, Object?>,
+          );
+          dialedPhones.add(arguments['phone']! as String);
+        }
+        return true;
+      },
+    );
+
+    final operatorRepo = _FakeOperatorRepository(
+      operator: const OperatorModel(
+        uid: 'operator-1',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
+        isOnline: true,
+      ),
+    );
+    final bookingRepo = _FakeBookingRepository();
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        operatorId: 'operator-1',
+        operatorEmail: 'muzaffar@example.com',
+        operatorRepo: operatorRepo,
+        bookingRepo: bookingRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bookingRepo.emitActive([
+      _sampleBooking(
+        id: 'active-pool-1',
+        status: BookingStatus.onTheWay,
+        userName: 'Passenger One',
+        userPhone: '0111111111',
+        origin: 'The Shore',
+        destination: 'Kampung Jawa',
+        routeDirection: 'forward',
+      ),
+      _sampleBooking(
+        id: 'active-pool-2',
+        status: BookingStatus.onTheWay,
+        userName: 'Passenger Two',
+        userPhone: '0122222222',
+        origin: 'Kampung Hulu',
+        destination: 'The Shore',
+        routeDirection: 'forward',
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Active Trip'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Trip Route'), findsOneWidget);
+    expect(find.text('Forward route'), findsOneWidget);
+    expect(find.text('View route order'), findsOneWidget);
+    expect(find.text('Active booking list'), findsOneWidget);
+    expect(find.byTooltip('Call passenger'), findsNothing);
+    expect(find.byTooltip('Show passengers'), findsNothing);
+
+    await tester.tap(find.text('Active booking list'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Passenger One'), findsOneWidget);
+    expect(find.text('The Shore -> Kampung Jawa'), findsOneWidget);
+    expect(find.text('Passenger Two'), findsOneWidget);
+    expect(find.text('Kampung Hulu -> The Shore'), findsOneWidget);
+
+    await tester.tap(
+      find.byKey(const ValueKey('active-booking-call-active-pool-2')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(dialedPhones, contains('0122222222'));
+
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('operator_app/phone'),
+      (MethodCall call) async => true,
+    );
   });
 
   testWidgets('accepted active trip hides navigation guidance details', (
@@ -613,10 +744,7 @@ void main() {
       await tester.tap(find.text('Active Trip'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Navigation'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Navigation'), findsOneWidget);
+      expect(find.text('Now Navigating'), findsOneWidget);
       expect(find.textContaining('Off-route warning:'), findsNothing);
       expect(
         find.textContaining('Too far from the planned river route'),
@@ -765,6 +893,11 @@ class _FakeBookingRepository extends BookingRepository {
 BookingModel _sampleBooking({
   required String id,
   required BookingStatus status,
+  String userName = 'Passenger One',
+  String userPhone = '0123456789',
+  String origin = 'Jetty A',
+  String destination = 'Jetty B',
+  String? routeDirection,
   double? operatorLat,
   double? operatorLng,
   List<BookingRoutePoint> routePolyline = const [],
@@ -773,15 +906,16 @@ BookingModel _sampleBooking({
   return BookingModel(
     bookingId: id,
     userId: 'user-1',
-    userName: 'Passenger One',
-    userPhone: '0123456789',
-    origin: 'Jetty A',
-    destination: 'Jetty B',
+    userName: userName,
+    userPhone: userPhone,
+    origin: origin,
+    destination: destination,
     originLat: 1.0,
     originLng: 101.0,
     destinationLat: 2.0,
     destinationLng: 102.0,
     routePolyline: routePolyline,
+    routeDirection: routeDirection,
     adultCount: 1,
     childCount: 0,
     passengerCount: 1,

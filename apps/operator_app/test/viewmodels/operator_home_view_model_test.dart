@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_core_platform_interface/test.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:operator_app/data/repositories/booking_repository.dart';
@@ -10,10 +12,28 @@ import 'package:operator_app/features/home/presentation/viewmodels/operator_home
 import 'package:operator_app/services/notifications/operator_navigation_alert_bus.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
+OperatorHomeViewModel createViewModel({
+  required BookingRepository bookingRepo,
+  required OperatorRepository operatorRepo,
+}) {
+  return OperatorHomeViewModel(
+    bookingRepo: bookingRepo,
+    operatorRepo: operatorRepo,
+    refreshSessionForNavigation: () async {},
+  );
+}
+
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   final originalDebugPrint = debugPrint;
   setUpAll(() {
+    setupFirebaseCoreMocks();
     debugPrint = (String? message, {int? wrapWidth}) {};
+  });
+  setUp(() async {
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp();
+    }
   });
   tearDownAll(() {
     debugPrint = originalDebugPrint;
@@ -33,7 +53,7 @@ void main() {
             isOnline: true,
           ),
         );
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: operatorRepo,
         );
@@ -57,7 +77,7 @@ void main() {
       'visiblePendingBookings filters bookings already rejected by operator',
       () async {
         final bookingRepo = FakeOperatorBookingRepository();
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: FakeOperatorRepository(),
         );
@@ -92,7 +112,7 @@ void main() {
             isOnline: true,
           ),
         );
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: operatorRepo,
         );
@@ -110,9 +130,129 @@ void main() {
       },
     );
 
+    test(
+      'goOfflineSafely sets offline when there are no active bookings',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final operatorRepo = FakeOperatorRepository(
+          operator: const OperatorModel(
+            uid: 'operator-1',
+            operatorId: 'OP-1',
+            name: 'Captain Aiman',
+            email: 'captain@example.com',
+            isOnline: true,
+          ),
+        );
+        final viewModel = createViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: operatorRepo,
+        );
+
+        await viewModel.initialize('operator-1');
+        final result = await viewModel.goOfflineSafely();
+
+        expect(result, isA<OperationSuccess>());
+        expect(viewModel.isOnline, isFalse);
+        expect(operatorRepo.lastOnlineStatus, isFalse);
+      },
+    );
+
+    test('goOfflineSafely blocks active on-the-way trip', () async {
+      final bookingRepo = FakeOperatorBookingRepository();
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      );
+      final viewModel = createViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'active-1', status: BookingStatus.onTheWay),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      final result = await viewModel.goOfflineSafely();
+
+      expect(result, isA<OperationFailure>());
+      expect((result as OperationFailure).title, 'Active trip in progress');
+      expect(result.message, contains('Complete this trip'));
+      expect(viewModel.isOnline, isTrue);
+      expect(operatorRepo.lastOnlineStatus, isNull);
+    });
+
+    test(
+      'goOfflineSafely keeps online when release accepted bookings fails',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository()
+          ..releaseAllError = StateError('release failed');
+        final operatorRepo = FakeOperatorRepository(
+          operator: const OperatorModel(
+            uid: 'operator-1',
+            operatorId: 'OP-1',
+            name: 'Captain Aiman',
+            email: 'captain@example.com',
+            isOnline: true,
+          ),
+        );
+        final viewModel = createViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: operatorRepo,
+        );
+
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(id: 'accepted-1', status: BookingStatus.accepted),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        final result = await viewModel.goOfflineSafely();
+
+        expect(result, isA<OperationFailure>());
+        expect(viewModel.isOnline, isTrue);
+        expect(operatorRepo.lastOnlineStatus, isNull);
+      },
+    );
+
+    test('goOfflineSafely keeps online when presence update fails', () async {
+      final bookingRepo = FakeOperatorBookingRepository()..releasedCount = 1;
+      final operatorRepo = FakeOperatorRepository(
+        operator: const OperatorModel(
+          uid: 'operator-1',
+          operatorId: 'OP-1',
+          name: 'Captain Aiman',
+          email: 'captain@example.com',
+          isOnline: true,
+        ),
+      )..setOnlineStatusError = StateError('presence failed');
+      final viewModel = createViewModel(
+        bookingRepo: bookingRepo,
+        operatorRepo: operatorRepo,
+      );
+
+      await viewModel.initialize('operator-1');
+      bookingRepo.emitActive([
+        _sampleBooking(id: 'accepted-1', status: BookingStatus.accepted),
+      ]);
+      await Future<void>.delayed(Duration.zero);
+
+      final result = await viewModel.goOfflineSafely();
+
+      expect(result, isA<OperationFailure>());
+      expect(viewModel.isOnline, isTrue);
+      expect(operatorRepo.lastOnlineStatus, isNull);
+    });
+
     test('acceptBooking delegates operator id and resets busy state', () async {
       final bookingRepo = FakeOperatorBookingRepository();
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: FakeOperatorRepository(),
       );
@@ -127,7 +267,7 @@ void main() {
     });
 
     test('booking actions fail before initialize', () async {
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: FakeOperatorBookingRepository(),
         operatorRepo: FakeOperatorRepository(),
       );
@@ -141,7 +281,7 @@ void main() {
 
     test('completeTrip removes completed booking locally', () async {
       final bookingRepo = FakeOperatorBookingRepository();
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: FakeOperatorRepository(),
       );
@@ -165,10 +305,55 @@ void main() {
       expect(viewModel.activeBookings, isEmpty);
     });
 
+    test(
+      'markPassengerPickedUp locally advances current stop route order',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final viewModel = createViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: FakeOperatorRepository(
+            operator: const OperatorModel(
+              uid: 'operator-1',
+              operatorId: 'OP-1',
+              name: 'Captain Aiman',
+              email: 'captain@example.com',
+              isOnline: true,
+            ),
+          ),
+        );
+
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(
+            id: 'active-1',
+            status: BookingStatus.onTheWay,
+            poolStopPlan: _twoStopPlan(),
+            currentStopIndex: 0,
+            currentStopId: 'pickup-active-1',
+            currentPoolStopId: 'pickup-active-1',
+            poolGroupId: 'pool-1',
+          ),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        final result = await viewModel.markPassengerPickedUp('active-1');
+
+        expect(result, isA<OperationSuccess>());
+        final updated = viewModel.activeBookings.single;
+        expect(updated.passengerPickedUpAt, isNotNull);
+        expect(updated.onboard, isTrue);
+        expect(updated.poolPhase, 'onboard');
+        expect(updated.currentStopId, 'dropoff-active-1');
+        expect(updated.currentPoolStop?.stopId, 'dropoff-active-1');
+        expect(updated.poolStopPlan.first.status, 'completed');
+        expect(updated.poolStopPlan.last.status, 'active');
+      },
+    );
+
     test('busy guard blocks overlapping booking operations', () async {
       final bookingRepo = FakeOperatorBookingRepository()
         ..acceptCompleter = Completer<OperationResult>();
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: FakeOperatorRepository(),
       );
@@ -198,7 +383,7 @@ void main() {
             'Reject failed',
             'Could not reject booking: [cloud_firestore/permission-denied] The caller does not have permission to execute the specified operation',
           );
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: FakeOperatorRepository(),
         );
@@ -211,7 +396,7 @@ void main() {
         expect(failure.title, 'Permission denied');
         expect(
           failure.message,
-          contains('You no longer have permission to perform this action'),
+          contains('Your sign-in session could not be refreshed'),
         );
       },
     );
@@ -227,7 +412,7 @@ void main() {
           isOnline: false,
         ),
       )..setOnlineStatusDelay = const Duration(seconds: 7);
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: operatorRepo,
       );
@@ -243,7 +428,7 @@ void main() {
 
     test('refresh bumps stream version and restarts subscriptions', () async {
       final bookingRepo = FakeOperatorBookingRepository();
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: FakeOperatorRepository(),
       );
@@ -270,7 +455,7 @@ void main() {
       'forced reinitialization keeps active trip while streams reconnect',
       () async {
         final bookingRepo = FakeOperatorBookingRepository();
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: FakeOperatorRepository(
             operator: const OperatorModel(
@@ -302,7 +487,7 @@ void main() {
       'foreground recovery keeps active trip and existing streams',
       () async {
         final bookingRepo = FakeOperatorBookingRepository();
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: FakeOperatorRepository(
             operator: const OperatorModel(
@@ -330,7 +515,7 @@ void main() {
     );
 
     test('markCancellationNoticeShown stores latest booking id', () async {
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: FakeOperatorBookingRepository(),
         operatorRepo: FakeOperatorRepository(),
       );
@@ -353,7 +538,7 @@ void main() {
             isOnline: true,
           ),
         );
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: operatorRepo,
         );
@@ -394,7 +579,7 @@ void main() {
             isOnline: true,
           ),
         );
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: operatorRepo,
         );
@@ -436,7 +621,7 @@ void main() {
           isOnline: true,
         ),
       );
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: operatorRepo,
       );
@@ -494,7 +679,7 @@ void main() {
             isOnline: true,
           ),
         );
-        final viewModel = OperatorHomeViewModel(
+        final viewModel = createViewModel(
           bookingRepo: bookingRepo,
           operatorRepo: operatorRepo,
         );
@@ -544,7 +729,7 @@ void main() {
           isOnline: true,
         ),
       );
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: operatorRepo,
       );
@@ -590,7 +775,7 @@ void main() {
           isOnline: true,
         ),
       );
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: operatorRepo,
       );
@@ -690,7 +875,7 @@ void main() {
           isOnline: true,
         ),
       );
-      final viewModel = OperatorHomeViewModel(
+      final viewModel = createViewModel(
         bookingRepo: bookingRepo,
         operatorRepo: operatorRepo,
       );
@@ -1196,6 +1381,36 @@ void main() {
         expect(withLowSpeed.eta, isNull);
       },
     );
+
+    test('navigation helper warns when first pickup stop is missed', () {
+      final booking = _sampleBooking(
+        id: 'missed-pickup',
+        status: BookingStatus.onTheWay,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        ],
+        poolStopPlan: _twoStopPlan(),
+        currentStopIndex: 0,
+        currentStopId: 'pickup-active-1',
+        currentPoolStopId: 'pickup-active-1',
+        routeDirection: 'forward',
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2020,
+        currentLng: 102.2520,
+        now: DateTime(2026, 3, 19, 10, 0, 0),
+      );
+
+      expect(guidance, isNotNull);
+      expect(
+        guidance!.stopOvershootSeverity,
+        OperatorStopOvershootSeverity.missed,
+      );
+    });
   });
 }
 
@@ -1206,14 +1421,22 @@ class FakeOperatorRepository extends OperatorRepository {
   OperatorModel? operator;
   bool? lastOnlineStatus;
   Duration? setOnlineStatusDelay;
+  Object? setOnlineStatusError;
 
   @override
   Future<OperatorModel?> getOperator(String uid) async => operator;
 
   @override
+  Future<void> syncPresence(String uid, {required bool isOnline}) async {}
+
+  @override
   Future<void> setOnlineStatus(String uid, {required bool isOnline}) async {
     if (setOnlineStatusDelay != null) {
       await Future<void>.delayed(setOnlineStatusDelay!);
+    }
+    final error = setOnlineStatusError;
+    if (error != null) {
+      throw error;
     }
     lastOnlineStatus = isOnline;
     operator =
@@ -1241,6 +1464,7 @@ class FakeOperatorBookingRepository extends BookingRepository {
   int activeListenCount = 0;
   int pendingListenCount = 0;
   int releasedCount = 0;
+  Object? releaseAllError;
   String? lastAcceptedBookingId;
   String? lastAcceptedOperatorId;
   String? lastRejectedBookingId;
@@ -1251,6 +1475,9 @@ class FakeOperatorBookingRepository extends BookingRepository {
   OperationResult releaseResult = const OperationSuccess('Booking released.');
   OperationResult startResult = const OperationSuccess(
     'Trip started successfully.',
+  );
+  OperationResult markPickedUpResult = const OperationSuccess(
+    'Passenger marked as picked up.',
   );
   OperationResult completeResult = const OperationSuccess(
     'Trip completed successfully.',
@@ -1276,8 +1503,13 @@ class FakeOperatorBookingRepository extends BookingRepository {
   }
 
   @override
-  Future<int> releaseAllAcceptedBookings(String operatorId) async =>
-      releasedCount;
+  Future<int> releaseAllAcceptedBookings(String operatorId) async {
+    final error = releaseAllError;
+    if (error != null) {
+      throw error;
+    }
+    return releasedCount;
+  }
 
   @override
   Future<OperationResult> acceptBooking({
@@ -1324,6 +1556,16 @@ class FakeOperatorBookingRepository extends BookingRepository {
   }
 
   @override
+  Future<OperationResult> markPassengerPickedUp({
+    required String bookingId,
+    required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
+  }) async {
+    return markPickedUpResult;
+  }
+
+  @override
   Future<OperationResult> completeTrip({
     required String bookingId,
     required String operatorId,
@@ -1349,6 +1591,12 @@ BookingModel _sampleBooking({
   List<BookingRoutePoint> routePolyline = const [],
   List<BookingRoutePoint> routeToOriginPolyline = const [],
   List<BookingRoutePoint> routeToDestinationPolyline = const [],
+  List<PoolStopPlanItem> poolStopPlan = const [],
+  int? currentStopIndex,
+  String? currentStopId,
+  String? currentPoolStopId,
+  String? poolGroupId,
+  String? routeDirection,
   double? operatorLat,
   double? operatorLng,
   DateTime? updatedAt,
@@ -1367,6 +1615,12 @@ BookingModel _sampleBooking({
     routePolyline: routePolyline,
     routeToOriginPolyline: routeToOriginPolyline,
     routeToDestinationPolyline: routeToDestinationPolyline,
+    poolStopPlan: poolStopPlan,
+    currentStopIndex: currentStopIndex,
+    currentStopId: currentStopId,
+    currentPoolStopId: currentPoolStopId,
+    poolGroupId: poolGroupId,
+    routeDirection: routeDirection,
     adultCount: 1,
     childCount: 0,
     passengerCount: 1,
@@ -1383,4 +1637,31 @@ BookingModel _sampleBooking({
     updatedAt: updatedAt ?? DateTime(2026, 3, 15, 10, 5),
     cancelledAt: null,
   );
+}
+
+List<PoolStopPlanItem> _twoStopPlan() {
+  return const [
+    PoolStopPlanItem(
+      stopId: 'pickup-active-1',
+      index: 0,
+      stopType: 'pickup',
+      stopName: 'Jetty A',
+      lat: 2.2010,
+      lng: 102.2510,
+      routePositionMeters: 150,
+      bookingIds: ['active-1'],
+      status: 'active',
+    ),
+    PoolStopPlanItem(
+      stopId: 'dropoff-active-1',
+      index: 1,
+      stopType: 'dropoff',
+      stopName: 'Jetty B',
+      lat: 2.2020,
+      lng: 102.2520,
+      routePositionMeters: 300,
+      bookingIds: ['active-1'],
+      status: 'pending',
+    ),
+  ];
 }

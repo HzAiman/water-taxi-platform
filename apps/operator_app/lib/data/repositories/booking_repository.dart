@@ -24,6 +24,8 @@ class BookingRepository {
 
   FirebaseFunctions get _callableFunctions =>
       _functions ?? FirebaseFunctions.instanceFor(region: 'asia-southeast1');
+  static const Duration _acceptCallableTimeout = Duration(seconds: 15);
+  static const Duration _stopCallableTimeout = Duration(seconds: 12);
 
   // ── Streams ──────────────────────────────────────────────────────────────
 
@@ -72,6 +74,7 @@ class BookingRepository {
           BookingFields.status,
           isEqualTo: BookingStatus.pending.firestoreValue,
         )
+        .orderBy(BookingFields.createdAt)
         .limit(100)
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
@@ -132,14 +135,16 @@ class BookingRepository {
         final callable = _callableFunctions.httpsCallable(
           'acceptPooledBooking',
         );
-        final result = await callable.call(<String, dynamic>{
-          'bookingId': bookingId,
-          if (operatorLat != null) 'operatorLat': operatorLat,
-          if (operatorLng != null) 'operatorLng': operatorLng,
-          if (locationUpdatedAt != null)
-            'locationUpdatedAt': locationUpdatedAt.toIso8601String(),
-          if (routeDirection != null) 'routeDirection': routeDirection,
-        });
+        final result = await callable
+            .call(<String, dynamic>{
+              'bookingId': bookingId,
+              if (operatorLat != null) 'operatorLat': operatorLat,
+              if (operatorLng != null) 'operatorLng': operatorLng,
+              if (locationUpdatedAt != null)
+                'locationUpdatedAt': locationUpdatedAt.toIso8601String(),
+              if (routeDirection != null) 'routeDirection': routeDirection,
+            })
+            .timeout(_acceptCallableTimeout);
         final data = result.data is Map ? result.data as Map : const {};
         final status = data['status']?.toString().trim();
         final message = data['message']?.toString().trim();
@@ -159,15 +164,21 @@ class BookingRepository {
         );
       });
     } on FirebaseFunctionsException catch (e) {
+      final message = e.message ?? '';
       return OperationFailure(
-        'Unable to accept booking',
-        e.message ??
-            'Backend booking assignment is unavailable. Please refresh and try again.',
+        _acceptFailureTitle(message),
+        _acceptFailureMessage(message),
         isInfo:
             e.code == 'failed-precondition' ||
             e.code == 'unimplemented' ||
             e.code == 'not-found' ||
             e.code == 'unavailable',
+      );
+    } on TimeoutException {
+      return const OperationFailure(
+        'Connection is slow',
+        'Accepting this booking is taking too long. Refresh and try again.',
+        isInfo: true,
       );
     } catch (e) {
       return OperationFailure('Accept failed', 'Could not accept booking: $e');
@@ -332,11 +343,13 @@ class BookingRepository {
     try {
       await FirebaseSessionService.runWithFreshToken(() async {
         final callable = _callableFunctions.httpsCallable('startPooledBooking');
-        await callable.call(<String, dynamic>{
-          'bookingId': bookingId,
-          if (operatorLat != null) 'operatorLat': operatorLat,
-          if (operatorLng != null) 'operatorLng': operatorLng,
-        });
+        await callable
+            .call(<String, dynamic>{
+              'bookingId': bookingId,
+              if (operatorLat != null) 'operatorLat': operatorLat,
+              if (operatorLng != null) 'operatorLng': operatorLng,
+            })
+            .timeout(_stopCallableTimeout);
       });
       return const OperationSuccess('Trip started successfully.');
     } on FirebaseFunctionsException catch (e) {
@@ -349,6 +362,12 @@ class BookingRepository {
             e.code == 'unimplemented' ||
             e.code == 'not-found' ||
             e.code == 'unavailable',
+      );
+    } on TimeoutException {
+      return const OperationFailure(
+        'Connection is slow',
+        'Starting this route is taking too long. Refresh and try again.',
+        isInfo: true,
       );
     } catch (e) {
       return OperationFailure('Start failed', 'Could not start trip: $e');
@@ -368,11 +387,13 @@ class BookingRepository {
         final callable = _callableFunctions.httpsCallable(
           'markPoolStopReached',
         );
-        await callable.call(<String, dynamic>{
-          'bookingId': bookingId,
-          if (operatorLat != null) 'operatorLat': operatorLat,
-          if (operatorLng != null) 'operatorLng': operatorLng,
-        });
+        await callable
+            .call(<String, dynamic>{
+              'bookingId': bookingId,
+              if (operatorLat != null) 'operatorLat': operatorLat,
+              if (operatorLng != null) 'operatorLng': operatorLng,
+            })
+            .timeout(_stopCallableTimeout);
       });
       return const OperationSuccess('Pool stop completed.');
     } on FirebaseFunctionsException catch (e) {
@@ -385,6 +406,12 @@ class BookingRepository {
             e.code == 'unimplemented' ||
             e.code == 'not-found' ||
             e.code == 'unavailable',
+      );
+    } on TimeoutException {
+      return const OperationFailure(
+        'Connection is slow',
+        'Completing this stop is taking too long. Refresh and try again.',
+        isInfo: true,
       );
     } catch (e) {
       return OperationFailure('Update failed', 'Could not complete stop: $e');
@@ -403,11 +430,13 @@ class BookingRepository {
         final callable = _callableFunctions.httpsCallable(
           'markPoolStopReached',
         );
-        await callable.call(<String, dynamic>{
-          'bookingId': bookingId,
-          if (operatorLat != null) 'operatorLat': operatorLat,
-          if (operatorLng != null) 'operatorLng': operatorLng,
-        });
+        await callable
+            .call(<String, dynamic>{
+              'bookingId': bookingId,
+              if (operatorLat != null) 'operatorLat': operatorLat,
+              if (operatorLng != null) 'operatorLng': operatorLng,
+            })
+            .timeout(_stopCallableTimeout);
       });
       return const OperationSuccess('Pool stop completed successfully.');
     } on FirebaseFunctionsException catch (e) {
@@ -420,6 +449,12 @@ class BookingRepository {
             e.code == 'unimplemented' ||
             e.code == 'not-found' ||
             e.code == 'unavailable',
+      );
+    } on TimeoutException {
+      return const OperationFailure(
+        'Connection is slow',
+        'Completing this stop is taking too long. Refresh and try again.',
+        isInfo: true,
       );
     } catch (e) {
       return OperationFailure('Complete failed', 'Could not complete trip: $e');
@@ -586,6 +621,36 @@ class BookingRepository {
     }
 
     throw lastError ?? StateError('Firestore write failed.');
+  }
+
+  static String _acceptFailureTitle(String message) {
+    final text = message.toLowerCase();
+    if (text.contains('maximum pooled booking limit')) {
+      return 'Pool is full';
+    }
+    if (text.contains('later route') ||
+        text.contains('reverse') ||
+        text.contains('behind') ||
+        text.contains('current route')) {
+      return 'Queued for later route';
+    }
+    return 'Unable to accept booking';
+  }
+
+  static String _acceptFailureMessage(String message) {
+    final text = message.toLowerCase();
+    if (text.contains('maximum pooled booking limit')) {
+      return 'This route already has the maximum number of active bookings.';
+    }
+    if (text.contains('later route') ||
+        text.contains('reverse') ||
+        text.contains('behind') ||
+        text.contains('current route')) {
+      return 'This request does not fit the current route sweep. It can be handled later.';
+    }
+    return message.isNotEmpty
+        ? message
+        : 'Backend booking assignment is unavailable. Please refresh and try again.';
   }
 
   Future<BookingModel> _fromDoc(String id, Map<String, dynamic> data) async {

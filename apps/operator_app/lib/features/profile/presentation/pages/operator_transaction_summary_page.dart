@@ -56,6 +56,54 @@ class _OperatorTransactionSummaryPageState
     _showOperationResult(result);
   }
 
+  Future<void> _selectSummaryPeriod(SummaryPeriod period) async {
+    final vm = context.read<OperatorTransactionSummaryViewModel>();
+    if (period != SummaryPeriod.custom) {
+      vm.selectPeriod(period);
+      return;
+    }
+
+    final now = DateTime.now();
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 5),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      initialDateRange:
+          vm.customPeriodStart != null && vm.customPeriodEnd != null
+          ? DateTimeRange(
+              start: DateTime(
+                vm.customPeriodStart!.year,
+                vm.customPeriodStart!.month,
+                vm.customPeriodStart!.day,
+              ),
+              end: DateTime(
+                vm.customPeriodEnd!.year,
+                vm.customPeriodEnd!.month,
+                vm.customPeriodEnd!.day,
+              ),
+            )
+          : DateTimeRange(
+              start: DateTime(now.year, now.month, now.day),
+              end: DateTime(now.year, now.month, now.day),
+            ),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: Theme.of(context).colorScheme.copyWith(
+              primary: _brandMagenta,
+              secondary: _brandOrange,
+            ),
+          ),
+          child: child ?? const SizedBox.shrink(),
+        );
+      },
+    );
+    if (picked == null || !mounted) {
+      return;
+    }
+    vm.selectCustomPeriod(picked.start, picked.end);
+  }
+
   void _showOperationResult(OperationResult result) {
     if (!mounted) return;
     switch (result) {
@@ -86,7 +134,7 @@ class _OperatorTransactionSummaryPageState
               ),
             )
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
               children: [
                 OperatorSummarySectionCard(
                   title: 'Completed Rides',
@@ -117,16 +165,36 @@ class _OperatorTransactionSummaryPageState
                     children: [
                       Wrap(
                         spacing: 8,
+                        runSpacing: 8,
                         children: SummaryPeriod.values
                             .map(
                               (p) => ChoiceChip(
+                                avatar: p == SummaryPeriod.custom
+                                    ? const Icon(
+                                        Icons.date_range_rounded,
+                                        size: 18,
+                                      )
+                                    : null,
                                 label: Text(p.label),
                                 selected: vm.selectedPeriod == p,
                                 selectedColor: _brandMagenta.withValues(
                                   alpha: 0.16,
                                 ),
+                                backgroundColor: const Color(0xFFF8FAFD),
                                 checkmarkColor: _brandMagenta,
-                                onSelected: (_) => vm.selectPeriod(p),
+                                labelStyle: TextStyle(
+                                  color: vm.selectedPeriod == p
+                                      ? _brandMagenta
+                                      : const Color(0xFF4B5B73),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                                side: BorderSide(
+                                  color: vm.selectedPeriod == p
+                                      ? _brandMagenta.withValues(alpha: 0.35)
+                                      : const Color(0xFFDDE5F0),
+                                ),
+                                onSelected: (_) =>
+                                    unawaited(_selectSummaryPeriod(p)),
                               ),
                             )
                             .toList(),
@@ -139,18 +207,30 @@ class _OperatorTransactionSummaryPageState
                           vertical: 10,
                         ),
                         decoration: BoxDecoration(
-                          color: _brandMagenta.withValues(alpha: 0.07),
+                          color: _brandMagenta.withValues(alpha: 0.06),
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(
                             color: _brandMagenta.withValues(alpha: 0.14),
                           ),
                         ),
-                        child: Text(
-                          vm.selectedPeriodRangeLabel,
-                          style: const TextStyle(
-                            color: Color(0xFF4B5B73),
-                            fontWeight: FontWeight.w700,
-                          ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.calendar_month_rounded,
+                              color: _brandMagenta,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                vm.selectedPeriodRangeLabel,
+                                style: const TextStyle(
+                                  color: Color(0xFF4B5B73),
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 12),
@@ -253,7 +333,7 @@ class _OperatorTransactionSummaryPageState
                         decoration: const InputDecoration(
                           prefixIcon: Icon(Icons.search, color: _brandMagenta),
                           hintText:
-                              'Search by booking ID, route, status, or passenger',
+                              'Search by route, status, passenger, or phone',
                         ),
                         onChanged: vm.setHistorySearchQuery,
                       ),

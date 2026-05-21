@@ -236,7 +236,7 @@ void main() {
       expect(find.text('Booking Rejected'), findsOneWidget);
       expect(
         find.text(
-          'All available operators declined this request. Please create a new booking when an operator becomes available.',
+          'No operator is available right now. Please try again later.',
         ),
         findsOneWidget,
       );

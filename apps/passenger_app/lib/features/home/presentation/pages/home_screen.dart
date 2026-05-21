@@ -176,7 +176,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
       if (!hasOnlineOperators) {
         _showBookingError(
-          'No operators are online right now. Please try again in a moment.',
+          'No operator is available right now. Please try again later.',
         );
         return;
       }
