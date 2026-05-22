@@ -614,7 +614,13 @@ class OperatorHomeViewModel extends ChangeNotifier {
         _pendingBookings = list;
         notifyListeners();
       },
-      onError: (_) {
+      onError: (Object error, StackTrace stackTrace) {
+        developer.log(
+          'pending_bookings_stream_failed',
+          name: 'operator_home_vm',
+          error: error,
+          stackTrace: stackTrace,
+        );
         if (!preserveExistingBookings) {
           _pendingBookings = [];
         }

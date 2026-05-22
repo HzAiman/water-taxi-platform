@@ -74,7 +74,6 @@ class BookingRepository {
           BookingFields.status,
           isEqualTo: BookingStatus.pending.firestoreValue,
         )
-        .orderBy(BookingFields.createdAt)
         .limit(100)
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
