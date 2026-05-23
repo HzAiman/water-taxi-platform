@@ -1,46 +1,10 @@
 ﻿# Operator App
 
-`operator_app` is the operator-facing Flutter app for handling the supply side of the water taxi platform. It manages operator authentication, profile bootstrap, online availability, current-location map behavior, and booking lifecycle transitions.
+operator_app is the operator-facing Flutter app for handling supply-side workflows: operator authentication, profile bootstrap, online availability, pooled booking queue management, navigation guidance, and earnings statements.
 
-The app is now refactored to a repository + view model architecture with Provider, and uses shared domain/types from `packages/water_taxi_shared`.
-
-## Current Capabilities
-
-### Authentication and profile
-- Firebase email/password sign-in.
-- Operator profile bootstrap in Firestore under `operators/{uid}`.
-- Profile edit flow for operator name and operator ID.
-- Operator profiles are keyed directly by auth `uid`; `operatorId` remains the display/reporting reference.
-- Legacy profile-claim repair is no longer part of the startup flow.
-
-### Operations dashboard
-- Online/offline toggle synced to Firestore.
-- Google Map with current-location bootstrap and recenter behavior.
-- Booking action flow for:
-  - `pending -> pending` (reject via `rejectedBy[]` operator UID list)
-  - `pending -> accepted`
-  - `accepted -> on_the_way`
-  - `on_the_way -> completed`
-- Trip start now seeds first operator coordinate update, then publishes throttled live location updates while booking is `on_the_way`.
-- Location publishing automatically stops when booking leaves `on_the_way`, is released, or operator goes offline.
-- Reject and cancel terminal paths are reconciled by backend payment release/refund triggers.
-- Shared top-card notifications for welcome, info, success, offline, and error states.
-
-### Notifications
-- FCM token is registered at sign-in to `operator_devices/{uid}` in Firestore.
-- Cloud Functions push an FCM message to online operators when a new passenger booking is pending.
-- `OperatorNotificationCoordinator` streams booking queue events and delivers local OS notifications when the app is in the background.
-- A persistent reminder notification is shown while the operator is online, cleared when they go offline.
-- Tapping an OS notification or FCM message navigates directly to the booking home tab (deep-link tap navigation).
-
-### Operator workflow status
-- Shows active assigned booking when one exists.
-- Falls back to the pending booking queue when the operator has no active booking.
-- Reacts to Firestore updates in real time.
+The app uses repository + view model layers (Provider) and shared schema/models from packages/water_taxi_shared.
 
 ## Architecture
-
-The app now mirrors the passenger app structure.
 
 ```
 lib/
@@ -51,198 +15,119 @@ lib/
 |   |-- constants/
 |   |-- theme/
 |   `-- widgets/
+|-- data/repositories/
 |-- features/
 |   |-- auth/presentation/pages/
-|   |-- home/presentation/pages/
-|   `-- profile/presentation/pages/
+|   |-- home/presentation/
+|   `-- profile/presentation/
 |-- routes/
 |   |-- app_routes.dart
 |   `-- main_screen.dart
 `-- services/
-  `-- notifications/
-    |-- local_notification_service.dart
-    `-- operator_notification_coordinator.dart
+    `-- notifications/
 ```
 
-Key screens:
+Key view models:
 
-- `features/auth/presentation/pages/operator_login_page.dart`
-- `features/auth/presentation/pages/operator_profile_setup_page.dart`
-- `features/home/presentation/pages/operator_home_screen.dart`
-- `features/profile/presentation/pages/operator_profile_page.dart`
+- OperatorHomeViewModel: online state, booking streams, lifecycle actions, location sharing.
+- OperatorTransactionSummaryViewModel: earnings summaries and PDF statements.
 
-Key logic layers:
+## Core flows
 
-- `data/repositories/booking_repository.dart`
-- `data/repositories/operator_repository.dart`
-- `features/home/presentation/viewmodels/operator_home_view_model.dart`
+### Authentication and profile
 
-## Firestore Data Expectations
+- Email/password sign-in.
+- AuthWrapper waits for operators/{uid}. If missing, routes to profile setup.
+- saveOperatorProfile callable enforces unique operatorId via operator_id_index.
+- Operator presence is stored in operator_presence/{uid}.
 
-### Operators collection
+### Booking lifecycle
 
-```text
-operators/{uid}
-name
-operatorId
-email
-createdAt
-updatedAt
-```
+OperatorHomeViewModel manages two streams:
 
-### Bookings collection usage
+- Active bookings (accepted/on_the_way) ordered by poolSequence.
+- Pending bookings (status=pending) filtered by rejectedBy and deferral status.
 
-This app reads shared booking documents created by the passenger app and currently depends on:
+Actions:
 
-```text
-status
-operatorId
-operatorUid
-operatorLat
-operatorLng
-routePolyline (or legacy variants normalized by repository)
-origin
-destination
-passengerCount
-totalFare
-fareSnapshotId
-createdAt
-updatedAt
-```
+- acceptBooking -> acceptPooledBooking (callable)
+- rejectBooking -> transaction updates rejectedBy
+- releaseBooking -> transaction returns accepted booking to pending
+- startTrip -> startPooledBooking (callable)
+- markPassengerPickedUp -> markPoolStopReached (callable)
+- completeTrip -> markPoolStopReached (callable)
 
-Legacy booking documents may still include the older fare breakdown fields, but the current app flow reads the strict `totalFare` plus `fareSnapshotId` shape for new bookings.
+Pooling deferrals:
 
-## Requirements
+- The backend may defer a booking for a later route sweep. The UI hides deferred bookings until the sweep changes.
 
-- Flutter SDK with Dart SDK `^3.8.1`.
-- Firebase project configured for operator auth and Firestore.
-- Android Maps API key and valid package/SHA restrictions.
-- Device or emulator with location services enabled for map features.
+### Live location sharing
 
-Packages used in this app include:
+- Geolocator streams operator positions while a booking is on_the_way.
+- Updates are throttled (min 6s interval, min 20m movement) before writing.
+- Booking snapshots are updated, and tracking/{bookingId} is written for high-frequency reads.
+- A heartbeat poll refreshes location when GPS callbacks stall.
 
-- `firebase_core`
-- `firebase_auth`
-- `cloud_firestore`
-- `firebase_messaging`
-- `flutter_local_notifications`
-- `google_maps_flutter`
-- `geolocator`
-- `permission_handler`
-- `provider`
-- `water_taxi_shared` (local package)
+### Navigation and route rendering
+
+- OperatorMapLayers resolves route geometry in priority order:
+  - routeToOriginPolyline / routeToDestinationPolyline
+  - shared routePolyline (pool corridor)
+  - straight-line fallback
+- OperatorMapControllerService manages overview vs tracking camera modes, tilt toggles, and recenter logic.
+- OperatorNavigationGuidanceService computes route progress, ETA, off-route severity, and stop overshoot.
+- Navigation alerts are published via OperatorNavigationAlertBus and shown as notifications when backgrounded.
+
+### Notifications
+
+- FCM tokens stored in operator_devices/{uid}.
+- Cloud Functions send incoming booking notifications to online operators.
+- OperatorNotificationCoordinator emits local OS notifications for queue changes and status updates.
+- LocalNotificationService manages a persistent online reminder when the app is backgrounded.
+
+### Earnings summaries
+
+- OperatorTransactionSummaryViewModel streams booking history and builds PDF statements.
+- Statements are stored locally and tracked in shared preferences.
+
+## Firestore model highlights
+
+Operators collection:
+
+- operatorId, name, email, phoneNumber
+- createdAt, updatedAt
+
+Presence collection:
+
+- operator_presence/{uid}.isOnline, updatedAt
+
+Bookings used by operator app:
+
+- status, operatorUid
+- poolSequence, poolStopPlan, routeDirection
+- routePolyline and phase-specific routes
+- passengerCount, totalFare, fareSnapshotId
+- operatorLat/operatorLng snapshots
 
 ## Setup
 
-### 1. Install dependencies
-
 ```bash
 flutter pub get
+flutter run
 ```
 
-### 2. Configure Firebase
-
-Required backend pieces:
-
-- Email/password Authentication enabled.
-- Firestore collection for `operators`.
-- Native Firebase config files for the target platform.
-
-This app shares the same Firebase project as `passenger_app`. The current Firestore rules and indexes are stored and deployed from `../passenger_app/`:
-
-- `../passenger_app/firestore.rules`
-- `../passenger_app/firestore.indexes.json`
-- `../passenger_app/firebase.json`
-
-That means operator booking permissions currently come from the shared rules defined there, not from a separate operator-specific Firestore config file.
-
-The current rules already allow operators to:
-
-- read bookings
-- accept an unclaimed pending booking
-- start a trip on their assigned booking
-- complete a trip on their assigned booking
-- publish live coordinates on assigned `on_the_way` bookings
-- create/update their own operator profile directly under `operators/{uid}`
-
-To deploy the shared Firestore config used by this app:
-
-```bash
-cd ../passenger_app
-firebase deploy --only firestore:rules,firestore:indexes
-```
-
-### 3. Configure Google Maps on Android
-
-Set `MAPS_API_KEY` in `android/local.properties`:
+Google Maps key:
 
 ```properties
 MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
 ```
 
-The Android build injects this key into the manifest. If map tiles do not load, verify:
-
-- the key exists in `android/local.properties`
-- the Android package name matches the API key restrictions
-- the SHA fingerprints used by the running build are registered in Google Cloud and Firebase
-
-### 4. Run the app
-
-```bash
-flutter run
-```
-
-## Development Notes
-
-- `main.dart` initializes Firebase and registers the FCM background message handler.
-- `app.dart` routes signed-out users to login, new users to profile setup, and ready operators to the main shell.
-- `operator_home_screen.dart` is UI-focused and delegates lifecycle actions/state to `OperatorHomeViewModel`.
-- A small Android method channel is present to help diagnose whether the Maps API key was injected into the manifest at runtime.
-- Shared in-app notification cards live in `core/widgets/top_alert.dart`.
-- `LocalNotificationService` manages OS-level notifications, the persistent online reminder channel, and exposes a tap handler for deep-link routing.
-- `OperatorNotificationCoordinator` seeds from the current booking snapshot and then diffs subsequent stream events to decide when to fire a notification.
-- `main_screen.dart` handles all four FCM/local tap entry points and navigates to the home tab (index 0) for the active booking queue.
-- The home screen includes small test hooks (`testOperatorId`, `testOperatorEmail`, map builder override, runtime-check skip) used by widget tests to avoid platform-view instability.
-
-## Test Coverage Snapshot
-
-Current automated coverage includes:
-
-- View model tests for initialization, filters, busy guard, timeout rollback, refresh, and helper formatting.
-- View model tests for location publish throttling helper (interval/distance guard).
-- Widget tests for:
-  - signed-out fallback
-  - signed-in offline/online state
-  - pending queue expansion + accept action
-  - active trip expansion + start/complete action delegation
-
-Run from this folder:
-
-```bash
-flutter test test/viewmodels/operator_home_view_model_test.dart test/features/home/operator_home_screen_test.dart
-```
-
-## Useful Commands
+## Testing
 
 ```bash
 flutter analyze
 flutter test
 ```
 
-## Known Gaps
-
-This app is functionally stable for core operator flow but not production-ready. Open work includes:
-
-- cross-app integration/E2E lifecycle tests with passenger app
-- stronger operator-facing observability for transition failures
-- hardened Firestore rule/index validation in production-like environments
-- queue UX polish under heavy concurrent demand
-
-Documentation sync: May 2026 (includes live tracking + route polyline compatibility rollout).
-
-## Future Planning: River Navigation Delivery (14 Jetties)
-
-- Phased delivery summary for the 14-jetty route:
-- Operator route guidance target: progress, next route marker, remaining distance, and speed-based ETA.
-- Cross-app requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.
+Documentation sync: May 2026 (code-aligned update).
 

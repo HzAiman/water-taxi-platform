@@ -1,50 +1,10 @@
 ﻿# Passenger App
 
-`passenger_app` is the customer-facing Flutter app for creating and tracking water taxi bookings. It handles phone authentication, passenger registration, route selection, fare validation, booking creation, live booking tracking, and profile/history management.
+passenger_app is the customer-facing Flutter app for booking and tracking water taxi rides. It handles phone authentication, fare validation, Stripe payment holds, booking creation, live tracking, and account history.
 
-The app is now refactored to repository + view model layers with Provider, and uses shared schema/models from `packages/water_taxi_shared`.
-
-## Current Capabilities
-
-### Authentication
-- Firebase phone number sign-in with OTP verification.
-- Registration flow for first-time users.
-- Session-based routing through the auth wrapper.
-
-### Booking flow
-- Select pick-up and drop-off jetties from Firestore.
-- Choose adult and child passenger counts.
-- Validate route and fare availability before payment.
-- Prevent duplicate bookings when the user already has an active booking.
-- Authorize payment hold first, then create booking documents in Firestore.
-- Use attempt-scoped idempotency keys to avoid stale PaymentIntent reuse on retries.
-- Keep booking schema aligned with operator app via shared constants/models.
-
-### Tracking and recovery
-- Reopen the active booking directly from the home screen.
-- Stream booking status updates from Firestore in real time.
-- Show live operator marker after booking reaches `on_the_way`.
-- Render route from Firestore polyline coordinates (with legacy key compatibility).
-- Auto-fit map camera to route and gently recenter during live operator movement.
-- Support passenger cancellation for active bookings.
-- Trigger backend release/refund path for cancelled and rejected bookings.
-- Show booking history with live updates and filters.
-
-### Notifications
-- FCM token is registered at sign-in to `user_devices/{uid}` in Firestore.
-- Cloud Functions push an FCM message to the passenger whenever the booking status changes.
-- `PassengerNotificationCoordinator` streams booking status events and delivers local OS notifications when the app is in the background.
-- Foreground booking events are shown as in-app alert cards via `LocalNotificationService`.
-- Tapping an OS notification or FCM message navigates directly to the booking tracking screen for the relevant booking (deep-link tap navigation).
-
-### Profile
-- View and update account details.
-- Access booking history from the profile area.
-- Sign out from the app.
+The app uses repository + view model layers (Provider) and shared schema/models from packages/water_taxi_shared.
 
 ## Architecture
-
-The app was reorganized from a flat `lib/` layout into feature-based modules.
 
 ```
 lib/
@@ -56,230 +16,119 @@ lib/
 |   |-- theme/
 |   |-- utils/
 |   `-- widgets/
+|-- data/
+|   `-- repositories/
 |-- features/
 |   |-- auth/presentation/pages/
 |   |-- home/presentation/pages/
-|   `-- profile/presentation/pages/
+|   |-- home/presentation/viewmodels/
+|   `-- profile/presentation/
 |-- routes/
 |   |-- app_routes.dart
 |   `-- main_screen.dart
 `-- services/
     |-- firebase/
-    `-- notifications/
-        |-- local_notification_service.dart
-        `-- passenger_notification_coordinator.dart
+    |-- notifications/
+    `-- payment/
 ```
 
-The `functions/` folder at the root of this app contains the Cloud Functions backend for payment lifecycle, reconciliation, and FCM push notifications.
+Key view models:
 
-Key screens:
+- HomeViewModel: loads user, jetties, fare checks, and active booking stream.
+- PaymentViewModel: fare breakdown, payment + booking creation flow.
+- BookingTrackingViewModel: real-time booking + tracking merge, cancellation.
+- ProfileViewModel: profile and booking history streams.
 
-- `features/auth/presentation/pages/phone_login_page.dart`
-- `features/auth/presentation/pages/registration_page.dart`
-- `features/home/presentation/pages/home_screen.dart`
-- `features/home/presentation/pages/payment_screen.dart`
-- `features/home/presentation/pages/booking_tracking_screen.dart`
-- `features/profile/presentation/pages/profile_screen.dart`
+## Core flows
 
-Key logic layers:
+### Authentication and session recovery
 
-- `data/repositories/booking_repository.dart`
-- `data/repositories/fare_repository.dart`
-- `data/repositories/jetty_repository.dart`
-- `data/repositories/user_repository.dart`
-- `features/home/presentation/viewmodels/*.dart`
-- `features/profile/presentation/viewmodels/profile_view_model.dart`
+- Phone number sign-in with OTP.
+- AuthWrapper routes to MainScreen when a user is authenticated.
+- FirebaseSessionService refreshes ID tokens on resume after idle periods.
 
-## Booking Data Model
+### Booking creation
 
-The payment flow currently writes booking documents with fields used by both apps, including:
+1. HomeViewModel loads jetties and validates route selection.
+2. PaymentViewModel loads fare by canonical jetty IDs, applies minimum Stripe charge rule, and builds a fare breakdown.
+3. Order numbers are reserved in order_number_index with a 24-hour expiry to prevent duplicates.
+4. PaymentGatewayService requests a Stripe PaymentIntent (manual capture) and presents the Stripe Payment Sheet.
+5. BookingRepository creates the bookings/{id} document with paymentStatus=authorized and embedded route geometry.
 
-```text
-bookingId
-userId
-userName
-userPhone
-origin
-destination
-originCoords
-destinationCoords
-adultCount
-childCount
-passengerCount
-totalFare
-fareSnapshotId
-paymentMethod
-paymentStatus
-status
-operatorUid
-operatorId
-operatorLat
-operatorLng
-routePolyline
-createdAt
-updatedAt
-```
+### Route polyline selection
 
-Historical booking documents may still contain `adultFare`, `childFare`, `adultSubtotal`, `childSubtotal`, and `fare`, but new writes use only `totalFare` and `fareSnapshotId` for fare data.
+BookingRepository builds routePolyline from polylines/{id}:
 
-`userName` and `userPhone` are stored as immutable booking snapshots so the receipt and trip history preserve the values captured at booking time.
+- If booking contains a routePolyline, it is normalized and used.
+- If a routePolylineId exists, the polyline is fetched from polylines/{id}.
+- If no route is found, a direct origin->destination line is used.
+- When creating a booking, the repository selects a best-fit polyline by snapping origin/destination to stored routes and choosing the lowest detour score.
 
-Notes:
+### Tracking
 
-- Booking ownership is represented with `operatorUid` and `operatorId` for compatibility across old/new documents.
-- `routeKey` is deprecated and no longer written by passenger booking creation.
-- Tracking parser normalizes route polyline from `routePolyline` and legacy keys (`routeCoordinates`, `polylineCoordinates`, `routePoints`).
-- Booking creation expects hold-first payment state (`paymentStatus = authorized`).
-- Backend reconciles stale `authorized` bookings on schedule to release or capture terminal bookings safely.
+- streamBooking merges bookings/{id} with tracking/{id} to show live operator position.
+- Route polyline normalization accepts legacy keys (routeCoordinates, polylineCoordinates, routePoints).
+- Operator marker is shown after status transitions to on_the_way.
+- Passenger cancellation triggers backend payment release and archive write.
 
-Current lifecycle states already handled in the passenger UI:
+### Notifications and deep links
 
-```text
-pending
-accepted
-on_the_way
-completed
-cancelled
-```
+- FCM tokens are stored in user_devices/{uid}.
+- PassengerNotificationCoordinator watches booking history and emits local OS notifications when backgrounded.
+- PushNotificationService shows in-app alerts for foreground FCM notifications.
+- MainScreen handles FCM tap, local-notification tap, and app-links deep links and navigates to BookingTrackingScreen.
 
-## Requirements
+## Firestore model highlights
 
-- Flutter SDK with Dart SDK `^3.8.1`.
-- Firebase project configured for this app.
-- Google Maps API key for the target platform.
+New booking writes include:
 
-Firebase services used:
+- bookingId, userId, userName, userPhone
+- origin/destination + originJettyId/destinationJettyId
+- originCoords/destinationCoords
+- adultCount, childCount, passengerCount
+- totalFare + fareSnapshotId
+- paymentMethod, paymentStatus=authorized, orderNumber, transactionId
+- status=pending
+- routePolylineId and routePolyline (selected from polylines)
+- createdAt, updatedAt
 
-- Firebase Core
-- Firebase Authentication
-- Cloud Firestore
-- Firebase Cloud Messaging (FCM)
-- Firebase Storage
+Legacy fields (adultFare, childFare, subtotals) may still exist in older documents.
 
-Additional packages used:
+## Configuration
 
-- `firebase_messaging`
-- `flutter_local_notifications`
-- `google_maps_flutter`
-- `geolocator`
-- `provider`
-- `water_taxi_shared` (local package)
+### Stripe (dart-define)
 
-## Setup
+- STRIPE_PUBLISHABLE_KEY
+- STRIPE_MERCHANT_IDENTIFIER (iOS)
+- STRIPE_URL_SCHEME
+- STRIPE_MERCHANT_DISPLAY_NAME
+- STRIPE_RETURN_URL
+- STRIPE_PAYMENT_INTENT_ENDPOINT
 
-### 1. Install dependencies
+The default endpoint points to createStripePaymentIntentHttp in Cloud Functions.
 
-```bash
-flutter pub get
-```
+### Firebase and Maps
 
-### 2. Configure Firebase
-
-Required backend pieces:
-
-- Phone Authentication enabled.
-- Firestore collections for `users`, `bookings`, `fares`, and `jetties`.
-- Valid generated `firebase_options.dart` and native Firebase config files.
-
-This app also contains the current Firestore backend config files used by the workspace:
-
-- `firestore.rules`
-- `firestore.indexes.json`
-- `firebase.json`
-
-If you need to push the current rules and indexes to Firebase, run:
-
-```bash
-firebase deploy --only firestore:rules,firestore:indexes
-```
-
-The existing rules currently cover:
-
-- owner-only access for `users/{uid}`
-- owner-only create and update for `operators/{uid}` keyed directly by auth `uid`
-- signed-in read access for `jetties` and `fares`
-- passenger booking creation restricted to the signed-in user with `status == pending`
-- passenger cancellation for active bookings
-- operator status transitions for `pending -> accepted -> on_the_way -> completed`
-- assigned operator live coordinate writes for `on_the_way` (`operatorLat`, `operatorLng`)
-- booking allow-list compatibility for route polyline fields used by tracking map
-
-The current index file includes the fare lookup index used by route pricing queries. Additional booking-history and operator-queue indexes are still pending.
-
-### 3. Configure Google Maps
-
-For Android, set `MAPS_API_KEY` in `android/local.properties`:
+- Phone Auth enabled.
+- Firestore collections: users, bookings, fares, jetties, polylines.
+- FCM enabled for booking status notifications.
+- Google Maps API key in android/local.properties:
 
 ```properties
 MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
 ```
 
-Make sure the key restrictions match the Android package and SHA fingerprints used by your build.
-
-### 4. Run the app
+## Run and test
 
 ```bash
+flutter pub get
 flutter run
 ```
-
-## Development Notes
-
-- `main.dart` initializes Firebase, enables Firestore offline persistence, and registers the FCM background message handler.
-- `app.dart` routes authenticated users to the main shell and unauthenticated users to phone login.
-- Home/payment/tracking/profile screens now delegate business logic to view models and repositories.
-- Home screen booking is gated by route validity, passenger count, fare existence, and active-booking checks.
-- Payment idempotency keys are attempt-scoped and amount-aware to reduce duplicate/invalid reuse errors.
-- Top-of-screen in-app notifications are centralized in `core/widgets/top_alert.dart`.
-- `LocalNotificationService` manages OS-level notifications and exposes a tap handler for deep-link routing.
-- `PassengerNotificationCoordinator` seeds from the current booking snapshot and then diffs subsequent stream events to decide when to fire a notification.
-- `main_screen.dart` handles all four FCM/local tap entry points (app terminated via FCM, app background via FCM, app terminated via local, app background via local) and navigates to the correct booking tracking screen.
-- Firestore rules in this folder are shared backend infrastructure for both apps at the moment.
-
-## Test Coverage Snapshot
-
-Current automated coverage includes passenger view model tests for:
-
-- home initialization and fare checks
-- payment fare breakdown and booking commit params
-- tracking stream updates and cancellation
-- profile load/update and booking history streaming
-
-Additional coverage now includes:
-
-- tracking widget regression for route polyline rendering and operator marker status gating
-- integration validation for operator location stream propagation to passenger tracking
-- integration regression for legacy route polyline key variants
-- tracking metadata alignment for route polyline rendering and fallback behavior
-
-Run from this folder:
-
-```bash
-flutter test test/viewmodels/passenger_viewmodels_test.dart
-```
-
-## Useful Commands
 
 ```bash
 flutter analyze
 flutter test
 ```
 
-## Known Gaps
-
-This app is not production-ready yet. Remaining work includes:
-
-- payment observability dashboard and alert policy finalization
-- richer passenger UX for reject/requeue/assignment delay scenarios
-- stricter Firestore rules and indexes
-- broader widget and integration test coverage (beyond current view model suite)
-- Android and iOS release signing and build config verification
-
-Documentation sync: May 2026 (includes live operator tracking + Firestore route polyline rollout).
-
-## Future Planning: River Navigation Delivery (14 Jetties)
-
-- Phased delivery summary for the 14-jetty route:
-- Route polyline data will be Firestore-backed and read-only for client apps.
-- Operator MVP guidance target: progress, next route marker, remaining distance, and speed-based ETA.
-- Passenger tracking requirement: after booking status becomes `on_the_way`, passenger should be able to track operator approach to pickup.
+Documentation sync: May 2026 (code-aligned update).
 

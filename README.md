@@ -1,269 +1,117 @@
 # Water Taxi Platform
 
-Water Taxi Platform is a Flutter workspace with two client applications backed by Firebase, plus a shared Dart package for booking schema and domain models:
+Water Taxi Platform is a Flutter workspace with two client applications, a shared Dart package, and a Firebase backend. The system keeps passenger and operator flows aligned on a single Firestore lifecycle contract while allowing each app to evolve independently.
 
-- `apps/passenger_app`: passenger booking, payment handoff, live booking tracking, and booking history.
-- `apps/operator_app`: operator authentication, availability, live booking queue handling, and trip status updates.
-- `packages/water_taxi_shared`: shared constants, lifecycle enums, typed models, and operation result utilities.
-
-The codebase is organized around one cross-app goal: keep passenger and operator flows aligned on a single Firestore lifecycle contract while allowing separate UX.
-
-## Workspace Overview
+## Workspace layout
 
 ```
 water-taxi-platform/
 |-- apps/
 |   |-- passenger_app/
-|   |   `-- functions/   # Cloud Functions backend (payments, reconciliation, push notifications)
+|   |   `-- functions/   # Cloud Functions backend (payments, pooling, notifications)
 |   `-- operator_app/
 |-- packages/
 |   `-- water_taxi_shared/
+|-- docs/
 `-- README.md
 ```
 
-Each app is a standalone Flutter project with its own Firebase config and feature-based `lib/` structure. Shared schema and model types are centralized in `water_taxi_shared` to avoid drift.
+## Apps and packages
 
-## Current Product Scope
+- apps/passenger_app: Phone auth, booking creation, hold-first Stripe payment, live tracking, notifications, booking history.
+- apps/operator_app: Operator auth, profile bootstrap, online availability, pooled queue handling, navigation, live location sharing, earnings summary.
+- packages/water_taxi_shared: Firestore field constants, typed models, booking status enum, and shared operation result types.
+- apps/passenger_app/functions: Gen 2 Cloud Functions for pooling/dispatch, payment lifecycle, and push notifications.
 
-### Passenger app
-- Phone number authentication with registration for new users.
-- Jetty-to-jetty booking flow with fare precheck.
-- Hold-first payment flow (Stripe manual capture).
-- Attempt-scoped idempotency to prevent stale PaymentIntent reuse.
-- Live tracking screen that reacts to booking status updates.
-- Live operator tracking after `on_the_way` using booking-stream coordinates (`operatorLat`, `operatorLng`).
-- Tracking map route rendering from Firestore polyline coordinates.
-- Tracking map auto-fit to route and operator recenter behavior during active trip.
-- Current-booking resume card on the home screen.
-- Booking history and account management in profile.
-- Refactored UI logic into repositories + view models using Provider.
-- Push notifications (FCM) for booking status changes (accepted, on the way, completed, cancelled).
-- Background local notifications when the app is minimised.
-- Notification tap deep-link navigation directly to the booking tracking screen.
+## Lifecycle contract
 
-### Operator app
-- Email/password authentication.
-- Operator profile bootstrap under `operators/{uid}`.
-- Operator profiles are keyed directly by auth `uid`; `operatorId` remains the display/reporting reference.
-- Online/offline availability toggle.
-- Booking workflow: reject, accept, start trip, complete trip.
-- Navigation starts only after the booking enters `on_the_way`.
-- Dynamic operator-to-pickup and operator-to-dropoff route rendering using Firestore river polyline coordinates, snapping/segmenting to the planned river path.
-- Straight-line fallback is explicit and UI-visible when phase-specific river route geometry is unavailable.
-- Navigation health/status UI for route source, stale GPS, and off-route/rejoin guidance.
-- Google-Maps-style navigation camera with 3D/2D tilt toggle, bearing-follow behavior, forward camera offset, and automatic recentering.
-- Operator map uses the native Google Maps blue-dot location as the live source of truth during navigation.
-- Screen wake-lock behavior while navigation is running.
-- Profile management, themed in-app notifications, and shared top-card notifications.
-- Ride / transaction summary with daily, weekly, monthly, and yearly filters.
-- Branded PDF income statements with operator name, operator ID, statement period dates, pickup-to-dropoff route labels, trip date/time, app icon, and theme styling.
-- App icon and operator login/home/profile styling aligned to the orange-to-magenta brand gradient.
-- Refactored UI logic into repositories + view models using Provider.
-- Push notifications (FCM) for incoming passenger bookings.
-- Background local notifications and persistent online-status reminder.
-- Notification tap deep-link navigation to the booking home tab.
+Booking status lifecycle (shared by both apps):
 
-## Booking Lifecycle
-
-Both apps depend on the same booking status contract:
-
-```text
+```
 pending -> accepted -> on_the_way -> completed
-```
-
-Passenger cancellation is also supported:
-
-```text
 pending/accepted/on_the_way -> cancelled
+pending -> rejected
 ```
 
-Payment lifecycle (shared backend contract):
+Payment lifecycle (manual capture):
 
-```text
-authorized (hold) -> paid (capture on completed)
-authorized -> cancelled/refunded (reject/cancel/reconciliation)
+```
+authorized -> paid (capture on completed)
+authorized -> cancelled/refunded (cancel/reject/reconcile)
 ```
 
-Reject and dispatch behavior are implemented using `pending + rejectedBy[]` where the array stores operator UIDs: the booking stays `pending` when an operator rejects it so that another operator can claim it. Passenger `userName` and `userPhone` values on a booking are immutable receipt snapshots captured at creation time. The full `BookingStatus` enum also covers `rejected` and `unknown` for edge-case handling.
+Key rules:
 
+- Rejections are tracked in rejectedBy[]; the booking remains pending until all online operators have declined it.
+- Passenger name/phone are stored as immutable snapshots for receipts and historical integrity.
+- High-frequency GPS updates live in tracking/{bookingId}; bookings store low-frequency snapshots.
 
+## Real-time data flow
 
-## Tech Stack
+- bookings/{id} is the canonical lifecycle record (status, fare, assignment, pooling fields).
+- tracking/{id} contains live operator coordinates while a trip is on_the_way.
+- polylines/{id} stores route geometry; passengers embed a chosen route polyline at booking time.
 
-- Flutter and Dart
-- Firebase Authentication
-- Cloud Firestore
-- Firebase Cloud Messaging (FCM)
-- Cloud Functions for Firebase (Node.js 22, Gen 2, region `asia-southeast1`)
-- `flutter_local_notifications` (in-app and OS-level notifications)
-- Google Maps Flutter
-- Geolocator / permission handling where needed
-- Provider (state management)
-- Shared pure Dart package for schema/models (`water_taxi_shared`)
+Passenger tracking merges booking + tracking streams to show real-time operator movement and route geometry.
 
-## Setup
+## Tech stack
 
-### Prerequisites
-- Flutter SDK with Dart SDK matching the app constraints.
-- A Firebase project configured for both apps.
-- Android Studio or VS Code with Flutter tooling.
-- Platform toolchains for the targets you plan to run.
+- Flutter + Dart
+- Firebase Auth, Firestore, FCM
+- Cloud Functions (Node.js 22, Gen 2, region asia-southeast1)
+- Stripe (manual capture PaymentIntent flow)
+- Google Maps Flutter + Geolocator
+- Provider state management
 
-### Firebase requirements
-- Passenger app:
-    - Phone Authentication enabled.
-    - Firestore collections for users, bookings, fares, and jetties.
-- Operator app:
-    - Email/password Authentication enabled.
-    - Firestore collection for operators.
+## Setup (condensed)
 
-### Firestore rules and indexes
+Prerequisites:
 
-The current Firestore configuration files live in `apps/passenger_app/`:
+- Flutter SDK and Android/iOS toolchains.
+- Firebase project with Auth, Firestore, FCM enabled.
+- Stripe account with API keys.
 
-- `firestore.rules`
-- `firestore.indexes.json`
-- `firebase.json`
-
-At the moment, that folder is the backend configuration source of truth for both apps because both clients point to the same Firebase project.
-
-Current rules already enforce these core behaviors:
-
-- users can only read and write their own `users/{uid}` document
-- operators can only read and update their own `operators/{uid}` document
-- operator profile writes are keyed directly by auth `uid` and do not use a claim collection
-- signed-in users can read `jetties` and `fares`
-- passengers can create their own `pending` bookings with `paymentStatus == authorized`
-- passengers can cancel their own active bookings
-- operators can transition bookings through `accepted`, `on_the_way`, and `completed`
-- assigned operators can publish live coordinates on `on_the_way` bookings (`operatorLat`, `operatorLng`)
-- booking schema allow-list accepts Firestore route polyline fields used by tracking map (`routePolyline` and legacy variants)
-- passengers can write their own FCM token to `user_devices/{uid}`
-- operators can write their own FCM token to `operator_devices/{uid}`
-- operators can read `operator_presence/{uid}` (used by Cloud Functions to target online operators)
-
-The current index file only defines the fare lookup index for `origin + destination`. More booking and operator queue indexes are still tracked as open work.
-
-To deploy the existing Firestore configuration:
+Firestore rules and indexes live in apps/passenger_app. Deploy them from that folder:
 
 ```bash
 cd apps/passenger_app
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 
-### Install dependencies
-
-```bash
-cd apps/passenger_app
-flutter pub get
-
-cd ../operator_app
-flutter pub get
-```
-
-### Google Maps
-
-Both apps use Google Maps. Android builds expect a `MAPS_API_KEY` entry in each app's `android/local.properties`.
-
-Example:
+Maps API key:
 
 ```properties
 MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
 ```
 
-You also need the corresponding Android package/SHA restrictions configured in Google Cloud.
+Stripe client config (passenger app uses dart-define values):
 
-### App icons and branding
+- STRIPE_PUBLISHABLE_KEY
+- STRIPE_MERCHANT_IDENTIFIER (iOS)
+- STRIPE_URL_SCHEME
+- STRIPE_MERCHANT_DISPLAY_NAME
+- STRIPE_RETURN_URL
+- STRIPE_PAYMENT_INTENT_ENDPOINT
 
-Both apps keep their launcher icon source assets under each app's `assets/app_icon/` folder.
-
-The operator app currently uses:
-
-- `assets/app_icon/icon.png` for the launcher icon and branded PDF statements.
-- `assets/app_icon/icon_trans.png` for transparent-logo UI placement where the gradient background is already supplied by the screen.
-
-After replacing icon assets, regenerate platform launcher assets from the app directory:
-
-```bash
-cd apps/operator_app
-flutter pub run flutter_launcher_icons
-
-cd ../passenger_app
-flutter pub run flutter_launcher_icons
-```
-
-## Running the Apps
-
-From each app directory:
-
-```bash
-flutter run
-```
-
-Common examples:
+## Running
 
 ```bash
 cd apps/passenger_app
-flutter run -d android
+flutter run
 
 cd ../operator_app
-flutter run -d android
+flutter run
 ```
 
-## Quality Checks
+## Documentation map
 
-Run these from an app directory:
-
-```bash
-flutter analyze
-flutter test
-```
-
-Recent verification highlights:
-
-- Passenger view model tests added and passing.
-- Operator view model tests added and passing.
-- Operator home widget tests added for signed-out and signed-in action flows (including accept/start/complete delegation) and passing.
-- Passenger tracking widget tests now validate route polyline rendering and operator marker visibility gating.
-- Passenger integration tests now validate operator location stream propagation and legacy polyline key compatibility.
-- Operator view model tests now validate location publish throttling guard (time/distance thresholds).
-- Operator route geometry tests cover phase-specific river segmentation and straight-line fallback behavior.
-- Operator map controller tests cover navigation camera mode, tilt reset, recentering, and phase transition behavior.
-
-## Payment Ops Checklist
-
-Use this quick checklist before each release cut and after backend payment changes:
-
-- Hold/Capture flow:
-    - booking payment creates `authorized` state (`requires_capture` in Stripe)
-    - completed booking transitions to `paid` via capture
-- Release flow:
-    - cancelled booking transitions to `cancelled`/`refunded` (no stale uncaptured hold)
-    - rejected booking transitions to `cancelled`/`refunded`
-- Reconciliation:
-    - scheduled function `reconcileStaleAuthorizedPayments` runs every 30 minutes
-    - summary log includes `scanned`, `released`, `captured`, `failed`
-- Alerting signals (logs-based metrics recommended):
-    - `alertType == PAYMENT_RELEASE_FAILED`
-    - `alertType == PAYMENT_CAPTURE_FAILED`
-    - `alertType == PAYMENT_RECONCILE_FAILED`
-
-## Documentation Map
-
-- `apps/passenger_app/README.md`: passenger app architecture, flows, and setup.
-- `apps/operator_app/README.md`: operator app architecture, flows, and setup.
-- `apps/passenger_app/functions/README.md`: Cloud Functions setup, triggers, and deployment.
-- `apps/passenger_app/firestore.rules`: current shared Firestore access rules.
-- `apps/passenger_app/firestore.indexes.json`: current Firestore indexes.
-
+- docs/drt_algorithm_reference.md: Pooling + route-aware sequencing algorithm.
+- docs/firestore_schema_inventory.md: Code-derived Firestore schema inventory.
+- apps/passenger_app/README.md: Passenger app architecture + flows.
+- apps/operator_app/README.md: Operator app architecture + flows.
+- apps/passenger_app/functions/README.md: Cloud Functions details.
 
 ## Status
 
-Core flows are implemented and refactored away from UI-embedded business logic. The full push notification pipeline is live: FCM token registration, deployed Cloud Functions (Gen 2, `asia-southeast1`), in-app foreground alerts, background OS notifications, and notification tap deep-link navigation in both apps.
-
-Live passenger tracking after `on_the_way` is now implemented end-to-end: operator coordinates are published with throttling, passenger tracking renders Firestore route polylines, and operator marker visibility is status-gated.
-
-Operator navigation is now implemented as a true active-trip mode: phase 1 routes from live operator location to pickup, phase 2 routes from live operator location to dropoff, route health is surfaced in the UI, and camera behavior follows a navigation-first pattern.
-
-The workspace is still not production-ready. Main unfinished areas are alerting/dashboard polish for payment operations, operator ID governance monitoring, production-grade GPS/background-location validation, and full end-to-end integration testing across both apps.
+Core flows are implemented end-to-end: booking creation, manual-capture payment, pooled dispatch, operator navigation, and push notifications. Remaining work focuses on production hardening: monitoring/alerting, stricter Firestore rules/index coverage, and full E2E test automation.
 
