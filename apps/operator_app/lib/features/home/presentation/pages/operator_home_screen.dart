@@ -884,9 +884,6 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         if (!mounted) {
           return;
         }
-        if (result case OperationFailure(title: 'Queued for later route')) {
-          return;
-        }
         _showOperationResult(result);
       },
       onReject: () async {

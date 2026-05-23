@@ -16,6 +16,7 @@ const {
   applyCurrentStopState,
   currentStopFromPlan,
   canStartBookingAtCurrentPoolStop,
+  startableBookingIdAtCurrentPoolStop,
   shouldEnforceActivePoolPickupWindow,
 } = __poolingTest;
 
@@ -239,6 +240,41 @@ test("start gate follows current pool stop before booking sequence", () => {
     canStartBookingAtCurrentPoolStop([], "the-shore-booking"),
     null,
     "Missing stop plan falls back to the booking-level sequence gate"
+  );
+});
+
+test("startable booking resolves from the first current pool stop", () => {
+  const stopPlan = [
+    {
+      stopId: "pickup_first",
+      stopIndex: 0,
+      stopType: "pickup",
+      stopName: "First pickup",
+      bookingIds: ["first-booking"],
+      status: "active",
+    },
+    {
+      stopId: "pickup_second",
+      stopIndex: 1,
+      stopType: "pickup",
+      stopName: "Second pickup",
+      bookingIds: ["second-booking"],
+      status: "pending",
+    },
+  ];
+
+  assert.equal(
+    startableBookingIdAtCurrentPoolStop(
+      stopPlan,
+      new Set(["first-booking", "second-booking"])
+    ),
+    "first-booking",
+    "Start Route should resolve to the first active stop booking"
+  );
+  assert.equal(
+    startableBookingIdAtCurrentPoolStop(stopPlan, new Set(["second-booking"])),
+    null,
+    "A booking outside the current stop cannot be auto-selected"
   );
 });
 

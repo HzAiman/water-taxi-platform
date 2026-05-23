@@ -26,6 +26,7 @@ class BookingRepository {
       _functions ?? FirebaseFunctions.instanceFor(region: 'asia-southeast1');
   static const Duration _acceptCallableTimeout = Duration(seconds: 15);
   static const Duration _stopCallableTimeout = Duration(seconds: 12);
+  static const Duration _rejectCallableTimeout = Duration(seconds: 12);
 
   // ── Streams ──────────────────────────────────────────────────────────────
 
@@ -184,83 +185,42 @@ class BookingRepository {
     }
   }
 
-  /// Atomically rejects a pending booking.
-  ///
-  /// If ALL currently online operators have now rejected the booking, its
-  /// status is automatically set to [BookingStatus.rejected].
+  /// Rejects a pending pooled booking through the backend callable.
   Future<OperationResult> rejectBooking({
     required String bookingId,
     required String operatorId,
   }) async {
     try {
       return await FirebaseSessionService.runWithFreshToken(() async {
-        final onlineIds = await _loadOnlineOperatorIds();
+        final callable = _callableFunctions.httpsCallable(
+          'rejectPooledBooking',
+        );
 
-        final fullyRejected = await _db.runTransaction<bool>((tx) async {
-          final ref = _db
-              .collection(FirestoreCollections.bookings)
-              .doc(bookingId);
-          final snap = await tx.get(ref);
-
-          if (!snap.exists) throw StateError('This booking no longer exists.');
-
-          final data = snap.data()!;
-          final status = BookingStatus.fromString(
-            (data[BookingFields.status] ?? '').toString(),
-          );
-          final assignedOperatorUid = _assignedOperatorUid(data);
-          final rejectedBy = _strList(data[BookingFields.rejectedBy]);
-
-          if (status != BookingStatus.pending ||
-              assignedOperatorUid.isNotEmpty) {
-            throw StateError(
-              'Only unassigned pending bookings can be rejected.',
-            );
-          }
-          if (rejectedBy.contains(operatorId)) {
-            throw StateError('You already rejected this booking.');
-          }
-
-          final updated = {...rejectedBy, operatorId};
-          final isFullyRejected =
-              onlineIds.isNotEmpty && onlineIds.every(updated.contains);
-
-          final nextStatus = isFullyRejected
-              ? BookingStatus.rejected
-              : BookingStatus.pending;
-
-          tx.update(ref, {
-            BookingFields.rejectedBy: updated.toList(),
-            BookingFields.status: nextStatus.firestoreValue,
-            BookingFields.updatedAt: FieldValue.serverTimestamp(),
-          });
-
-          if (nextStatus != status) {
-            _appendStatusHistory(
-              tx: tx,
-              ref: ref,
-              from: status,
-              to: nextStatus,
-              changedBy: operatorId,
-            );
-          }
-
-          return isFullyRejected;
-        });
-
-        if (fullyRejected) {
-          return const OperationSuccess(
-            'All online operators declined this request — the passenger will see it as rejected.',
-          );
-        }
-        return const OperationSuccess(
-          'Booking rejected. It stays pending for other operators.',
+        final result = await callable
+            .call(<String, dynamic>{'bookingId': bookingId})
+            .timeout(_rejectCallableTimeout);
+        final data = result.data is Map ? result.data as Map : const {};
+        final message = data['message']?.toString().trim();
+        return OperationSuccess(
+          message != null && message.isNotEmpty
+              ? message
+              : 'Booking rejected. It stays pending for other operators.',
         );
       });
-    } on StateError catch (e) {
+    } on FirebaseFunctionsException catch (e) {
+      final message = e.message ?? '';
       return OperationFailure(
         'Unable to reject booking',
-        e.message,
+        message.isNotEmpty ? message : 'Could not reject this booking.',
+        isInfo:
+            e.code == 'failed-precondition' ||
+            e.code == 'not-found' ||
+            e.code == 'unavailable',
+      );
+    } on TimeoutException {
+      return const OperationFailure(
+        'Connection is slow',
+        'Rejecting this booking is taking too long. Refresh and try again.',
         isInfo: true,
       );
     } catch (e) {
@@ -340,17 +300,33 @@ class BookingRepository {
     double? operatorLng,
   }) async {
     try {
-      await FirebaseSessionService.runWithFreshToken(() async {
+      return await FirebaseSessionService.runWithFreshToken(() async {
         final callable = _callableFunctions.httpsCallable('startPooledBooking');
-        await callable
+        final result = await callable
             .call(<String, dynamic>{
               'bookingId': bookingId,
               if (operatorLat != null) 'operatorLat': operatorLat,
               if (operatorLng != null) 'operatorLng': operatorLng,
             })
             .timeout(_stopCallableTimeout);
+        final data = result.data is Map ? result.data as Map : const {};
+        final startedBookingId = data['startedBookingId']?.toString().trim();
+        final successData = Map<String, Object?>.from(
+          data.cast<String, Object?>(),
+        );
+        if (startedBookingId != null &&
+            startedBookingId.isNotEmpty &&
+            startedBookingId != bookingId) {
+          return OperationSuccess(
+            'Route started at the first pool stop.',
+            data: successData,
+          );
+        }
+        return OperationSuccess(
+          'Route started successfully.',
+          data: successData,
+        );
       });
-      return const OperationSuccess('Trip started successfully.');
     } on FirebaseFunctionsException catch (e) {
       return OperationFailure(
         'Unable to start trip',
@@ -589,14 +565,6 @@ class BookingRepository {
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
-
-  Future<Set<String>> _loadOnlineOperatorIds() async {
-    final snap = await _db
-        .collection(FirestoreCollections.operatorPresence)
-        .where(OperatorPresenceFields.isOnline, isEqualTo: true)
-        .get();
-    return snap.docs.map((d) => d.id).toSet();
-  }
 
   static Future<T> _runWithRetry<T>(Future<T> Function() action) async {
     const maxAttempts = 2;

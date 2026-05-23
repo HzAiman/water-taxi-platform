@@ -379,6 +379,10 @@ class OperatorHomeViewModel extends ChangeNotifier {
     if (result is OperationSuccess && pendingBooking != null) {
       _promoteAcceptedBookingLocally(pendingBooking, operatorId);
     }
+    if (result is OperationFailure &&
+        result.title == 'Queued for later route') {
+      _removePendingBookingLocally(bookingId);
+    }
     if (result is OperationSuccess ||
         (result is OperationFailure &&
             result.title == 'Queued for later route')) {
@@ -391,7 +395,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   Future<OperationResult> rejectBooking(String bookingId) async {
     final operatorId = _operatorId;
     if (operatorId == null) return _notInitialised;
-    return _withBusy(
+    final result = await _withBusy(
       () => _bookingRepo.rejectBooking(
         bookingId: bookingId,
         operatorId: operatorId,
@@ -399,6 +403,11 @@ class OperatorHomeViewModel extends ChangeNotifier {
       actionName: 'reject_booking',
       bookingId: bookingId,
     );
+    if (result is OperationSuccess) {
+      _removePendingBookingLocally(bookingId);
+      unawaited(refresh(operatorId));
+    }
+    return result;
   }
 
   Future<OperationResult> releaseBooking(String bookingId) async {
@@ -435,8 +444,20 @@ class OperatorHomeViewModel extends ChangeNotifier {
         );
 
         if (result is OperationSuccess) {
-          _markTripStartedLocally(bookingId, initial);
-          await _startLocationSharing(bookingId, operatorId, initial: initial);
+          final startedBookingId = result.data['startedBookingId']
+              ?.toString()
+              .trim();
+          final trackingBookingId =
+              startedBookingId != null && startedBookingId.isNotEmpty
+              ? startedBookingId
+              : bookingId;
+          _markTripStartedLocally(trackingBookingId, initial);
+          await _startLocationSharing(
+            trackingBookingId,
+            operatorId,
+            initial: initial,
+          );
+          unawaited(refresh(operatorId));
         }
 
         return result;
@@ -652,6 +673,13 @@ class OperatorHomeViewModel extends ChangeNotifier {
     }
 
     _refreshNavigationGuidance(notify: false);
+    notifyListeners();
+  }
+
+  void _removePendingBookingLocally(String bookingId) {
+    _pendingBookings = _pendingBookings
+        .where((item) => item.bookingId != bookingId)
+        .toList(growable: false);
     notifyListeners();
   }
 
@@ -1482,9 +1510,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
         : LatLng(activeBooking.destinationLat, activeBooking.destinationLng);
     final pendingBookings = operatorId == null
         ? const <BookingModel>[]
-        : _pendingBookings
-              .where((booking) => !booking.rejectedBy.contains(operatorId))
-              .toList(growable: false);
+        : visiblePendingBookings(operatorId);
     final topPendingBooking = pendingBookings.isNotEmpty
         ? pendingBookings.first
         : null;

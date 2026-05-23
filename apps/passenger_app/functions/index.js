@@ -886,6 +886,19 @@ function canStartBookingAtCurrentPoolStop(stopPlan, bookingId) {
   return currentStopBookingIds.includes(asString(bookingId));
 }
 
+function startableBookingIdAtCurrentPoolStop(stopPlan, acceptedIds = new Set()) {
+  const currentStop = currentStopFromPlan(stopPlan);
+  const currentStopBookingIds = Array.isArray(currentStop?.bookingIds)
+    ? currentStop.bookingIds.map(asString).filter((id) => id.length > 0)
+    : [];
+  for (const bookingId of currentStopBookingIds) {
+    if (acceptedIds.has(bookingId)) {
+      return bookingId;
+    }
+  }
+  return null;
+}
+
 function shouldEnforceActivePoolPickupWindow({ hasActiveTrip } = {}) {
   return hasActiveTrip !== true;
 }
@@ -1256,6 +1269,14 @@ function deferBookingForCurrentSweep({
     [BOOKING_FIELDS.poolDeferredUntil]: deferUntil,
     [BOOKING_FIELDS.poolDeferredAt]: FieldValue.serverTimestamp(),
     [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
+  });
+
+  logger.info("Pooled booking deferred for later route sweep", {
+    operatorUid,
+    reason: asString(reason) || "not_for_current_sweep",
+    deferredUntil: deferUntil.toISOString(),
+    currentSweepDirection: currentSweepDirection(activeBookings),
+    currentSweepPoolGroupId: currentSweepPoolGroupId(activeBookings),
   });
 
   return {
@@ -2169,6 +2190,106 @@ exports.acceptPooledBooking = onCall(
 );
 
 /**
+ * Rejects a pending pooled booking for the authenticated operator.
+ * This remains valid while the operator is mid-trip.
+ */
+exports.rejectPooledBooking = onCall(
+  {
+    region: "asia-southeast1",
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Sign in is required.");
+    }
+
+    const bookingId = asString(request.data?.bookingId);
+    if (!bookingId) {
+      throw new HttpsError("invalid-argument", "bookingId is required.");
+    }
+
+    const operatorUid = request.auth.uid;
+    const bookingRef = db.collection(COLLECTIONS.bookings).doc(bookingId);
+    const onlineOperatorIds = await getOnlineOperatorIds();
+
+    return db.runTransaction(async (tx) => {
+      const bookingSnap = await tx.get(bookingRef);
+      if (!bookingSnap.exists) {
+        throw new HttpsError("not-found", "Booking not found.");
+      }
+
+      const booking = bookingSnap.data() || {};
+      const status = asString(booking[BOOKING_FIELDS.status]);
+      const assignedOperator =
+        asString(booking[BOOKING_FIELDS.operatorUid]) ||
+        asString(booking[BOOKING_FIELDS.operatorId]);
+      if (status !== "pending" || assignedOperator) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Only unassigned pending bookings can be rejected."
+        );
+      }
+
+      const rejectedBy = Array.isArray(booking[BOOKING_FIELDS.rejectedBy])
+        ? booking[BOOKING_FIELDS.rejectedBy].map(asString).filter(Boolean)
+        : [];
+      if (rejectedBy.includes(operatorUid)) {
+        throw new HttpsError(
+          "failed-precondition",
+          "You already rejected this booking."
+        );
+      }
+
+      const updatedRejectedBy = [...new Set([...rejectedBy, operatorUid])];
+      const fullyRejected =
+        onlineOperatorIds.length > 0 &&
+        onlineOperatorIds.every((id) => updatedRejectedBy.includes(id));
+      const nextStatus = fullyRejected ? "rejected" : "pending";
+
+      tx.update(bookingRef, {
+        [BOOKING_FIELDS.rejectedBy]: updatedRejectedBy,
+        [BOOKING_FIELDS.status]: nextStatus,
+        [BOOKING_FIELDS.poolDeferredForOperatorUid]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredRouteDirection]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredPoolGroupId]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredReason]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredUntil]: FieldValue.delete(),
+        [BOOKING_FIELDS.poolDeferredAt]: FieldValue.delete(),
+        [BOOKING_FIELDS.updatedAt]: FieldValue.serverTimestamp(),
+      });
+
+      if (nextStatus !== status) {
+        appendStatusHistory({
+          tx,
+          bookingRef,
+          from: status,
+          to: nextStatus,
+          changedBy: operatorUid,
+        });
+      }
+
+      logger.info("Pooled booking rejected by operator", {
+        bookingId,
+        operatorUid,
+        previousRejectedBy: rejectedBy,
+        rejectedBy: updatedRejectedBy,
+        nextStatus,
+        onlineOperatorIds,
+      });
+
+      return {
+        status: nextStatus,
+        bookingId,
+        rejectedBy: updatedRejectedBy,
+        fullyRejected,
+        message: fullyRejected
+          ? "All online operators declined this request; the passenger will see it as rejected."
+          : "Booking rejected. It stays pending for other operators.",
+      };
+    });
+  }
+);
+
+/**
  * Starts the backend-approved next booking for an operator.
  * This is the server-side gate that guarantees only one on_the_way booking.
  */
@@ -2283,21 +2404,30 @@ exports.startPooledBooking = onCall(
         });
       }
 
-      const nextItem = sequencePlan[0];
+      const acceptedIds = new Set(acceptedItems.map((item) => item.id));
+      const resolvedStartBookingId =
+        startableBookingIdAtCurrentPoolStop(
+          stopState.plannedStops,
+          acceptedIds
+        ) || bookingId;
+      const startedItem = sequencePlan.find(
+        (item) => item.id === resolvedStartBookingId
+      );
+      const startedRef = startedItem?.ref || bookingRef;
       const currentStopAllowsBooking = canStartBookingAtCurrentPoolStop(
         stopState.plannedStops,
-        bookingId
+        resolvedStartBookingId
       );
       if (currentStopAllowsBooking === false) {
         throw new HttpsError(
           "failed-precondition",
-          "Start the booking at the first pool stop first."
+          "Start the route at the first pool stop first."
         );
       }
-      if (currentStopAllowsBooking == null && (!nextItem || nextItem.id !== bookingId)) {
+      if (!startedItem) {
         throw new HttpsError(
           "failed-precondition",
-          "Start the next route-aware pooled booking first."
+          "Unable to resolve the first route stop booking."
         );
       }
 
@@ -2317,24 +2447,33 @@ exports.startPooledBooking = onCall(
         payload[BOOKING_FIELDS.operatorLng] = operatorLng;
       }
 
-      tx.update(bookingRef, payload);
+      tx.update(startedRef, payload);
       appendStatusHistory({
         tx,
-        bookingRef,
+        bookingRef: startedRef,
         from: "accepted",
         to: "on_the_way",
         changedBy: operatorUid,
       });
 
       logger.info("Pooled booking started", {
-        bookingId,
+        requestedBookingId: bookingId,
+        startedBookingId: resolvedStartBookingId,
         operatorUid,
-        poolSequence: Number(booking[BOOKING_FIELDS.poolSequence] || 0),
+        currentStopId: stopState.currentStopId,
+        currentStopBookingIds:
+          currentStopFromPlan(stopState.plannedStops)?.bookingIds || [],
+        sequenceOrder: sequencePlan.map((item) => item.id),
+        poolGroupId: asString(startedItem.data?.[BOOKING_FIELDS.poolGroupId]),
       });
 
       return {
         status: "on_the_way",
-        bookingId,
+        bookingId: resolvedStartBookingId,
+        requestedBookingId: bookingId,
+        startedBookingId: resolvedStartBookingId,
+        currentStopId: stopState.currentStopId,
+        poolGroupId: asString(startedItem.data?.[BOOKING_FIELDS.poolGroupId]),
       };
     });
   }
@@ -4619,6 +4758,7 @@ if (process.env.NODE_ENV === "test") {
     applyCurrentStopState,
     currentStopFromPlan,
     canStartBookingAtCurrentPoolStop,
+    startableBookingIdAtCurrentPoolStop,
     shouldEnforceActivePoolPickupWindow,
   };
   module.exports.__pendingNoOperatorTest = {

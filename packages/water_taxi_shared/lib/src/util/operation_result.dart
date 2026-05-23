@@ -9,8 +9,9 @@ sealed class OperationResult {
 
 /// The operation completed without error.
 final class OperationSuccess extends OperationResult {
-  const OperationSuccess(this.message);
+  const OperationSuccess(this.message, {this.data = const {}});
   final String message;
+  final Map<String, Object?> data;
 }
 
 /// The operation could not be completed.
@@ -19,11 +20,7 @@ final class OperationSuccess extends OperationResult {
 /// by someone else) where a neutral info alert is more appropriate than a
 /// red error alert.
 final class OperationFailure extends OperationResult {
-  const OperationFailure(
-    this.title,
-    this.message, {
-    this.isInfo = false,
-  });
+  const OperationFailure(this.title, this.message, {this.isInfo = false});
   final String title;
   final String message;
   final bool isInfo;
