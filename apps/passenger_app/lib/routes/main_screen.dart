@@ -64,7 +64,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
       );
       await _notificationCoordinator?.start(userId: userId);
 
-      // Register tap handler for background -> foreground local notification taps.
+      // Register tap handler for background-to-foreground local notification taps.
       LocalNotificationService.setOnTapHandler(_handleNotificationTap);
 
       // Handle FCM tap from terminated state.

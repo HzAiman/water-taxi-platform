@@ -118,6 +118,31 @@ class _OperatorTransactionSummaryPageState
     }
   }
 
+  Widget _buildFilterChip({
+    required String label,
+    required bool selected,
+    required VoidCallback onSelected,
+    IconData? icon,
+  }) {
+    final foreground = selected ? _brandMagenta : const Color(0xFF4B5B73);
+    return ChoiceChip(
+      avatar: icon == null ? null : Icon(icon, size: 18, color: foreground),
+      label: Text(label),
+      selected: selected,
+      selectedColor: _brandMagenta.withValues(alpha: 0.15),
+      backgroundColor: const Color(0xFFF8FAFD),
+      checkmarkColor: _brandMagenta,
+      labelStyle: TextStyle(color: foreground, fontWeight: FontWeight.w800),
+      side: BorderSide(
+        color: selected
+            ? _brandMagenta.withValues(alpha: 0.36)
+            : const Color(0xFFDDE5F0),
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      onSelected: (_) => onSelected(),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final vm = context.watch<OperatorTransactionSummaryViewModel>();
@@ -163,41 +188,27 @@ class _OperatorTransactionSummaryPageState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: SummaryPeriod.values
-                            .map(
-                              (p) => ChoiceChip(
-                                avatar: p == SummaryPeriod.custom
-                                    ? const Icon(
-                                        Icons.date_range_rounded,
-                                        size: 18,
-                                      )
-                                    : null,
-                                label: Text(p.label),
-                                selected: vm.selectedPeriod == p,
-                                selectedColor: _brandMagenta.withValues(
-                                  alpha: 0.16,
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          children: SummaryPeriod.values
+                              .map(
+                                (p) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: _buildFilterChip(
+                                    label: p.label,
+                                    selected: vm.selectedPeriod == p,
+                                    icon: p == SummaryPeriod.custom
+                                        ? Icons.date_range_rounded
+                                        : null,
+                                    onSelected: () =>
+                                        unawaited(_selectSummaryPeriod(p)),
+                                  ),
                                 ),
-                                backgroundColor: const Color(0xFFF8FAFD),
-                                checkmarkColor: _brandMagenta,
-                                labelStyle: TextStyle(
-                                  color: vm.selectedPeriod == p
-                                      ? _brandMagenta
-                                      : const Color(0xFF4B5B73),
-                                  fontWeight: FontWeight.w800,
-                                ),
-                                side: BorderSide(
-                                  color: vm.selectedPeriod == p
-                                      ? _brandMagenta.withValues(alpha: 0.35)
-                                      : const Color(0xFFDDE5F0),
-                                ),
-                                onSelected: (_) =>
-                                    unawaited(_selectSummaryPeriod(p)),
-                              ),
-                            )
-                            .toList(),
+                              )
+                              .toList(),
+                        ),
                       ),
                       const SizedBox(height: 10),
                       Container(
@@ -311,22 +322,23 @@ class _OperatorTransactionSummaryPageState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: HistoryFilter.values
-                            .map(
-                              (f) => ChoiceChip(
-                                label: Text(f.label),
-                                selected: vm.selectedHistoryFilter == f,
-                                selectedColor: _brandOrange.withValues(
-                                  alpha: 0.14,
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          children: HistoryFilter.values
+                              .map(
+                                (f) => Padding(
+                                  padding: const EdgeInsets.only(right: 8),
+                                  child: _buildFilterChip(
+                                    label: f.label,
+                                    selected: vm.selectedHistoryFilter == f,
+                                    onSelected: () => vm.selectHistoryFilter(f),
+                                  ),
                                 ),
-                                checkmarkColor: _brandMagenta,
-                                onSelected: (_) => vm.selectHistoryFilter(f),
-                              ),
-                            )
-                            .toList(),
+                              )
+                              .toList(),
+                        ),
                       ),
                       const SizedBox(height: 10),
                       TextField(

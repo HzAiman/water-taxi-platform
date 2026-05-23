@@ -375,8 +375,12 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     final softBorder = PdfColor.fromHex('#DDE5F0');
     final softFill = PdfColor.fromHex('#FFF3EA');
     final routeHeader = _pdfSafe('Route');
+    final passengerHeader = _pdfSafe('Pax');
+    final adultsHeader = _pdfSafe('Adults');
+    final childrenHeader = _pdfSafe('Children');
     final fareHeader = _pdfSafe('Fare');
-    final tripDateHeader = _pdfSafe('Trip Date & Time');
+    final tripDateHeader = _pdfSafe('Trip Date');
+    final bookingTimeHeader = _pdfSafe('Booking Time');
 
     doc.addPage(
       pw.MultiPage(
@@ -517,25 +521,42 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
               headerDecoration: pw.BoxDecoration(color: brandMagenta),
               headerStyle: pw.TextStyle(
                 color: PdfColors.white,
+                fontSize: 8,
                 fontWeight: pw.FontWeight.bold,
               ),
-              cellStyle: pw.TextStyle(fontSize: 9, color: ink),
+              cellStyle: pw.TextStyle(fontSize: 8, color: ink),
               cellPadding: const pw.EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 7,
+                horizontal: 4,
+                vertical: 6,
               ),
               columnWidths: const {
-                0: pw.FlexColumnWidth(3.4),
-                1: pw.FlexColumnWidth(1.2),
-                2: pw.FlexColumnWidth(1.6),
+                0: pw.FlexColumnWidth(3.2),
+                1: pw.FlexColumnWidth(0.7),
+                2: pw.FlexColumnWidth(0.8),
+                3: pw.FlexColumnWidth(0.9),
+                4: pw.FlexColumnWidth(1.1),
+                5: pw.FlexColumnWidth(1.3),
+                6: pw.FlexColumnWidth(1.2),
               },
-              headers: [routeHeader, fareHeader, tripDateHeader],
+              headers: [
+                routeHeader,
+                passengerHeader,
+                adultsHeader,
+                childrenHeader,
+                fareHeader,
+                tripDateHeader,
+                bookingTimeHeader,
+              ],
               data: completedTrips
                   .map(
                     (b) => [
                       _pdfSafe(_routeLabel(b)),
+                      b.passengerCount.toString(),
+                      b.adultCount.toString(),
+                      b.childCount.toString(),
                       _currency(_fareOf(b)),
-                      _fmt(b.updatedAt ?? b.createdAt),
+                      _formatPdfDate(b.updatedAt ?? b.createdAt),
+                      _formatPdfTime(b.createdAt),
                     ],
                   )
                   .toList(),
@@ -691,12 +712,11 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     final destination = booking.destination.trim().isEmpty
         ? 'Dropoff'
         : booking.destination;
-    return '$origin -> $destination';
+    return '$origin > $destination';
   }
 
   static String _pdfSafe(String value) {
     return value
-        .replaceAll('\u2192', '->')
         .replaceAll('\u2013', '-')
         .replaceAll('\u2014', '-')
         .replaceAll('\u2022', '-');
@@ -711,6 +731,23 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     final hh = local.hour.toString().padLeft(2, '0');
     final mm = local.minute.toString().padLeft(2, '0');
     return '$y-$m-$d $hh:$mm';
+  }
+
+  static String _formatPdfDate(DateTime? dt) {
+    if (dt == null) return 'Unknown';
+    final local = dt.toLocal();
+    final y = local.year.toString().padLeft(4, '0');
+    final m = local.month.toString().padLeft(2, '0');
+    final d = local.day.toString().padLeft(2, '0');
+    return '$y-$m-$d';
+  }
+
+  static String _formatPdfTime(DateTime? dt) {
+    if (dt == null) return 'Unknown';
+    final local = dt.toLocal();
+    final hh = local.hour.toString().padLeft(2, '0');
+    final mm = local.minute.toString().padLeft(2, '0');
+    return '$hh:$mm';
   }
 
   static String _formatPeriodRange(_StatementPeriodRange range) {

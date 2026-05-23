@@ -70,7 +70,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
         _notificationCoordinator?.deliverNavigationAlert(alert);
       });
 
-      // Register tap handler for background -> foreground local notification taps.
+      // Register tap handler for background-to-foreground local notification taps.
       LocalNotificationService.setOnTapHandler(_handleNotificationTap);
 
       // Handle FCM tap from terminated state.
@@ -175,7 +175,7 @@ class _MainScreenState extends State<MainScreen> with WidgetsBindingObserver {
     super.dispose();
   }
 
-  // Notification tap -> switch to home tab where bookings are managed.
+  // Notification tap switches to the home tab where bookings are managed.
   void _handleNotificationTap(String bookingId) {
     if (!mounted) return;
     setState(() => _selectedIndex = 0);

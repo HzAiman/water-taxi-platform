@@ -832,9 +832,9 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     }
     final currentName = _poolStopDisplayName(currentStop);
     if (nextStop == null) {
-      return '$currentName -> Final stop';
+      return '$currentName → Final stop';
     }
-    return '$currentName -> ${_poolStopDisplayName(nextStop)}';
+    return '$currentName → ${_poolStopDisplayName(nextStop)}';
   }
 
   String? _formatStopPassengerContext(

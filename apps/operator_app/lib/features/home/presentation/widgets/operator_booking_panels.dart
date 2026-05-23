@@ -509,7 +509,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
 
   Widget _buildPoolBookingRow(BookingModel item) {
     final phase = _poolPhaseLabel(item);
-    final route = '${item.origin} -> ${item.destination}';
+    final route = '${item.origin} → ${item.destination}';
     final customer = item.userName.trim().isEmpty
         ? 'Passenger'
         : item.userName.trim();
@@ -566,6 +566,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 210),
         child: ListView.separated(
+          padding: EdgeInsets.zero,
           shrinkWrap: true,
           physics: const BouncingScrollPhysics(),
           itemCount: bookings.length,
@@ -575,10 +576,12 @@ class OperatorActiveBookingCard extends StatelessWidget {
             final customer = item.userName.trim().isEmpty
                 ? 'Passenger'
                 : item.userName.trim();
-            final route = '${item.origin} -> ${item.destination}';
+            final route = '${item.origin} → ${item.destination}';
             return ListTile(
               dense: true,
+              visualDensity: VisualDensity.compact,
               contentPadding: const EdgeInsets.only(left: 2, right: 0),
+              minVerticalPadding: 0,
               minLeadingWidth: 28,
               leading: CircleAvatar(
                 radius: 13,
@@ -589,20 +592,16 @@ class OperatorActiveBookingCard extends StatelessWidget {
                   color: OperatorBrand.magenta,
                 ),
               ),
-              title: Text(
-                customer,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              title: _LoopingText(
+                text: customer,
                 style: TextStyle(
                   fontSize: 13,
                   color: Colors.grey[900],
                   fontWeight: FontWeight.w900,
                 ),
               ),
-              subtitle: Text(
-                route,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+              subtitle: _LoopingText(
+                text: route,
                 style: TextStyle(
                   fontSize: 11,
                   color: Colors.grey[650],
@@ -1038,23 +1037,23 @@ class OperatorPendingBookingCard extends StatelessWidget {
     final fareSummary = booking.totalFare > 0
         ? formatCurrency(booking.totalFare)
         : 'Fare N/A';
-    final title = booking.userName.trim().isEmpty
+    final passengerName = booking.userName.trim().isEmpty
         ? 'Pending Booking'
         : booking.userName.trim();
-    final subtitle =
-        '${booking.origin} → ${booking.destination}\n$passengerSummary - $fareSummary';
+    final route = '${booking.origin} → ${booking.destination}';
+    final tripMeta = '$passengerSummary - $fareSummary';
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.08),
-            blurRadius: 8,
-            offset: const Offset(0, 3),
+            color: Colors.black.withValues(alpha: 0.07),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -1063,54 +1062,55 @@ class OperatorPendingBookingCard extends StatelessWidget {
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.notifications_active,
-                color: Colors.orange,
-                size: 20,
+              Container(
+                width: 27,
+                height: 27,
+                decoration: BoxDecoration(
+                  color: OperatorBrand.orange.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(9),
+                ),
+                child: const Icon(
+                  Icons.notifications_active_rounded,
+                  color: OperatorBrand.orange,
+                  size: 18,
+                ),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: Text(
-                  title,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: Colors.grey[850],
+                child: _LoopingText(
+                  text: route,
+                  style: const TextStyle(
+                    fontSize: 17,
+                    height: 1.1,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF1A1A1A),
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                 decoration: BoxDecoration(
-                  color: Colors.orange.withValues(alpha: 0.12),
+                  color: OperatorBrand.orange.withValues(alpha: 0.12),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
                   pendingCount > 1 ? '$pendingCount in queue' : 'Pending',
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 11,
-                    color: Colors.orange.shade900,
-                    fontWeight: FontWeight.w800,
+                    color: Color(0xFFB45309),
+                    fontWeight: FontWeight.w900,
                   ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: 8),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: Colors.grey[700],
-              height: 1.25,
-              fontWeight: FontWeight.w500,
-            ),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+          _PendingTripInfoCard(
+            passengerName: passengerName,
+            tripMeta: tripMeta,
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
           Row(
             children: [
               Expanded(
@@ -1122,21 +1122,29 @@ class OperatorPendingBookingCard extends StatelessWidget {
                     side: BorderSide(
                       color: Colors.orange.shade900.withValues(alpha: 0.2),
                     ),
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    textStyle: const TextStyle(fontSize: 12),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   child: const Text('Reject'),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Expanded(
                 child: ElevatedButton(
                   onPressed: isUpdating ? null : () => unawaited(onAccept()),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: OperatorBrand.magenta,
                     foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    textStyle: const TextStyle(fontSize: 12),
+                    elevation: 2,
+                    shadowColor: OperatorBrand.magenta.withValues(alpha: 0.22),
+                    padding: const EdgeInsets.symmetric(vertical: 11),
+                    textStyle: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
                   ),
                   child: isUpdating
                       ? const SizedBox(
@@ -1150,6 +1158,78 @@ class OperatorPendingBookingCard extends StatelessWidget {
                           ),
                         )
                       : const Text('Accept Booking'),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PendingTripInfoCard extends StatelessWidget {
+  const _PendingTripInfoCard({
+    required this.passengerName,
+    required this.tripMeta,
+  });
+
+  final String passengerName;
+  final String tripMeta;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFFFBFE),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: OperatorBrand.magenta.withValues(alpha: 0.12),
+        ),
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              const Icon(
+                Icons.person_rounded,
+                size: 18,
+                color: OperatorBrand.magenta,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _LoopingText(
+                  text: passengerName,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF1A1A1A),
+                    height: 1.15,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 7),
+          Row(
+            children: [
+              const Icon(
+                Icons.groups_rounded,
+                size: 18,
+                color: OperatorBrand.magenta,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _LoopingText(
+                  text: tripMeta,
+                  style: const TextStyle(
+                    fontSize: 14,
+                    color: Color(0xFF4B5B73),
+                    height: 1.15,
+                    fontWeight: FontWeight.w800,
+                  ),
                 ),
               ),
             ],

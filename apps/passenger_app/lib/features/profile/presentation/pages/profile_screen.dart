@@ -1132,27 +1132,24 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
   }
 
   static Widget _buildHistoryRow(IconData icon, String label, String value) {
+    const labelStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.w600,
+      color: Color(0xFF666666),
+    );
+    const valueStyle = TextStyle(
+      fontSize: 13,
+      color: Color(0xFF1A1A1A),
+      fontWeight: FontWeight.w500,
+    );
+
     return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Icon(icon, size: 18, color: PassengerBrand.blue),
         const SizedBox(width: 10),
+        Text('$label: ', style: labelStyle),
         Expanded(
-          child: RichText(
-            text: TextSpan(
-              style: const TextStyle(fontSize: 13, color: Color(0xFF1A1A1A)),
-              children: [
-                TextSpan(
-                  text: '$label: ',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF666666),
-                  ),
-                ),
-                TextSpan(text: value),
-              ],
-            ),
-          ),
+          child: _HistoryRouteTitle(route: value, style: valueStyle),
         ),
       ],
     );
