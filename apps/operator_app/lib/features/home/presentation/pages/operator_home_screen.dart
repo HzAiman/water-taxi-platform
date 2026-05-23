@@ -655,7 +655,11 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       onCallCustomer: () => _callCustomer(booking),
       onCallPoolCustomer: _callCustomer,
       onStartTrip: () async {
-        final result = await viewModel.startTrip(booking.bookingId);
+        final bookingToStart = _bookingForCurrentPoolStop(
+          booking,
+          viewModel.activeBookings,
+        );
+        final result = await viewModel.startTrip(bookingToStart.bookingId);
         if (!mounted) {
           return;
         }
@@ -672,6 +676,24 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
         _showOperationResult(result);
       },
     );
+  }
+
+  BookingModel _bookingForCurrentPoolStop(
+    BookingModel fallback,
+    List<BookingModel> poolBookings,
+  ) {
+    final currentStopBookingIds = fallback.currentPoolStop?.bookingIds;
+    if (currentStopBookingIds == null || currentStopBookingIds.isEmpty) {
+      return fallback;
+    }
+
+    final stopBookingIds = currentStopBookingIds.toSet();
+    for (final booking in poolBookings) {
+      if (stopBookingIds.contains(booking.bookingId)) {
+        return booking;
+      }
+    }
+    return fallback;
   }
 
   Widget _buildNavigationInfoCard({

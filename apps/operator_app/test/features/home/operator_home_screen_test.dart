@@ -363,6 +363,96 @@ void main() {
     expect(find.text('Passenger Picked Up'), findsOneWidget);
   });
 
+  testWidgets('start route uses booking from current pool stop', (
+    tester,
+  ) async {
+    final operatorRepo = _FakeOperatorRepository(
+      operator: const OperatorModel(
+        uid: 'operator-1',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
+        isOnline: true,
+      ),
+    );
+    final bookingRepo = _FakeBookingRepository();
+    final stopPlan = <PoolStopPlanItem>[
+      const PoolStopPlanItem(
+        stopId: 'pickup-taman-rempah',
+        index: 0,
+        stopType: 'pickup',
+        stopName: '15 - Taman Rempah',
+        lat: 2.195,
+        lng: 102.247,
+        bookingIds: <String>['taman-rempah-booking'],
+        status: 'active',
+      ),
+      const PoolStopPlanItem(
+        stopId: 'pickup-the-shore',
+        index: 1,
+        stopType: 'pickup',
+        stopName: '18 - The Shore',
+        lat: 2.194,
+        lng: 102.249,
+        bookingIds: <String>['the-shore-booking'],
+        status: 'pending',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        operatorId: 'operator-1',
+        operatorEmail: 'muzaffar@example.com',
+        operatorRepo: operatorRepo,
+        bookingRepo: bookingRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bookingRepo.emitActive([
+      _sampleBooking(
+        id: 'the-shore-booking',
+        status: BookingStatus.accepted,
+        userName: 'Rahim Shah',
+        origin: '18 - The Shore',
+        destination: '22 - Kampung Jawa',
+        poolGroupId: 'pool-1',
+        poolStopPlan: stopPlan,
+        currentStopIndex: 0,
+        currentStopId: 'pickup-taman-rempah',
+        currentPoolStopId: 'pickup-taman-rempah',
+      ),
+      _sampleBooking(
+        id: 'taman-rempah-booking',
+        status: BookingStatus.accepted,
+        userName: 'Ad Ghazi Othman',
+        origin: '15 - Taman Rempah',
+        destination: '27 - Samudera',
+        poolGroupId: 'pool-1',
+        poolStopPlan: stopPlan,
+        currentStopIndex: 0,
+        currentStopId: 'pickup-taman-rempah',
+        currentPoolStopId: 'pickup-taman-rempah',
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Active Trip'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Start Route'));
+    await tester.pumpAndSettle();
+
+    expect(bookingRepo.lastStartedBookingId, 'taman-rempah-booking');
+    expect(bookingRepo.lastStartedOperatorId, 'operator-1');
+
+    await tester.tap(find.text('Mark Picked Up'));
+    await tester.pumpAndSettle();
+
+    expect(bookingRepo.lastPickedUpBookingId, 'taman-rempah-booking');
+    expect(bookingRepo.lastPickedUpOperatorId, 'operator-1');
+  });
+
   testWidgets('go offline is blocked during active trip', (tester) async {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
@@ -901,6 +991,11 @@ BookingModel _sampleBooking({
   double? operatorLat,
   double? operatorLng,
   List<BookingRoutePoint> routePolyline = const [],
+  String? poolGroupId,
+  List<PoolStopPlanItem> poolStopPlan = const <PoolStopPlanItem>[],
+  int? currentStopIndex,
+  String? currentStopId,
+  String? currentPoolStopId,
   DateTime? passengerPickedUpAt,
 }) {
   return BookingModel(
@@ -916,6 +1011,11 @@ BookingModel _sampleBooking({
     destinationLng: 102.0,
     routePolyline: routePolyline,
     routeDirection: routeDirection,
+    poolGroupId: poolGroupId,
+    poolStopPlan: poolStopPlan,
+    currentStopIndex: currentStopIndex,
+    currentStopId: currentStopId,
+    currentPoolStopId: currentPoolStopId,
     adultCount: 1,
     childCount: 0,
     passengerCount: 1,

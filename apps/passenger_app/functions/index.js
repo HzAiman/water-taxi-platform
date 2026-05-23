@@ -875,6 +875,21 @@ function currentStopFromPlan(stopPlan) {
   );
 }
 
+function canStartBookingAtCurrentPoolStop(stopPlan, bookingId) {
+  const currentStop = currentStopFromPlan(stopPlan);
+  const currentStopBookingIds = Array.isArray(currentStop?.bookingIds)
+    ? currentStop.bookingIds.map(asString).filter((id) => id.length > 0)
+    : [];
+  if (currentStopBookingIds.length === 0) {
+    return null;
+  }
+  return currentStopBookingIds.includes(asString(bookingId));
+}
+
+function shouldEnforceActivePoolPickupWindow({ hasActiveTrip } = {}) {
+  return hasActiveTrip !== true;
+}
+
 function poolStopStatePayload(stopPlan, poolStatus = "in_progress") {
   const currentStopIndex = resolveCurrentStopIndex(stopPlan);
   const plannedStops = applyCurrentStopState(stopPlan, currentStopIndex);
@@ -1898,7 +1913,11 @@ exports.acceptPooledBooking = onCall(
           toDate(activeBooking[BOOKING_FIELDS.createdAt])?.getTime()
         )
         .filter((millis) => Number.isFinite(millis));
-      if (createdAt && activeCreatedTimes.length > 0) {
+      if (
+        createdAt &&
+        activeCreatedTimes.length > 0 &&
+        shouldEnforceActivePoolPickupWindow({ hasActiveTrip })
+      ) {
         const earliestActiveCreatedAt = new Date(Math.min(...activeCreatedTimes));
         if (
           !isWithinMinutes(
@@ -1909,7 +1928,7 @@ exports.acceptPooledBooking = onCall(
         ) {
           throw new HttpsError(
             "failed-precondition",
-            "Booking is outside the active pool pickup window."
+            "Booking is outside the pre-start pooling pickup window."
           );
         }
       }
@@ -2265,7 +2284,17 @@ exports.startPooledBooking = onCall(
       }
 
       const nextItem = sequencePlan[0];
-      if (!nextItem || nextItem.id !== bookingId) {
+      const currentStopAllowsBooking = canStartBookingAtCurrentPoolStop(
+        stopState.plannedStops,
+        bookingId
+      );
+      if (currentStopAllowsBooking === false) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Start the booking at the first pool stop first."
+        );
+      }
+      if (currentStopAllowsBooking == null && (!nextItem || nextItem.id !== bookingId)) {
         throw new HttpsError(
           "failed-precondition",
           "Start the next route-aware pooled booking first."
@@ -4589,6 +4618,8 @@ if (process.env.NODE_ENV === "test") {
     resolveCurrentStopIndex,
     applyCurrentStopState,
     currentStopFromPlan,
+    canStartBookingAtCurrentPoolStop,
+    shouldEnforceActivePoolPickupWindow,
   };
   module.exports.__pendingNoOperatorTest = {
     BOOKING_FIELDS,

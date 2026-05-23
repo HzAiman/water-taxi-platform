@@ -129,7 +129,7 @@ const POOLING_POLICY = {
 Meaning:
 
 - `maxConcurrent`: maximum bookings in a pool, currently 3.
-- `pickupWindowMinutes`: candidate booking must be temporally close to the active pool's booking creation times.
+- `pickupWindowMinutes`: candidate request freshness window. It always rejects stale pending requests relative to `now`, but the comparison against existing pool booking creation times is only enforced before a trip starts. Mid-trip acceptance uses route-position eligibility instead.
 - `addedEtaLimitMinutes`: maximum allowed added ETA impact.
 - `staleAcceptedMinutes`: accepted bookings can be considered stale after this many minutes.
 - `criteriaVersion`: written to booking documents to track algorithm version.
@@ -448,6 +448,15 @@ If all checks pass:
 reason = eligible
 ```
 
+### Candidate age versus active pool age
+
+`acceptPooledBooking` applies two different time checks:
+
+- Candidate freshness: the pending request's `createdAt` must be within `pickupWindowMinutes` of `now`.
+- Pre-start pool batching: if the operator only has `accepted` bookings and no `on_the_way` booking, the candidate `createdAt` must also be within `pickupWindowMinutes` of the earliest active pool booking.
+
+The second check is intentionally skipped once a boat is already `on_the_way`. This allows a new mid-trip request, such as `Kampung Jawa -> Samudera`, to join an older pool if the boat has not passed Kampung Jawa yet. In that case, `evaluatePoolingEligibility` decides using route geometry and live operator position. If the boat has already passed the pickup, the expected rejection is `pickup_behind_operator`, not a pickup-window error.
+
 ## 10. Current-Sweep Deferral
 
 Some rejection reasons mean "not suitable for this current route sweep" rather than "invalid forever".
@@ -620,7 +629,7 @@ High-level flow:
 6. Check booking age against pickup window.
 7. Load operator's active bookings with status in `accepted` or `on_the_way`.
 8. Enforce no more than one existing `on_the_way` booking.
-9. Check active pool pickup window.
+9. Check the active pool pickup window only for pre-start batching.
 10. Reject if active pool is already full.
 11. Run `evaluatePoolingEligibility`.
 12. If current-sweep deferrable, defer the booking instead of hard failing.
@@ -638,6 +647,8 @@ Important behavior after the recent fix:
 - Only `startPooledBooking` or a pickup stop transition should promote a booking to `on_the_way`.
 - If a trip is already active, `poolStatus` may be `in_progress`, but the new booking's own `status` remains `accepted`.
 - Existing `on_the_way` documents are not unnecessarily rewritten with a new `poolSequence`.
+- A pending request must still be fresh relative to `now`, but once the boat is already `on_the_way`, the candidate is no longer rejected just because the original pool booking was created more than `pickupWindowMinutes` earlier.
+- During an active trip, route geometry decides whether the candidate can join: the pickup must still be ahead of the boat, match the current direction, fit the corridor, and satisfy ETA/distance limits.
 
 ## 15. Start Pooled Booking Flow
 
@@ -659,17 +670,27 @@ Flow:
 7. Choose corridor.
 8. Plan route-aware sequence.
 9. Build stop plan.
-10. Ensure requested booking is first in sequence.
+10. Ensure requested booking belongs to the first active/current pool stop when a stop plan exists.
 11. Update sequence and stop state for accepted items.
 12. Update requested booking to `on_the_way`.
 13. Optionally store operator location.
 14. Write status history.
 
-The important guard:
+The important guard is stop-level first, sequence-level second:
 
 ```js
 const nextItem = sequencePlan[0];
-if (!nextItem || nextItem.id !== bookingId) {
+const currentStopAllowsBooking = canStartBookingAtCurrentPoolStop(
+  stopState.plannedStops,
+  bookingId
+);
+if (currentStopAllowsBooking === false) {
+  throw new HttpsError(
+    "failed-precondition",
+    "Start the booking at the first pool stop first."
+  );
+}
+if (currentStopAllowsBooking == null && (!nextItem || nextItem.id !== bookingId)) {
   throw new HttpsError(
     "failed-precondition",
     "Start the next route-aware pooled booking first."
@@ -677,7 +698,7 @@ if (!nextItem || nextItem.id !== bookingId) {
 }
 ```
 
-This prevents an operator from manually starting a booking that is not first according to the route-aware plan.
+This prevents an operator from starting a booking whose booking-level sequence is first but whose pickup is not the current stop. For example, if the stop plan says `Taman Rempah` is the first pickup and `The Shore` is second, the app/backend must start the Taman Rempah booking even if the card or booking sequence is showing The Shore.
 
 ## 16. Mark Pool Stop Reached Flow
 
@@ -1186,4 +1207,3 @@ Potential algorithm upgrades:
 - Add callable tests for `acceptPooledBooking`, `startPooledBooking`, and `markPoolStopReached`.
 - Add property tests for completed-stop preservation across replans.
 - Add visual debug overlays for corridor projection, candidate deviation, and pickup-behind-operator decisions.
-

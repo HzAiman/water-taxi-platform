@@ -15,6 +15,8 @@ const {
   resolveCurrentStopIndex,
   applyCurrentStopState,
   currentStopFromPlan,
+  canStartBookingAtCurrentPoolStop,
+  shouldEnforceActivePoolPickupWindow,
 } = __poolingTest;
 
 const baseLat = 2.2;
@@ -200,5 +202,92 @@ test("complex stop-level pooling scenario follows route-aware stop order", () =>
     ).reason,
     "pickup_behind_operator",
     "G is rejected once the operator is already past Jetty 19"
+  );
+});
+
+test("start gate follows current pool stop before booking sequence", () => {
+  const stopPlan = [
+    {
+      stopId: "pickup_taman_rempah",
+      stopIndex: 0,
+      stopType: "pickup",
+      stopName: "15 - Taman Rempah",
+      bookingIds: ["taman-rempah-booking"],
+      status: "active",
+    },
+    {
+      stopId: "pickup_the_shore",
+      stopIndex: 1,
+      stopType: "pickup",
+      stopName: "18 - The Shore",
+      bookingIds: ["the-shore-booking"],
+      status: "pending",
+    },
+  ];
+
+  assert.equal(
+    canStartBookingAtCurrentPoolStop(stopPlan, "the-shore-booking"),
+    false,
+    "The Shore booking must not start while Taman Rempah is the active stop"
+  );
+  assert.equal(
+    canStartBookingAtCurrentPoolStop(stopPlan, "taman-rempah-booking"),
+    true,
+    "Taman Rempah booking is allowed because it belongs to the current stop"
+  );
+  assert.equal(
+    canStartBookingAtCurrentPoolStop([], "the-shore-booking"),
+    null,
+    "Missing stop plan falls back to the booking-level sequence gate"
+  );
+});
+
+test("active pickup window is pre-start only", () => {
+  assert.equal(
+    shouldEnforceActivePoolPickupWindow({ hasActiveTrip: false }),
+    true,
+    "Accepted-only pooling still enforces the pre-start pickup window"
+  );
+  assert.equal(
+    shouldEnforceActivePoolPickupWindow({ hasActiveTrip: true }),
+    false,
+    "Mid-trip pooling relies on route-position eligibility instead of pool age"
+  );
+});
+
+test("mid-trip ahead pickup is eligible until the boat passes it", () => {
+  const active = booking("A", 18, 27, {
+    [BOOKING_FIELDS.status]: "on_the_way",
+    [BOOKING_FIELDS.routeDirection]: "forward",
+    [BOOKING_FIELDS.operatorLat]: baseLat,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 18.5 * lngStep,
+    [BOOKING_FIELDS.createdAt]: new Date("2026-05-12T07:00:00.000Z"),
+  });
+  const kampungJawaToSamudera = booking("KJ", 22, 27, {
+    [BOOKING_FIELDS.createdAt]: new Date("2026-05-12T07:27:00.000Z"),
+  });
+
+  const beforeKampungJawa = evaluatePoolingEligibility(
+    [active],
+    kampungJawaToSamudera
+  );
+  assert.equal(
+    beforeKampungJawa.eligible,
+    true,
+    "Kampung Jawa pickup should be eligible while the boat is still before it"
+  );
+
+  const activePastKampungJawa = {
+    ...active,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 22.5 * lngStep,
+  };
+  const afterKampungJawa = evaluatePoolingEligibility(
+    [activePastKampungJawa],
+    kampungJawaToSamudera
+  );
+  assert.equal(
+    afterKampungJawa.reason,
+    "pickup_behind_operator",
+    "Kampung Jawa pickup should be rejected once the boat has passed it"
   );
 });
