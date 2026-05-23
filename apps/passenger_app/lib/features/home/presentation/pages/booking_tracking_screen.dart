@@ -65,6 +65,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
   static const Duration _followRecenterInterval = Duration(seconds: 4);
   static const double _followRecenterDistanceMeters = 20;
   static const double _initialBoundsPadding = 80;
+  // Match the closer operator 2D navigation feel for live passenger tracking.
   static const double _operatorFollowZoom = 16.0;
   static const double _singlePointZoom = 15.0;
   static const Duration _etaSpeedFreshness = Duration(seconds: 45);
@@ -923,7 +924,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
     }
 
     if (operatorPoint != null) {
-      return CameraPosition(target: operatorPoint, zoom: _singlePointZoom);
+      return CameraPosition(target: operatorPoint, zoom: _operatorFollowZoom);
     }
 
     return _fallbackCameraPosition;
@@ -953,6 +954,9 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
         Marker(
           markerId: const MarkerId('origin'),
           position: originPoint,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueGreen,
+          ),
           infoWindow: InfoWindow(title: 'Pick-up', snippet: originLabel),
         ),
       );
@@ -963,6 +967,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
         Marker(
           markerId: const MarkerId('destination'),
           position: destinationPoint,
+          icon: BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed),
           infoWindow: InfoWindow(title: 'Drop-off', snippet: destinationLabel),
         ),
       );
@@ -973,6 +978,9 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
         Marker(
           markerId: const MarkerId('operator_live'),
           position: operatorPoint,
+          icon: BitmapDescriptor.defaultMarkerWithHue(
+            BitmapDescriptor.hueAzure,
+          ),
           infoWindow: const InfoWindow(
             title: 'Operator Location',
             snippet: 'Live location',
