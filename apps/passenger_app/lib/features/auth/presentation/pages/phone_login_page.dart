@@ -23,42 +23,52 @@ const Map<String, String> countryCodes = {
   'Brunei': '+673',
 };
 
-class _OtpRequestThrottle {
+@visibleForTesting
+class OtpRequestThrottle {
   static const Duration normalCooldown = Duration(seconds: 60);
-  static const Duration burstWindow = Duration(minutes: 10);
   static const Duration lockoutCooldown = Duration(minutes: 10);
-  static const int maxAttemptsBeforeLockout = 3;
 
   static final Map<String, DateTime> _nextAllowedAt = <String, DateTime>{};
-  static final Map<String, List<DateTime>> _attemptsByPhone =
-      <String, List<DateTime>>{};
+  static final Map<String, DateTime> _serverLockoutUntil = <String, DateTime>{};
 
   static Duration remainingFor(String phoneNumber) {
+    final now = DateTime.now();
     final nextAllowed = _nextAllowedAt[phoneNumber];
-    if (nextAllowed == null) return Duration.zero;
-
-    final remaining = nextAllowed.difference(DateTime.now());
+    final serverLockout = _serverLockoutUntil[phoneNumber];
+    final effectiveNextAllowed =
+        _laterOf(nextAllowed, serverLockout) ??
+        DateTime.fromMillisecondsSinceEpoch(0);
+    final remaining = effectiveNextAllowed.difference(now);
     return remaining.isNegative ? Duration.zero : remaining;
   }
 
-  static Duration recordAttempt(String phoneNumber) {
-    final now = DateTime.now();
-    final attempts = _attemptsByPhone.putIfAbsent(
-      phoneNumber,
-      () => <DateTime>[],
-    );
-    attempts.removeWhere((attempt) => now.difference(attempt) > burstWindow);
-    attempts.add(now);
-
-    final cooldown = attempts.length >= maxAttemptsBeforeLockout
-        ? lockoutCooldown
-        : normalCooldown;
-    _nextAllowedAt[phoneNumber] = now.add(cooldown);
-    return cooldown;
+  static bool isServerLockedOut(String phoneNumber) {
+    final lockoutUntil = _serverLockoutUntil[phoneNumber];
+    return lockoutUntil != null && lockoutUntil.isAfter(DateTime.now());
   }
 
-  static void recordThrottleFailure(String phoneNumber) {
-    _nextAllowedAt[phoneNumber] = DateTime.now().add(lockoutCooldown);
+  static void recordSuccessfulRequest(String phoneNumber) {
+    _nextAllowedAt[phoneNumber] = DateTime.now().add(normalCooldown);
+  }
+
+  static void recordServerLockout(String phoneNumber) {
+    _serverLockoutUntil[phoneNumber] = DateTime.now().add(lockoutCooldown);
+  }
+
+  static void allowImmediateRetry(String phoneNumber) {
+    _nextAllowedAt.remove(phoneNumber);
+  }
+
+  @visibleForTesting
+  static void resetForTesting() {
+    _nextAllowedAt.clear();
+    _serverLockoutUntil.clear();
+  }
+
+  static DateTime? _laterOf(DateTime? a, DateTime? b) {
+    if (a == null) return b;
+    if (b == null) return a;
+    return a.isAfter(b) ? a : b;
   }
 }
 
@@ -77,11 +87,8 @@ String _friendlyPhoneAuthError(FirebaseAuthException error) {
   final message = error.message ?? '';
   final text = '${error.code} $message'.toLowerCase();
 
-  if (error.code == 'too-many-requests' ||
-      text.contains('blocked all requests') ||
-      text.contains('unusual activity') ||
-      text.contains('quota')) {
-    return 'Too many OTP attempts. Please wait about ${_formatCooldown(_OtpRequestThrottle.lockoutCooldown)} before requesting another code.';
+  if (_isOtpRateLimitError(error)) {
+    return 'Too many OTP attempts. Please wait about ${_formatCooldown(OtpRequestThrottle.lockoutCooldown)} before requesting another code.';
   }
 
   if (error.code == 'invalid-phone-number') {
@@ -102,16 +109,39 @@ String _friendlyPhoneAuthError(FirebaseAuthException error) {
 }
 
 String _friendlyOtpVerifyError(FirebaseAuthException error) {
-  if (error.code == 'invalid-verification-code' ||
-      error.code == 'invalid-verification-id') {
-    return 'The OTP code is invalid or expired. Please check the code or request a new one after the cooldown.';
+  if (error.code == 'invalid-verification-code') {
+    return 'The code is incorrect. Please check the latest SMS and try again.';
   }
 
-  if (error.code == 'session-expired') {
-    return 'This OTP session has expired. Please request a new code after the cooldown.';
+  if (_isOtpSessionExpiredError(error)) {
+    return 'This code session expired. Please request a new OTP.';
   }
 
   return _friendlyPhoneAuthError(error);
+}
+
+bool _isOtpRateLimitError(FirebaseAuthException error) {
+  final message = error.message ?? '';
+  final text = '${error.code} $message'.toLowerCase();
+  return error.code == 'too-many-requests' ||
+      text.contains('blocked all requests') ||
+      text.contains('unusual activity') ||
+      text.contains('quota');
+}
+
+bool _isOtpSessionExpiredError(FirebaseAuthException error) {
+  return error.code == 'session-expired' ||
+      error.code == 'invalid-verification-id';
+}
+
+@visibleForTesting
+String otpVerifyErrorMessageForTesting(FirebaseAuthException error) {
+  return _friendlyOtpVerifyError(error);
+}
+
+@visibleForTesting
+bool isOtpSessionExpiredErrorForTesting(FirebaseAuthException error) {
+  return _isOtpSessionExpiredError(error);
 }
 
 class PhoneLoginPage extends StatefulWidget {
@@ -180,7 +210,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
 
     // Combine country code with phone number
     String fullPhoneNumber = "$_countryCode$phoneNumber";
-    final cooldownRemaining = _OtpRequestThrottle.remainingFor(fullPhoneNumber);
+    final cooldownRemaining = OtpRequestThrottle.remainingFor(fullPhoneNumber);
     if (cooldownRemaining > Duration.zero) {
       if (!mounted) return;
       showTopError(
@@ -192,7 +222,6 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
       return;
     }
 
-    _OtpRequestThrottle.recordAttempt(fullPhoneNumber);
     setState(() => _isLoading = true);
 
     try {
@@ -225,8 +254,8 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
             stageDurations,
             status: 'error',
           );
-          if (e.code == 'too-many-requests') {
-            _OtpRequestThrottle.recordThrottleFailure(fullPhoneNumber);
+          if (_isOtpRateLimitError(e)) {
+            OtpRequestThrottle.recordServerLockout(fullPhoneNumber);
           }
           if (!mounted) return;
           setState(() => _isLoading = false);
@@ -240,6 +269,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
           _logAuthTiming('sendOtp.codeSent', stopwatch);
           stageDurations['sendOtp.codeSent'] = stopwatch.elapsedMilliseconds;
           _logAttemptSummary('sendOtp', stopwatch, stageDurations);
+          OtpRequestThrottle.recordSuccessfulRequest(fullPhoneNumber);
           if (!mounted) return;
           setState(() => _isLoading = false);
           // Navigate to the OTP verification screen
@@ -272,8 +302,8 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
         timeout: const Duration(seconds: 60),
       );
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'too-many-requests') {
-        _OtpRequestThrottle.recordThrottleFailure(fullPhoneNumber);
+      if (_isOtpRateLimitError(e)) {
+        OtpRequestThrottle.recordServerLockout(fullPhoneNumber);
       }
       if (!mounted) return;
       setState(() => _isLoading = false);
@@ -578,14 +608,19 @@ class OTPScreen extends StatefulWidget {
 }
 
 class _OTPScreenState extends State<OTPScreen> {
+  static const Duration _otpSessionValidity = Duration(minutes: 5);
+
   late final List<TextEditingController> _otpControllers;
   late final List<FocusNode> _otpFocusNodes;
   bool _isVerifying = false;
   Timer? _timer;
   late String _currentVerificationId;
+  late DateTime _otpSentAt;
+  late DateTime _otpExpiresAt;
   int? _currentResendToken;
   int _secondsRemaining = 60;
   bool _canResend = false;
+  bool _isSessionExpired = false;
 
   void _logAuthTiming(
     String stage,
@@ -593,6 +628,9 @@ class _OTPScreenState extends State<OTPScreen> {
     String status = 'ok',
     String? detail,
   }) {
+    if (!kDebugMode) {
+      return;
+    }
     final extra = detail == null ? '' : ' detail=$detail';
     debugPrint(
       '[AuthTiming][Passenger] stage=$stage status=$status durationMs=${stopwatch.elapsedMilliseconds}$extra',
@@ -605,6 +643,9 @@ class _OTPScreenState extends State<OTPScreen> {
     Map<String, int> stageDurations, {
     String status = 'ok',
   }) {
+    if (!kDebugMode) {
+      return;
+    }
     if (stageDurations.isEmpty) {
       debugPrint(
         '[AuthTiming][Passenger] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} stageCount=0',
@@ -627,18 +668,27 @@ class _OTPScreenState extends State<OTPScreen> {
     _otpFocusNodes = List.generate(6, (_) => FocusNode());
     _currentVerificationId = widget.verificationId;
     _currentResendToken = widget.resendToken;
+    _resetOtpSession();
     _startTimer();
   }
 
   void _startTimer() {
     _timer?.cancel();
-    final remaining = _OtpRequestThrottle.remainingFor(widget.phoneNumber);
-    _secondsRemaining = remaining.inSeconds > 0
-        ? remaining.inSeconds
-        : _OtpRequestThrottle.normalCooldown.inSeconds;
-    _canResend = _secondsRemaining <= 0;
+    final remaining = OtpRequestThrottle.remainingFor(widget.phoneNumber);
+    _syncSessionExpiry();
+    _secondsRemaining = remaining.inSeconds;
+    _canResend = _secondsRemaining <= 0 || _isSessionExpired;
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      _syncSessionExpiry();
+      if (_isSessionExpired) {
+        setState(() {
+          _secondsRemaining = 0;
+          _canResend = true;
+        });
         timer.cancel();
         return;
       }
@@ -649,6 +699,32 @@ class _OTPScreenState extends State<OTPScreen> {
         timer.cancel();
       }
     });
+  }
+
+  void _resetOtpSession() {
+    _otpSentAt = DateTime.now();
+    _otpExpiresAt = _otpSentAt.add(_otpSessionValidity);
+    _isSessionExpired = false;
+  }
+
+  void _markOtpSessionExpired() {
+    OtpRequestThrottle.allowImmediateRetry(widget.phoneNumber);
+    _timer?.cancel();
+    setState(() {
+      _isSessionExpired = true;
+      _isVerifying = false;
+      _secondsRemaining = 0;
+      _canResend = true;
+      _clearOtpFields();
+    });
+  }
+
+  void _syncSessionExpiry() {
+    if (_isSessionExpired || DateTime.now().isBefore(_otpExpiresAt)) {
+      return;
+    }
+    OtpRequestThrottle.allowImmediateRetry(widget.phoneNumber);
+    _isSessionExpired = true;
   }
 
   Future<void> _verifyOTP() async {
@@ -739,7 +815,16 @@ class _OTPScreenState extends State<OTPScreen> {
       );
       if (!mounted) return;
 
-      setState(() => _isVerifying = false);
+      if (_isOtpSessionExpiredError(e)) {
+        _markOtpSessionExpired();
+      } else {
+        setState(() {
+          _isVerifying = false;
+          if (e.code == 'invalid-verification-code') {
+            _clearOtpFields();
+          }
+        });
+      }
       showTopError(
         context,
         title: 'Verification failed',
@@ -771,10 +856,15 @@ class _OTPScreenState extends State<OTPScreen> {
   }
 
   Future<void> _resendOTP() async {
-    final cooldownRemaining = _OtpRequestThrottle.remainingFor(
+    _syncSessionExpiry();
+    final cooldownRemaining = OtpRequestThrottle.remainingFor(
       widget.phoneNumber,
     );
-    if (cooldownRemaining > Duration.zero) {
+    final isServerLockedOut = OtpRequestThrottle.isServerLockedOut(
+      widget.phoneNumber,
+    );
+    if ((isServerLockedOut || !_isSessionExpired) &&
+        cooldownRemaining > Duration.zero) {
       showTopError(
         context,
         title: 'Please wait',
@@ -785,7 +875,6 @@ class _OTPScreenState extends State<OTPScreen> {
       return;
     }
 
-    _OtpRequestThrottle.recordAttempt(widget.phoneNumber);
     setState(() => _isVerifying = true);
     final resendStopwatch = Stopwatch()..start();
     final stageDurations = <String, int>{};
@@ -820,8 +909,8 @@ class _OTPScreenState extends State<OTPScreen> {
             stageDurations,
             status: 'error',
           );
-          if (e.code == 'too-many-requests') {
-            _OtpRequestThrottle.recordThrottleFailure(widget.phoneNumber);
+          if (_isOtpRateLimitError(e)) {
+            OtpRequestThrottle.recordServerLockout(widget.phoneNumber);
           }
           if (!mounted) return;
           setState(() => _isVerifying = false);
@@ -837,11 +926,13 @@ class _OTPScreenState extends State<OTPScreen> {
           stageDurations['resendOtp.codeSent'] =
               resendStopwatch.elapsedMilliseconds;
           _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
+          OtpRequestThrottle.recordSuccessfulRequest(widget.phoneNumber);
           if (!mounted) return;
           setState(() {
             _isVerifying = false;
             _currentVerificationId = newVerificationId;
             _currentResendToken = newResendToken;
+            _resetOtpSession();
             _clearOtpFields();
           });
           _startTimer();
@@ -865,8 +956,8 @@ class _OTPScreenState extends State<OTPScreen> {
         timeout: const Duration(seconds: 60),
       );
     } on FirebaseAuthException catch (e) {
-      if (e.code == 'too-many-requests') {
-        _OtpRequestThrottle.recordThrottleFailure(widget.phoneNumber);
+      if (_isOtpRateLimitError(e)) {
+        OtpRequestThrottle.recordServerLockout(widget.phoneNumber);
       }
       if (!mounted) return;
       setState(() => _isVerifying = false);
@@ -943,6 +1034,20 @@ class _OTPScreenState extends State<OTPScreen> {
     } else {
       _otpFocusNodes[nextIndex].requestFocus();
     }
+  }
+
+  String get _resendCountdownLabel {
+    if (OtpRequestThrottle.isServerLockedOut(widget.phoneNumber)) {
+      return 'Try again in $_secondsRemaining seconds';
+    }
+    return 'Resend code in $_secondsRemaining seconds';
+  }
+
+  String get _resendButtonLabel {
+    if (_isSessionExpired) {
+      return 'Request a new OTP';
+    }
+    return 'Resend OTP Code';
   }
 
   @override
@@ -1088,7 +1193,7 @@ class _OTPScreenState extends State<OTPScreen> {
                                             ),
                                           ),
                                           child: Text(
-                                            'Resend code in $_secondsRemaining seconds',
+                                            _resendCountdownLabel,
                                             textAlign: TextAlign.center,
                                             style: const TextStyle(
                                               color: PassengerBrand.blue,
@@ -1114,9 +1219,9 @@ class _OTPScreenState extends State<OTPScreen> {
                                             onPressed: _isVerifying
                                                 ? null
                                                 : _resendOTP,
-                                            child: const Text(
-                                              'Resend OTP Code',
-                                              style: TextStyle(
+                                            child: Text(
+                                              _resendButtonLabel,
+                                              style: const TextStyle(
                                                 fontSize: 15,
                                                 fontWeight: FontWeight.w700,
                                                 color: PassengerBrand.blue,
