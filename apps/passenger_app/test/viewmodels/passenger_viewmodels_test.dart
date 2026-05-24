@@ -14,6 +14,11 @@ import 'package:passenger_app/services/payment/payment_gateway_service.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
 void main() {
+  tearDown(() {
+    PassengerViewModelDisposer.disposeAll();
+    FakeBookingRepository.closeAll();
+  });
+
   group('HomeViewModel', () {
     test('init loads user, jetties, and active booking stream', () async {
       final userRepo = FakeUserRepository(
@@ -38,6 +43,7 @@ void main() {
         fareRepo: fareRepo,
         bookingRepo: bookingRepo,
       );
+      PassengerViewModelDisposer.track(viewModel.dispose);
 
       await viewModel.init('user-1');
       bookingRepo.emitActiveBooking(
@@ -57,6 +63,7 @@ void main() {
         fareRepo: FakeFareRepository(),
         bookingRepo: FakeBookingRepository(),
       );
+      PassengerViewModelDisposer.track(viewModel.dispose);
 
       viewModel.selectDestination('Terminal A');
       viewModel.selectOrigin('Terminal A');
@@ -99,6 +106,7 @@ void main() {
             )
             ..selectOrigin('Terminal A')
             ..selectDestination('Terminal B');
+      PassengerViewModelDisposer.track(viewModel.dispose);
 
       final fare = await viewModel.getFareForSelectedRoute();
 
@@ -442,6 +450,7 @@ void main() {
     test('startTracking reflects stream updates and cancel succeeds', () async {
       final bookingRepo = FakeBookingRepository();
       final viewModel = BookingTrackingViewModel(bookingRepo: bookingRepo);
+      PassengerViewModelDisposer.track(viewModel.dispose);
 
       viewModel.startTracking('booking-1');
       bookingRepo.emitTrackedBooking(
@@ -461,6 +470,7 @@ void main() {
     test('cancelBooking returns info failure for completed booking', () async {
       final bookingRepo = FakeBookingRepository();
       final viewModel = BookingTrackingViewModel(bookingRepo: bookingRepo);
+      PassengerViewModelDisposer.track(viewModel.dispose);
 
       viewModel.startTracking('booking-1');
       bookingRepo.emitTrackedBooking(
@@ -493,6 +503,7 @@ void main() {
         userRepo: userRepo,
         bookingRepo: FakeBookingRepository(),
       );
+      PassengerViewModelDisposer.track(viewModel.dispose);
 
       await viewModel.loadProfile('user-1');
       final result = await viewModel.updateProfile(
@@ -513,6 +524,7 @@ void main() {
         userRepo: FakeUserRepository(),
         bookingRepo: bookingRepo,
       );
+      PassengerViewModelDisposer.track(viewModel.dispose);
 
       viewModel.startBookingHistoryStream('user-1');
       bookingRepo.emitHistory([
@@ -640,7 +652,12 @@ class FakeBookingRepository extends BookingRepository {
     : _trackedBookingController = StreamController<BookingModel?>.broadcast(),
       _activeBookingController = StreamController<BookingModel?>.broadcast(),
       _historyController = StreamController<List<BookingModel>>.broadcast(),
-      super(firestore: FakeFirebaseFirestore());
+      super(firestore: FakeFirebaseFirestore()) {
+    _instances.add(this);
+  }
+
+  static final List<FakeBookingRepository> _instances =
+      <FakeBookingRepository>[];
 
   final StreamController<BookingModel?> _trackedBookingController;
   final StreamController<BookingModel?> _activeBookingController;
@@ -691,6 +708,38 @@ class FakeBookingRepository extends BookingRepository {
 
   void emitHistory(List<BookingModel> bookings) {
     _historyController.add(bookings);
+  }
+
+  void close() {
+    unawaited(_trackedBookingController.close());
+    unawaited(_activeBookingController.close());
+    unawaited(_historyController.close());
+  }
+
+  static void closeAll() {
+    if (_instances.isEmpty) return;
+    final snapshot = List<FakeBookingRepository>.from(_instances);
+    _instances.clear();
+    for (final repo in snapshot) {
+      repo.close();
+    }
+  }
+}
+
+class PassengerViewModelDisposer {
+  static final List<void Function()> _disposeCallbacks = <void Function()>[];
+
+  static void track(void Function() dispose) {
+    _disposeCallbacks.add(dispose);
+  }
+
+  static void disposeAll() {
+    if (_disposeCallbacks.isEmpty) return;
+    final snapshot = List<void Function()>.from(_disposeCallbacks.reversed);
+    _disposeCallbacks.clear();
+    for (final dispose in snapshot) {
+      dispose();
+    }
   }
 }
 

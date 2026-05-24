@@ -736,9 +736,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Passenger One'), findsOneWidget);
-    expect(find.text('The Shore -> Kampung Jawa'), findsOneWidget);
+    expect(find.text('The Shore → Kampung Jawa'), findsOneWidget);
     expect(find.text('Passenger Two'), findsOneWidget);
-    expect(find.text('Kampung Hulu -> The Shore'), findsOneWidget);
+    expect(find.text('Kampung Hulu → The Shore'), findsOneWidget);
 
     await tester.tap(
       find.byKey(const ValueKey('active-booking-call-active-pool-2')),

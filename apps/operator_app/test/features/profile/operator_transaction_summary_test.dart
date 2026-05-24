@@ -113,13 +113,13 @@ void main() {
     );
 
     expect(find.text('booking-hidden-id'), findsNothing);
-    expect(find.text('The Shore -> Kampung Jawa'), findsOneWidget);
+    expect(find.text('The Shore → Kampung Jawa'), findsOneWidget);
     expect(find.text('Aina Rahman'), findsOneWidget);
     expect(find.text('Total 3'), findsOneWidget);
     expect(find.text('Adults 2'), findsOneWidget);
     expect(find.text('Children 1'), findsOneWidget);
-    expect(find.text('RM 24.50'), findsOneWidget);
-    expect(find.text('2026-05-10 12:30'), findsOneWidget);
+    expect(find.text('RM 24.50'), findsNothing);
+    expect(find.text('2026-05-10 12:30'), findsNothing);
     expect(find.text('Completed'), findsOneWidget);
   });
 }

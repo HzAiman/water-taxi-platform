@@ -1776,6 +1776,9 @@ class OperatorHomeViewModel extends ChangeNotifier {
     String? rawTitle,
     String? rawMessage,
   }) {
+    if (!kDebugMode) {
+      return;
+    }
     debugPrint(
       '[operator_action_failure] action=$actionName operatorId=${_operatorId ?? 'unknown'} bookingId=${bookingId ?? 'n/a'} title=${failure.title} message=${failure.message} rawTitle=${rawTitle ?? '-'} rawMessage=${rawMessage ?? '-'}',
     );

@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:operator_app/core/theme/operator_brand.dart';
@@ -27,6 +28,9 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
     String status = 'ok',
     String? detail,
   }) {
+    if (!kDebugMode) {
+      return;
+    }
     final extra = detail == null ? '' : ' detail=$detail';
     debugPrint(
       '[AuthTiming][Operator] stage=$stage status=$status durationMs=${stopwatch.elapsedMilliseconds}$extra',
@@ -39,6 +43,9 @@ class _OperatorLoginPageState extends State<OperatorLoginPage> {
     Map<String, int> stageDurations, {
     String status = 'ok',
   }) {
+    if (!kDebugMode) {
+      return;
+    }
     if (stageDurations.isEmpty) {
       debugPrint(
         '[AuthTiming][Operator] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} stageCount=0',

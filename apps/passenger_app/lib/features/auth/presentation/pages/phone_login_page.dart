@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -131,6 +132,9 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
     String status = 'ok',
     String? detail,
   }) {
+    if (!kDebugMode) {
+      return;
+    }
     final extra = detail == null ? '' : ' detail=$detail';
     debugPrint(
       '[AuthTiming][Passenger] stage=$stage status=$status durationMs=${stopwatch.elapsedMilliseconds}$extra',
@@ -143,6 +147,9 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
     Map<String, int> stageDurations, {
     String status = 'ok',
   }) {
+    if (!kDebugMode) {
+      return;
+    }
     if (stageDurations.isEmpty) {
       debugPrint(
         '[AuthTiming][Passenger] flow=$flow status=$status totalMs=${totalStopwatch.elapsedMilliseconds} stageCount=0',
@@ -173,9 +180,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
 
     // Combine country code with phone number
     String fullPhoneNumber = "$_countryCode$phoneNumber";
-    final cooldownRemaining = _OtpRequestThrottle.remainingFor(
-      fullPhoneNumber,
-    );
+    final cooldownRemaining = _OtpRequestThrottle.remainingFor(fullPhoneNumber);
     if (cooldownRemaining > Duration.zero) {
       if (!mounted) return;
       showTopError(
