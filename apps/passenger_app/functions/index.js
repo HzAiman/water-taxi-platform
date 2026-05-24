@@ -270,6 +270,14 @@ function getBookingEndpoints(booking) {
   return { origin, destination };
 }
 
+function isPassengerAlreadyPickedUp(booking) {
+  return Boolean(
+    booking?.[BOOKING_FIELDS.passengerPickedUpAt] ||
+      booking?.[BOOKING_FIELDS.pickedUpAt] ||
+      booking?.[BOOKING_FIELDS.onboard]
+  );
+}
+
 function corridorLengthMeters(corridor) {
   return corridor.totalMeters || haversineDistanceMeters(
     corridor.origin,
@@ -455,21 +463,32 @@ function choosePoolCorridor(activeBookings, candidateBooking) {
   return buildCorridorFromBooking(base);
 }
 
-function estimateOrderedRouteDistanceMeters(anchor, corridor, bookings) {
+function routeStopsForBooking(corridor, booking, bookingIndex = 0) {
+  const metrics = routeMetricsForBooking(corridor, booking);
+  if (!metrics) return [];
+
   const stops = [];
-  for (const booking of bookings) {
-    const metrics = routeMetricsForBooking(corridor, booking);
-    if (!metrics) continue;
+  if (!isPassengerAlreadyPickedUp(booking)) {
     stops.push({
+      bookingIndex,
       type: "pickup",
       alongMeters: metrics.originAlongMeters,
       point: metrics.endpoints.origin,
     });
-    stops.push({
-      type: "dropoff",
-      alongMeters: metrics.destinationAlongMeters,
-      point: metrics.endpoints.destination,
-    });
+  }
+  stops.push({
+    bookingIndex,
+    type: "dropoff",
+    alongMeters: metrics.destinationAlongMeters,
+    point: metrics.endpoints.destination,
+  });
+  return stops;
+}
+
+function estimateOrderedRouteDistanceMeters(anchor, corridor, bookings) {
+  const stops = [];
+  for (const booking of bookings) {
+    stops.push(...routeStopsForBooking(corridor, booking));
   }
 
   stops.sort((a, b) => {
@@ -501,20 +520,7 @@ function estimateOrderedRouteDistanceMeters(anchor, corridor, bookings) {
 function orderedPoolStops(corridor, bookings) {
   const stops = [];
   bookings.forEach((booking, bookingIndex) => {
-    const metrics = routeMetricsForBooking(corridor, booking);
-    if (!metrics) return;
-    stops.push({
-      bookingIndex,
-      type: "pickup",
-      alongMeters: metrics.originAlongMeters,
-      point: metrics.endpoints.origin,
-    });
-    stops.push({
-      bookingIndex,
-      type: "dropoff",
-      alongMeters: metrics.destinationAlongMeters,
-      point: metrics.endpoints.destination,
-    });
+    stops.push(...routeStopsForBooking(corridor, booking, bookingIndex));
   });
 
   return stops.sort((a, b) => {
@@ -1117,8 +1123,17 @@ function evaluatePoolingEligibility(
     : activeBookings
     .map((booking) => getOperatorPoint(booking))
     .find((point) => isValidPoint(point));
+  let operatorProjection = null;
+  let candidatePickupAheadOfOperator = false;
+  let candidatePickupRouteAheadDistanceMeters = 0;
   if (activeBookings.length > 0 && liveOperatorPoint && candidateMetrics) {
-    const operatorProjection = projectPointToCorridor(corridor, liveOperatorPoint);
+    operatorProjection = projectPointToCorridor(corridor, liveOperatorPoint);
+    candidatePickupRouteAheadDistanceMeters =
+      routeDirection === "reverse"
+        ? operatorProjection.alongMeters - candidateMetrics.originAlongMeters
+        : candidateMetrics.originAlongMeters - operatorProjection.alongMeters;
+    candidatePickupAheadOfOperator =
+      candidatePickupRouteAheadDistanceMeters > 0;
     const pickupBehindOperator =
       routeDirection === "reverse"
         ? candidateMetrics.originAlongMeters >= operatorProjection.alongMeters
@@ -1187,7 +1202,8 @@ function evaluatePoolingEligibility(
   );
   if (
     activeBookings.length > 0 &&
-    pickupDistanceToPoolMeters > POOLING_POLICY.maxPickupDistanceMeters
+    pickupDistanceToPoolMeters > POOLING_POLICY.maxPickupDistanceMeters &&
+    !candidatePickupAheadOfOperator
   ) {
     return {
       eligible: false,
@@ -1218,6 +1234,7 @@ function evaluatePoolingEligibility(
     maxPerRiderAddedEtaMinutes: riderImpact.maxAddedEtaMinutes,
     maxPerRiderAddedDistanceMeters: riderImpact.maxAddedDistanceMeters,
     pickupDistanceToPoolMeters,
+    candidatePickupRouteAheadDistanceMeters,
     score: Math.max(0, Math.min(1, 1 / (1 + score))),
     candidateMetrics,
   };

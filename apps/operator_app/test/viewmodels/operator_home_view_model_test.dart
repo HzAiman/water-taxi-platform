@@ -1382,6 +1382,72 @@ void main() {
       },
     );
 
+    test('navigation helper does not warn while approaching current stop', () {
+      final booking = _sampleBooking(
+        id: 'approaching-pickup',
+        status: BookingStatus.onTheWay,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        ],
+        poolStopPlan: _twoStopPlan(),
+        currentStopIndex: 0,
+        currentStopId: 'pickup-active-1',
+        currentPoolStopId: 'pickup-active-1',
+        routeDirection: 'forward',
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2005,
+        currentLng: 102.2505,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+        lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastSampleLat: 2.2000,
+        lastSampleLng: 102.2500,
+      );
+
+      expect(guidance, isNotNull);
+      expect(
+        guidance!.stopOvershootSeverity,
+        OperatorStopOvershootSeverity.none,
+      );
+    });
+
+    test('navigation helper ignores projection jitter near current stop', () {
+      final booking = _sampleBooking(
+        id: 'pickup-jitter',
+        status: BookingStatus.onTheWay,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        ],
+        poolStopPlan: _twoStopPlan(),
+        currentStopIndex: 0,
+        currentStopId: 'pickup-active-1',
+        currentPoolStopId: 'pickup-active-1',
+        routeDirection: 'forward',
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2014,
+        currentLng: 102.2514,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+        lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastSampleLat: 2.2020,
+        lastSampleLng: 102.2520,
+      );
+
+      expect(guidance, isNotNull);
+      expect(
+        guidance!.stopOvershootSeverity,
+        isNot(OperatorStopOvershootSeverity.missed),
+      );
+    });
+
     test('navigation helper warns when first pickup stop is missed', () {
       final booking = _sampleBooking(
         id: 'missed-pickup',
@@ -1402,7 +1468,10 @@ void main() {
         booking: booking,
         currentLat: 2.2020,
         currentLng: 102.2520,
-        now: DateTime(2026, 3, 19, 10, 0, 0),
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+        lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastSampleLat: 2.2012,
+        lastSampleLng: 102.2512,
       );
 
       expect(guidance, isNotNull);
@@ -1411,6 +1480,76 @@ void main() {
         OperatorStopOvershootSeverity.missed,
       );
     });
+
+    test('navigation helper warns when reverse-route stop is missed', () {
+      final booking = _sampleBooking(
+        id: 'missed-reverse-pickup',
+        status: BookingStatus.onTheWay,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        ],
+        poolStopPlan: _twoStopPlan(),
+        currentStopIndex: 0,
+        currentStopId: 'pickup-active-1',
+        currentPoolStopId: 'pickup-active-1',
+        routeDirection: 'reverse',
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2000,
+        currentLng: 102.2500,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+        lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+        lastSampleLat: 2.2008,
+        lastSampleLng: 102.2508,
+      );
+
+      expect(guidance, isNotNull);
+      expect(
+        guidance!.stopOvershootSeverity,
+        OperatorStopOvershootSeverity.missed,
+      );
+    });
+
+    test(
+      'navigation helper suppresses missed stop while severely off route',
+      () {
+        final booking = _sampleBooking(
+          id: 'off-route-pickup',
+          status: BookingStatus.onTheWay,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          ],
+          poolStopPlan: _twoStopPlan(),
+          currentStopIndex: 0,
+          currentStopId: 'pickup-active-1',
+          currentPoolStopId: 'pickup-active-1',
+          routeDirection: 'forward',
+        );
+
+        final guidance = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.2020,
+          currentLng: 102.2620,
+          now: DateTime(2026, 3, 19, 10, 0, 10),
+          lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+          lastSampleLat: 2.2012,
+          lastSampleLng: 102.2612,
+        );
+
+        expect(guidance, isNotNull);
+        expect(guidance!.offRouteSeverity, OperatorOffRouteSeverity.severe);
+        expect(
+          guidance.stopOvershootSeverity,
+          OperatorStopOvershootSeverity.none,
+        );
+      },
+    );
   });
 }
 

@@ -124,6 +124,11 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
     booking: booking,
     currentLat: currentLat,
     currentLng: currentLng,
+    now: now,
+    lastSampleAt: lastSampleAt,
+    lastSampleLat: lastSampleLat,
+    lastSampleLng: lastSampleLng,
+    offRouteSeverity: offRouteSeverity,
   );
 
   if (offRouteDistanceMeters > severeOffRouteCapMeters) {
@@ -216,7 +221,18 @@ _StopOvershoot _resolveStopOvershoot({
   required BookingModel booking,
   required double currentLat,
   required double currentLng,
+  required DateTime now,
+  DateTime? lastSampleAt,
+  double? lastSampleLat,
+  double? lastSampleLng,
+  required OperatorOffRouteSeverity offRouteSeverity,
 }) {
+  const softOvershootMeters = 50.0;
+  const missedOvershootMeters = 75.0;
+  const stopProximityMeters = 80.0;
+  const minMovementMeters = 8.0;
+  const movingAwayToleranceMeters = 5.0;
+
   final currentStop = booking.currentPoolStop;
   final stopRoutePosition = currentStop?.routePositionMeters;
   if (currentStop == null ||
@@ -238,15 +254,57 @@ _StopOvershoot _resolveStopOvershoot({
   final overshootDistance = direction == 'reverse'
       ? stopRoutePosition - operatorProjection
       : operatorProjection - stopRoutePosition;
-  if (overshootDistance <= 30) {
+  if (overshootDistance <= softOvershootMeters) {
     return const _StopOvershoot.none();
   }
-  if (overshootDistance <= 50) {
+
+  final distanceToStopMeters = Geolocator.distanceBetween(
+    currentLat,
+    currentLng,
+    currentStop.lat,
+    currentStop.lng,
+  );
+  if (distanceToStopMeters <= stopProximityMeters ||
+      offRouteSeverity == OperatorOffRouteSeverity.severe) {
+    return const _StopOvershoot.none();
+  }
+
+  if (lastSampleAt == null ||
+      lastSampleLat == null ||
+      lastSampleLng == null ||
+      !now.isAfter(lastSampleAt)) {
     return _StopOvershoot(
       severity: OperatorStopOvershootSeverity.soft,
       distanceMeters: overshootDistance,
     );
   }
+
+  final previousDistanceToStopMeters = Geolocator.distanceBetween(
+    lastSampleLat,
+    lastSampleLng,
+    currentStop.lat,
+    currentStop.lng,
+  );
+  final movementMeters = Geolocator.distanceBetween(
+    lastSampleLat,
+    lastSampleLng,
+    currentLat,
+    currentLng,
+  );
+  final hasReliableMovementSample = movementMeters >= minMovementMeters;
+  final isMovingAwayFromStop =
+      distanceToStopMeters >
+      previousDistanceToStopMeters + movingAwayToleranceMeters;
+
+  if (overshootDistance < missedOvershootMeters ||
+      !hasReliableMovementSample ||
+      !isMovingAwayFromStop) {
+    return _StopOvershoot(
+      severity: OperatorStopOvershootSeverity.soft,
+      distanceMeters: overshootDistance,
+    );
+  }
+
   return _StopOvershoot(
     severity: OperatorStopOvershootSeverity.missed,
     distanceMeters: overshootDistance,

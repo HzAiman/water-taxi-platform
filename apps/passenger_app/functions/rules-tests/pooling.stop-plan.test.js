@@ -327,3 +327,61 @@ test("mid-trip ahead pickup is eligible until the boat passes it", () => {
     "Kampung Jawa pickup should be rejected once the boat has passed it"
   );
 });
+
+test("mid-trip same-sweep pickup ahead is not deferred by straight-line pickup distance", () => {
+  const previousMaxPickupDistance = POOLING_POLICY.maxPickupDistanceMeters;
+  POOLING_POLICY.maxPickupDistanceMeters = 80;
+  try {
+    const active = booking("A", 15, 20, {
+      [BOOKING_FIELDS.status]: "on_the_way",
+      [BOOKING_FIELDS.routeDirection]: "forward",
+      [BOOKING_FIELDS.operatorLat]: baseLat,
+      [BOOKING_FIELDS.operatorLng]: baseLng + 18.5 * lngStep,
+      [BOOKING_FIELDS.passengerPickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+      [BOOKING_FIELDS.pickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+      [BOOKING_FIELDS.onboard]: true,
+    });
+    const aheadPickup = booking("Ahead", 22, 23, {
+      [BOOKING_FIELDS.status]: "pending",
+    });
+
+    const eligibility = evaluatePoolingEligibility([active], aheadPickup);
+
+    assert.equal(
+      eligibility.eligible,
+      true,
+      "A same-direction pickup ahead on the current route should stay in the current sweep even when straight-line pickup distance exceeds the generic threshold"
+    );
+    assert.equal(
+      eligibility.reason,
+      "eligible",
+      "Valid ahead pickup should not be deferred as pickup_distance_exceeded"
+    );
+  } finally {
+    POOLING_POLICY.maxPickupDistanceMeters = previousMaxPickupDistance;
+  }
+});
+
+test("mid-trip ETA calculation does not revisit already completed active pickup", () => {
+  const active = booking("A", 11, 20, {
+    [BOOKING_FIELDS.status]: "on_the_way",
+    [BOOKING_FIELDS.routeDirection]: "forward",
+    [BOOKING_FIELDS.operatorLat]: baseLat,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 18.5 * lngStep,
+    [BOOKING_FIELDS.passengerPickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+    [BOOKING_FIELDS.pickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+    [BOOKING_FIELDS.onboard]: true,
+  });
+  const aheadPickup = booking("Ahead", 21, 23, {
+    [BOOKING_FIELDS.status]: "pending",
+  });
+
+  const eligibility = evaluatePoolingEligibility([active], aheadPickup);
+
+  assert.equal(eligibility.eligible, true);
+  assert.equal(
+    eligibility.maxPerRiderAddedEtaMinutes <= POOLING_POLICY.addedEtaLimitMinutes,
+    true,
+    "Already picked-up passengers should be evaluated from their remaining dropoff leg, not from their completed pickup stop"
+  );
+});
