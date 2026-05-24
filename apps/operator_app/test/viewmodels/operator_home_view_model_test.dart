@@ -1444,7 +1444,7 @@ void main() {
       expect(guidance, isNotNull);
       expect(
         guidance!.stopOvershootSeverity,
-        isNot(OperatorStopOvershootSeverity.missed),
+        OperatorStopOvershootSeverity.none,
       );
     });
 

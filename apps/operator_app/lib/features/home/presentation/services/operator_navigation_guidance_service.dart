@@ -273,10 +273,7 @@ _StopOvershoot _resolveStopOvershoot({
       lastSampleLat == null ||
       lastSampleLng == null ||
       !now.isAfter(lastSampleAt)) {
-    return _StopOvershoot(
-      severity: OperatorStopOvershootSeverity.soft,
-      distanceMeters: overshootDistance,
-    );
+    return const _StopOvershoot.none();
   }
 
   final previousDistanceToStopMeters = Geolocator.distanceBetween(
@@ -299,6 +296,9 @@ _StopOvershoot _resolveStopOvershoot({
   if (overshootDistance < missedOvershootMeters ||
       !hasReliableMovementSample ||
       !isMovingAwayFromStop) {
+    if (!hasReliableMovementSample || !isMovingAwayFromStop) {
+      return const _StopOvershoot.none();
+    }
     return _StopOvershoot(
       severity: OperatorStopOvershootSeverity.soft,
       distanceMeters: overshootDistance,
