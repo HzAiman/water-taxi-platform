@@ -106,7 +106,7 @@ flutter run
 ## Documentation map
 
 - docs/drt_algorithm_reference.md: Pooling + route-aware sequencing algorithm.
-- docs/firestore_schema_inventory.md: Code-derived Firestore schema inventory.
+- docs/firestore_schema_inventory.md: Firestore schema inventory, refreshed from live Firestore samples plus code-supported fields.
 - apps/passenger_app/README.md: Passenger app architecture + flows.
 - apps/operator_app/README.md: Operator app architecture + flows.
 - apps/passenger_app/functions/README.md: Cloud Functions details.

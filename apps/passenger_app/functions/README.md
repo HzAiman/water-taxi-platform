@@ -19,7 +19,8 @@ This module contains the Cloud Functions backend for payment lifecycle, pooled d
 ### Pooling and DRT
 
 - acceptPooledBooking (callable): Validates eligibility, assigns poolGroupId/sequence/stop plan.
-- startPooledBooking (callable): Starts the next backend-approved booking, enforces one on_the_way booking.
+- rejectPooledBooking (callable): Rejects a pending booking for the current operator, including while mid-trip.
+- startPooledBooking (callable): Starts the first current pool-stop booking, returns startedBookingId, and enforces one on_the_way booking.
 - markPoolStopReached (callable): Completes pool pickup/dropoff stops, updates poolStopPlan and booking status.
 - completePooledBooking (callable): Completes an on_the_way booking and archives it.
 - replanPoolSequenceOnBookingExit (on update): Reorders pooled bookings after a booking leaves the pool.
@@ -58,6 +59,7 @@ This module contains the Cloud Functions backend for payment lifecycle, pooled d
 
 - bookings, bookings_archive, tracking, operator_presence, operator_devices, user_devices
 - order_number_index, operator_id_index
+- fares, jetties, operators, polylines, users
 - payment_webhooks (Stripe audit log)
 - webhook_events (Stripe idempotency tracker)
 

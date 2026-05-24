@@ -31,7 +31,7 @@ Core ideas:
 Backend dispatch and pooling:
 
 - `apps/passenger_app/functions/index.js`
-- Main functions: `acceptPooledBooking`, `startPooledBooking`, `markPoolStopReached`, `completePooledBooking`, `replanPoolSequenceOnBookingExit`
+- Main functions: `acceptPooledBooking`, `rejectPooledBooking`, `startPooledBooking`, `markPoolStopReached`, `completePooledBooking`, `replanPoolSequenceOnBookingExit`
 - Main helpers: `evaluatePoolingEligibility`, `choosePoolCorridor`, `routeMetricsForBooking`, `planRouteAwarePoolSequence`, `buildPoolStopPlan`
 
 Shared data model:
@@ -656,49 +656,91 @@ Implemented by `startPooledBooking`.
 
 Purpose:
 
-- Promote the first accepted route-aware booking to `on_the_way`.
+- Treat `Start Route` as a pool-level action.
+- Promote the booking that belongs to the first current pool stop to `on_the_way`.
 - Initialize stop-plan state for the pool.
+- Preserve API compatibility with the existing `bookingId` parameter.
 
 Flow:
 
 1. Require authenticated operator.
-2. Load target booking.
-3. Ensure booking belongs to operator and is accepted.
+2. Load requested booking.
+3. Ensure requested booking belongs to operator and is accepted.
 4. Query all active bookings for operator.
 5. Reject if any booking is already `on_the_way`.
 6. Consider accepted bookings.
 7. Choose corridor.
 8. Plan route-aware sequence.
 9. Build stop plan.
-10. Ensure requested booking belongs to the first active/current pool stop when a stop plan exists.
-11. Update sequence and stop state for accepted items.
-12. Update requested booking to `on_the_way`.
-13. Optionally store operator location.
-14. Write status history.
+10. Resolve the first active/current pool stop from `poolStopPlan`.
+11. If that stop has `bookingIds`, choose the first accepted booking ID from the stop.
+12. Start the resolved first-stop booking, even if the requested booking ID was a different accepted booking in the same pool.
+13. Reject only when no valid first-stop booking can be resolved, the booking is outside the operator pool, or another booking is already `on_the_way`.
+14. Update sequence and stop state for accepted items.
+15. Update the resolved started booking to `on_the_way`.
+16. Optionally store operator location.
+17. Write status history.
+18. Return `startedBookingId`, `requestedBookingId`, `currentStopId`, and `poolGroupId`.
 
-The important guard is stop-level first, sequence-level second:
+The important behavior is stop-level first, booking-level second:
 
 ```js
-const nextItem = sequencePlan[0];
+const resolvedStartBookingId =
+  startableBookingIdAtCurrentPoolStop(stopState.plannedStops, acceptedIds) ||
+  bookingId;
+
+const startedItem = sequencePlan.find(
+  (item) => item.id === resolvedStartBookingId
+);
+
 const currentStopAllowsBooking = canStartBookingAtCurrentPoolStop(
   stopState.plannedStops,
-  bookingId
+  resolvedStartBookingId
 );
+
 if (currentStopAllowsBooking === false) {
   throw new HttpsError(
     "failed-precondition",
-    "Start the booking at the first pool stop first."
+    "Start the route at the first pool stop first."
   );
 }
-if (currentStopAllowsBooking == null && (!nextItem || nextItem.id !== bookingId)) {
+
+if (!startedItem) {
   throw new HttpsError(
     "failed-precondition",
-    "Start the next route-aware pooled booking first."
+    "Unable to resolve the first route stop booking."
   );
 }
 ```
 
-This prevents an operator from starting a booking whose booking-level sequence is first but whose pickup is not the current stop. For example, if the stop plan says `Taman Rempah` is the first pickup and `The Shore` is second, the app/backend must start the Taman Rempah booking even if the card or booking sequence is showing The Shore.
+This prevents the old field-test failure where the operator clicked a card for one booking while the stop plan's first pickup belonged to another booking. For example, if the stop plan says `Taman Rempah` is the first pickup and `The Shore` is second, `Start Route` resolves to the Taman Rempah booking and returns that ID as `startedBookingId`.
+
+The operator app treats the client-side current-stop booking as a hint only. The backend response is the source of truth for which booking became active.
+
+## 15.1 Reject Pooled Booking Flow
+
+Implemented by `rejectPooledBooking`.
+
+Purpose:
+
+- Allow an operator to decline a pending booking even while the operator is mid-trip.
+- Remove the booking from that operator's actionable pending queue without forcing the booking into terminal rejected state unless all online operators have rejected it.
+- Centralize reject behavior in the backend instead of relying on a client-side transaction.
+
+Flow:
+
+1. Require authenticated operator.
+2. Require `bookingId`.
+3. Load the booking.
+4. Require `status == pending`.
+5. Require the booking to be unassigned.
+6. Reject if this operator already appears in `rejectedBy`.
+7. Add operator UID to `rejectedBy`.
+8. If every currently online operator has rejected the request, set `status = rejected`; otherwise keep `status = pending`.
+9. Clear operator-specific pool deferral fields so the declined card does not remain actionable for the same operator.
+10. Write status history only when the booking status changes.
+
+This callable is safe during active navigation because it does not require the operator to have zero `on_the_way` bookings.
 
 ## 16. Mark Pool Stop Reached Flow
 
@@ -1204,6 +1246,6 @@ Potential algorithm upgrades:
 - Add stronger invariant checks around multiple `on_the_way` bookings.
 - Normalize stop identity with stable jetty IDs instead of rounded route position when possible.
 - Store route projection metrics at acceptance time for easier debugging.
-- Add callable tests for `acceptPooledBooking`, `startPooledBooking`, and `markPoolStopReached`.
+- Add callable tests for `acceptPooledBooking`, `rejectPooledBooking`, `startPooledBooking`, and `markPoolStopReached`.
 - Add property tests for completed-stop preservation across replans.
 - Add visual debug overlays for corridor projection, candidate deviation, and pickup-behind-operator decisions.
