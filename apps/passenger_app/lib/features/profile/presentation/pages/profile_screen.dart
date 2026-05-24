@@ -11,6 +11,8 @@ import 'package:passenger_app/features/profile/presentation/viewmodels/profile_v
 import 'package:provider/provider.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
+const Duration _deleteAccountFreshLoginWindow = Duration(minutes: 5);
+
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key, this.testUserId, this.testPhoneNumber});
 
@@ -484,6 +486,32 @@ class _AccountManagementRoutePageState
       return;
     }
 
+    if (_shouldReauthenticateForAccountDelete(currentUser)) {
+      await _promptReauthenticationForAccountDelete();
+      return;
+    }
+
+    final uid = currentUser.uid;
+    final profileResult = await context.read<ProfileViewModel>().deleteAccount(
+      uid,
+    );
+    if (!mounted) {
+      return;
+    }
+
+    if (profileResult case OperationFailure(
+      :final title,
+      :final message,
+      :final isInfo,
+    )) {
+      if (isInfo) {
+        showTopInfo(context, title: title, message: message);
+      } else {
+        showTopError(context, title: title, message: message);
+      }
+      return;
+    }
+
     try {
       await currentUser.delete();
     } on FirebaseAuthException catch (e) {
@@ -497,38 +525,7 @@ class _AccountManagementRoutePageState
           e.code == 'invalid-user-token';
 
       if (needsRecentLogin) {
-        final shouldReauthenticate = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) {
-            return AlertDialog(
-              title: const Text('Reauthentication required'),
-              content: const Text(
-                'For security, please log in again before deleting your account.',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancel'),
-                ),
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, true),
-                  child: const Text('Re-login'),
-                ),
-              ],
-            );
-          },
-        );
-
-        if (shouldReauthenticate == true) {
-          await FirebaseAuth.instance.signOut();
-          if (!mounted) {
-            return;
-          }
-          Navigator.of(context).pushAndRemoveUntil(
-            MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
-            (route) => false,
-          );
-        }
+        await _promptReauthenticationForAccountDelete();
         return;
       }
 
@@ -546,25 +543,60 @@ class _AccountManagementRoutePageState
       return;
     }
 
-    final result = await context.read<ProfileViewModel>().deleteAccount(
-      currentUser.uid,
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) {
+      return;
+    }
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
+      (route) => false,
     );
+  }
+
+  bool _shouldReauthenticateForAccountDelete(User user) {
+    final lastSignInAt = user.metadata.lastSignInTime;
+    if (lastSignInAt == null) {
+      return true;
+    }
+    return DateTime.now().difference(lastSignInAt) >
+        _deleteAccountFreshLoginWindow;
+  }
+
+  Future<void> _promptReauthenticationForAccountDelete() async {
     if (!mounted) {
       return;
     }
 
-    if (result case OperationFailure(
-      :final title,
-      :final message,
-      :final isInfo,
-    )) {
-      if (isInfo) {
-        showTopInfo(context, title: title, message: message);
-      } else {
-        showTopError(context, title: title, message: message);
-      }
+    final shouldReauthenticate = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reauthentication required'),
+          content: const Text(
+            'For security, please log in again before deleting your account.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Re-login'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (shouldReauthenticate != true) {
+      return;
     }
 
+    await FirebaseAuth.instance.signOut();
+    if (!mounted) {
+      return;
+    }
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const PhoneLoginPage()),
       (route) => false,

@@ -715,6 +715,7 @@ class _OTPScreenState extends State<OTPScreen> {
       _isVerifying = false;
       _secondsRemaining = 0;
       _canResend = true;
+      _currentResendToken = null;
       _clearOtpFields();
     });
   }
@@ -728,6 +729,16 @@ class _OTPScreenState extends State<OTPScreen> {
   }
 
   Future<void> _verifyOTP() async {
+    _syncSessionExpiry();
+    if (_isSessionExpired) {
+      showTopError(
+        context,
+        title: 'Verification failed',
+        message: 'This code session expired. Please request a new OTP.',
+      );
+      return;
+    }
+
     final otpCode = _otpCode;
     if (otpCode.isEmpty || otpCode.length != 6) {
       if (!mounted) return;
@@ -878,11 +889,12 @@ class _OTPScreenState extends State<OTPScreen> {
     setState(() => _isVerifying = true);
     final resendStopwatch = Stopwatch()..start();
     final stageDurations = <String, int>{};
+    final forceResendingToken = _isSessionExpired ? null : _currentResendToken;
 
     try {
       await FirebaseAuth.instance.verifyPhoneNumber(
         phoneNumber: widget.phoneNumber,
-        forceResendingToken: _currentResendToken,
+        forceResendingToken: forceResendingToken,
         verificationCompleted: (PhoneAuthCredential credential) async {
           _logAuthTiming('resendOtp.verificationCompleted', resendStopwatch);
           stageDurations['resendOtp.verificationCompleted'] =
@@ -939,6 +951,9 @@ class _OTPScreenState extends State<OTPScreen> {
           showTopSuccess(context, message: 'OTP code sent again');
         },
         codeAutoRetrievalTimeout: (String verificationId) {
+          if (mounted && verificationId.isNotEmpty) {
+            setState(() => _currentVerificationId = verificationId);
+          }
           _logAuthTiming(
             'resendOtp.autoRetrievalTimeout',
             resendStopwatch,
