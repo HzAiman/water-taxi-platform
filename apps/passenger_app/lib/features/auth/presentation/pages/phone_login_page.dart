@@ -113,8 +113,12 @@ String _friendlyOtpVerifyError(FirebaseAuthException error) {
     return 'The code is incorrect. Please check the latest SMS and try again.';
   }
 
-  if (_isOtpSessionExpiredError(error)) {
+  if (error.code == 'session-expired') {
     return 'This code session expired. Please request a new OTP.';
+  }
+
+  if (error.code == 'invalid-verification-id') {
+    return 'This OTP session is no longer valid. Please request a new OTP and use the latest SMS.';
   }
 
   return _friendlyPhoneAuthError(error);
@@ -132,6 +136,49 @@ bool _isOtpRateLimitError(FirebaseAuthException error) {
 bool _isOtpSessionExpiredError(FirebaseAuthException error) {
   return error.code == 'session-expired' ||
       error.code == 'invalid-verification-id';
+}
+
+String _maskedPhoneNumber(String phoneNumber) {
+  if (phoneNumber.length <= 4) {
+    return '****';
+  }
+  return '${'*' * (phoneNumber.length - 4)}${phoneNumber.substring(phoneNumber.length - 4)}';
+}
+
+Future<void> _routeAfterPhoneAuthentication({
+  required BuildContext context,
+  required String phoneNumber,
+}) async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  if (currentUser == null) {
+    if (context.mounted) {
+      showTopError(context, message: 'Authentication error');
+    }
+    return;
+  }
+
+  final userDoc = await FirebaseFirestore.instance
+      .collection('users')
+      .doc(currentUser.uid)
+      .get();
+
+  if (!context.mounted) {
+    return;
+  }
+
+  if (userDoc.exists) {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (context) => const MainScreen()),
+      (route) => false,
+    );
+  } else {
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (context) => RegistrationPage(phoneNumber: phoneNumber),
+      ),
+      (route) => false,
+    );
+  }
 }
 
 @visibleForTesting
@@ -155,6 +202,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
   final TextEditingController _phoneController = TextEditingController();
   String _selectedCountry = 'Malaysia';
   bool _isLoading = false;
+  bool _autoSignInCompleted = false;
 
   void _logAuthTiming(
     String stage,
@@ -222,6 +270,7 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
       return;
     }
 
+    _autoSignInCompleted = false;
     setState(() => _isLoading = true);
 
     try {
@@ -238,6 +287,13 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
           stageDurations['sendOtp.autoSignIn'] =
               signInStopwatch.elapsedMilliseconds;
           _logAttemptSummary('sendOtp', stopwatch, stageDurations);
+          _autoSignInCompleted = true;
+          if (!mounted) return;
+          setState(() => _isLoading = false);
+          await _routeAfterPhoneAuthentication(
+            context: context,
+            phoneNumber: fullPhoneNumber,
+          );
         },
         verificationFailed: (FirebaseAuthException e) {
           _logAuthTiming(
@@ -270,6 +326,12 @@ class _PhoneLoginPageState extends State<PhoneLoginPage> {
           stageDurations['sendOtp.codeSent'] = stopwatch.elapsedMilliseconds;
           _logAttemptSummary('sendOtp', stopwatch, stageDurations);
           OtpRequestThrottle.recordSuccessfulRequest(fullPhoneNumber);
+          if (_autoSignInCompleted ||
+              FirebaseAuth.instance.currentUser != null) {
+            if (!mounted) return;
+            setState(() => _isLoading = false);
+            return;
+          }
           if (!mounted) return;
           setState(() => _isLoading = false);
           // Navigate to the OTP verification screen
@@ -614,13 +676,16 @@ class _OTPScreenState extends State<OTPScreen> {
   late final List<FocusNode> _otpFocusNodes;
   bool _isVerifying = false;
   Timer? _timer;
+  StreamSubscription<User?>? _authSubscription;
   late String _currentVerificationId;
+  String _verificationIdSource = 'initialCodeSent';
   late DateTime _otpSentAt;
   late DateTime _otpExpiresAt;
   int? _currentResendToken;
   int _secondsRemaining = 60;
   bool _canResend = false;
   bool _isSessionExpired = false;
+  bool _hasRoutedAfterAuth = false;
 
   void _logAuthTiming(
     String stage,
@@ -661,6 +726,30 @@ class _OTPScreenState extends State<OTPScreen> {
     );
   }
 
+  void _logOtpSessionEvent(
+    String event, {
+    FirebaseAuthException? error,
+    String? detail,
+  }) {
+    if (!kDebugMode) {
+      return;
+    }
+
+    final now = DateTime.now();
+    final ageSeconds = now.difference(_otpSentAt).inSeconds;
+    final expiresInSeconds = _otpExpiresAt.difference(now).inSeconds;
+    final errorDetail = error == null
+        ? ''
+        : ' errorCode=${error.code} errorMessage=${error.message ?? ''}';
+    final extra = detail == null ? '' : ' detail=$detail';
+    debugPrint(
+      '[OTP][Passenger] event=$event phone=${_maskedPhoneNumber(widget.phoneNumber)} '
+      'sessionAgeSec=$ageSeconds expiresInSec=$expiresInSeconds '
+      'verificationIdSource=$_verificationIdSource isSessionExpired=$_isSessionExpired'
+      '$errorDetail$extra',
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -669,7 +758,38 @@ class _OTPScreenState extends State<OTPScreen> {
     _currentVerificationId = widget.verificationId;
     _currentResendToken = widget.resendToken;
     _resetOtpSession();
+    _logOtpSessionEvent('screenStarted');
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user == null || _hasRoutedAfterAuth || !mounted) {
+        return;
+      }
+      _routeAfterExistingAuthentication('authStateChanged');
+    });
+    if (FirebaseAuth.instance.currentUser != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _hasRoutedAfterAuth) {
+          return;
+        }
+        _routeAfterExistingAuthentication('screenStartedAlreadySignedIn');
+      });
+    }
     _startTimer();
+  }
+
+  Future<void> _routeAfterExistingAuthentication(String event) async {
+    if (_hasRoutedAfterAuth) {
+      return;
+    }
+    _hasRoutedAfterAuth = true;
+    _timer?.cancel();
+    _logOtpSessionEvent(event);
+    if (mounted) {
+      setState(() => _isVerifying = false);
+    }
+    await _routeAfterPhoneAuthentication(
+      context: context,
+      phoneNumber: widget.phoneNumber,
+    );
   }
 
   void _startTimer() {
@@ -708,6 +828,7 @@ class _OTPScreenState extends State<OTPScreen> {
   }
 
   void _markOtpSessionExpired() {
+    _logOtpSessionEvent('markSessionExpired');
     OtpRequestThrottle.allowImmediateRetry(widget.phoneNumber);
     _timer?.cancel();
     setState(() {
@@ -731,6 +852,7 @@ class _OTPScreenState extends State<OTPScreen> {
   Future<void> _verifyOTP() async {
     _syncSessionExpiry();
     if (_isSessionExpired) {
+      _logOtpSessionEvent('verifyBlockedExpired');
       showTopError(
         context,
         title: 'Verification failed',
@@ -747,6 +869,7 @@ class _OTPScreenState extends State<OTPScreen> {
     }
 
     setState(() => _isVerifying = true);
+    _logOtpSessionEvent('verifyStarted');
     final verifyStopwatch = Stopwatch()..start();
     final stageDurations = <String, int>{};
     try {
@@ -762,54 +885,14 @@ class _OTPScreenState extends State<OTPScreen> {
           signInStopwatch.elapsedMilliseconds;
 
       if (!mounted) return;
-
-      // Check if user exists in Firestore
-      User? currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser == null) {
-        setState(() => _isVerifying = false);
-        showTopError(context, message: 'Authentication error');
-        return;
-      }
-
-      final userDocStopwatch = Stopwatch()..start();
-      final userDoc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(currentUser.uid)
-          .get();
-      _logAuthTiming(
-        'verifyOtp.fetchUserDoc',
-        userDocStopwatch,
-        detail: userDoc.exists ? 'existingUser' : 'newUser',
+      _logAuthTiming('verifyOtp.routeAfterAuth', verifyStopwatch);
+      stageDurations['verifyOtp.routeAfterAuth'] =
+          verifyStopwatch.elapsedMilliseconds;
+      _logAttemptSummary('verifyOtp', verifyStopwatch, stageDurations);
+      await _routeAfterPhoneAuthentication(
+        context: context,
+        phoneNumber: widget.phoneNumber,
       );
-      stageDurations['verifyOtp.fetchUserDoc'] =
-          userDocStopwatch.elapsedMilliseconds;
-
-      if (!mounted) return;
-
-      if (userDoc.exists) {
-        _logAuthTiming('verifyOtp.navigateMain', verifyStopwatch);
-        stageDurations['verifyOtp.navigateMain'] =
-            verifyStopwatch.elapsedMilliseconds;
-        _logAttemptSummary('verifyOtp', verifyStopwatch, stageDurations);
-        // User exists, go to main screen
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (context) => const MainScreen()),
-          (route) => false,
-        );
-      } else {
-        _logAuthTiming('verifyOtp.navigateRegistration', verifyStopwatch);
-        stageDurations['verifyOtp.navigateRegistration'] =
-            verifyStopwatch.elapsedMilliseconds;
-        _logAttemptSummary('verifyOtp', verifyStopwatch, stageDurations);
-        // New user, go to registration page
-        Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(
-            builder: (context) =>
-                RegistrationPage(phoneNumber: widget.phoneNumber),
-          ),
-          (route) => false,
-        );
-      }
     } on FirebaseAuthException catch (e) {
       _logAuthTiming(
         'verifyOtp.failed',
@@ -826,9 +909,17 @@ class _OTPScreenState extends State<OTPScreen> {
       );
       if (!mounted) return;
 
+      if (FirebaseAuth.instance.currentUser != null) {
+        _logOtpSessionEvent('verifyFailedButAlreadySignedIn', error: e);
+        await _routeAfterExistingAuthentication('verifyFailedAlreadySignedIn');
+        return;
+      }
+
       if (_isOtpSessionExpiredError(e)) {
+        _logOtpSessionEvent('verifySessionInvalid', error: e);
         _markOtpSessionExpired();
       } else {
+        _logOtpSessionEvent('verifyFailed', error: e);
         setState(() {
           _isVerifying = false;
           if (e.code == 'invalid-verification-code') {
@@ -905,6 +996,12 @@ class _OTPScreenState extends State<OTPScreen> {
           stageDurations['resendOtp.autoSignIn'] =
               signInStopwatch.elapsedMilliseconds;
           _logAttemptSummary('resendOtp', resendStopwatch, stageDurations);
+          if (!mounted) return;
+          setState(() => _isVerifying = false);
+          await _routeAfterPhoneAuthentication(
+            context: context,
+            phoneNumber: widget.phoneNumber,
+          );
         },
         verificationFailed: (FirebaseAuthException e) {
           _logAuthTiming(
@@ -943,16 +1040,22 @@ class _OTPScreenState extends State<OTPScreen> {
           setState(() {
             _isVerifying = false;
             _currentVerificationId = newVerificationId;
+            _verificationIdSource = 'resendCodeSent';
             _currentResendToken = newResendToken;
             _resetOtpSession();
             _clearOtpFields();
           });
+          _logOtpSessionEvent('resendCodeSent');
           _startTimer();
           showTopSuccess(context, message: 'OTP code sent again');
         },
         codeAutoRetrievalTimeout: (String verificationId) {
           if (mounted && verificationId.isNotEmpty) {
-            setState(() => _currentVerificationId = verificationId);
+            setState(() {
+              _currentVerificationId = verificationId;
+              _verificationIdSource = 'resendAutoRetrievalTimeout';
+            });
+            _logOtpSessionEvent('resendAutoRetrievalTimeout');
           }
           _logAuthTiming(
             'resendOtp.autoRetrievalTimeout',
@@ -1265,6 +1368,7 @@ class _OTPScreenState extends State<OTPScreen> {
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     for (final controller in _otpControllers) {
       controller.dispose();
     }
