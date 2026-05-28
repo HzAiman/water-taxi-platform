@@ -15,10 +15,12 @@ class BookingRepository {
     FirebaseFirestore? firestore,
     FirebaseFunctions? functions,
   }) : _db = firestore ?? FirebaseFirestore.instance,
-       _functions = functions;
+       _functions = functions,
+       _useCallableBackend = firestore == null || functions != null;
 
   final FirebaseFirestore _db;
   final FirebaseFunctions? _functions;
+  final bool _useCallableBackend;
   List<_PolylineSource>? _cachedPolylineSources;
   DateTime? _cachedPolylineSourcesAt;
 
@@ -75,6 +77,7 @@ class BookingRepository {
           BookingFields.status,
           isEqualTo: BookingStatus.pending.firestoreValue,
         )
+        .orderBy(BookingFields.createdAt)
         .limit(100)
         .snapshots(includeMetadataChanges: true)
         .asyncMap((snap) async {
@@ -130,6 +133,17 @@ class BookingRepository {
     DateTime? locationUpdatedAt,
     String? routeDirection,
   }) async {
+    if (!_useCallableBackend) {
+      return _acceptBookingDirect(
+        bookingId: bookingId,
+        operatorId: operatorId,
+        operatorLat: operatorLat,
+        operatorLng: operatorLng,
+        locationUpdatedAt: locationUpdatedAt,
+        routeDirection: routeDirection,
+      );
+    }
+
     try {
       return await FirebaseSessionService.runWithFreshToken(() async {
         final callable = _callableFunctions.httpsCallable(
@@ -190,6 +204,10 @@ class BookingRepository {
     required String bookingId,
     required String operatorId,
   }) async {
+    if (!_useCallableBackend) {
+      return _rejectBookingDirect(bookingId: bookingId, operatorId: operatorId);
+    }
+
     try {
       return await FirebaseSessionService.runWithFreshToken(() async {
         final callable = _callableFunctions.httpsCallable(
@@ -235,7 +253,7 @@ class BookingRepository {
     required String operatorId,
   }) async {
     try {
-      await FirebaseSessionService.runWithFreshToken(() {
+      await _runWithFreshTokenIfNeeded(() {
         return _runWithRetry(
           () => _db.runTransaction((tx) async {
             final ref = _db
@@ -299,6 +317,15 @@ class BookingRepository {
     double? operatorLat,
     double? operatorLng,
   }) async {
+    if (!_useCallableBackend) {
+      return _startTripDirect(
+        bookingId: bookingId,
+        operatorId: operatorId,
+        operatorLat: operatorLat,
+        operatorLng: operatorLng,
+      );
+    }
+
     try {
       return await FirebaseSessionService.runWithFreshToken(() async {
         final callable = _callableFunctions.httpsCallable('startPooledBooking');
@@ -357,6 +384,15 @@ class BookingRepository {
     double? operatorLat,
     double? operatorLng,
   }) async {
+    if (!_useCallableBackend) {
+      return _markPassengerPickedUpDirect(
+        bookingId: bookingId,
+        operatorId: operatorId,
+        operatorLat: operatorLat,
+        operatorLng: operatorLng,
+      );
+    }
+
     try {
       await FirebaseSessionService.runWithFreshToken(() async {
         final callable = _callableFunctions.httpsCallable(
@@ -400,6 +436,15 @@ class BookingRepository {
     double? operatorLat,
     double? operatorLng,
   }) async {
+    if (!_useCallableBackend) {
+      return _completeTripDirect(
+        bookingId: bookingId,
+        operatorId: operatorId,
+        operatorLat: operatorLat,
+        operatorLng: operatorLng,
+      );
+    }
+
     try {
       await FirebaseSessionService.runWithFreshToken(() async {
         final callable = _callableFunctions.httpsCallable(
@@ -445,7 +490,7 @@ class BookingRepository {
     required double operatorLng,
   }) async {
     try {
-      await FirebaseSessionService.runWithFreshToken(() {
+      await _runWithFreshTokenIfNeeded(() {
         return _runWithRetry(() async {
           final bookingRef = _db
               .collection(FirestoreCollections.bookings)
@@ -513,7 +558,7 @@ class BookingRepository {
   /// Releases all accepted bookings for [operatorId] (called when going
   /// offline). Returns the count of bookings released.
   Future<int> releaseAllAcceptedBookings(String operatorId) async {
-    return FirebaseSessionService.runWithFreshToken(() async {
+    return _runWithFreshTokenIfNeeded(() async {
       final snap = await _db
           .collection(FirestoreCollections.bookings)
           .where(BookingFields.operatorUid, isEqualTo: operatorId)
@@ -565,6 +610,312 @@ class BookingRepository {
   }
 
   // ── Private helpers ──────────────────────────────────────────────────────
+
+  Future<OperationResult> _acceptBookingDirect({
+    required String bookingId,
+    required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
+    DateTime? locationUpdatedAt,
+    String? routeDirection,
+  }) async {
+    try {
+      await _runWithRetry(
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snap.data()!;
+          final status = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          final rejectedBy = _strList(data[BookingFields.rejectedBy]);
+          if (status != BookingStatus.pending) {
+            throw StateError('This booking is no longer pending.');
+          }
+          if (rejectedBy.contains(operatorId)) {
+            throw StateError(
+              'This booking was already rejected by this operator.',
+            );
+          }
+
+          tx.update(ref, {
+            BookingFields.status: BookingStatus.accepted.firestoreValue,
+            BookingFields.operatorUid: operatorId,
+            BookingFields.operatorId: operatorId,
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            if (operatorLat != null) BookingFields.operatorLat: operatorLat,
+            if (operatorLng != null) BookingFields.operatorLng: operatorLng,
+            if (locationUpdatedAt != null)
+              'locationUpdatedAt': Timestamp.fromDate(locationUpdatedAt),
+            if (routeDirection != null)
+              BookingFields.routeDirection: routeDirection,
+          });
+
+          _appendStatusHistory(
+            tx: tx,
+            ref: ref,
+            from: status,
+            to: BookingStatus.accepted,
+            changedBy: operatorId,
+          );
+        }),
+      );
+      return const OperationSuccess('Booking accepted successfully.');
+    } on StateError catch (e) {
+      return OperationFailure(
+        'Unable to accept booking',
+        e.message,
+        isInfo: true,
+      );
+    } catch (e) {
+      return OperationFailure('Accept failed', 'Could not accept booking: $e');
+    }
+  }
+
+  Future<OperationResult> _rejectBookingDirect({
+    required String bookingId,
+    required String operatorId,
+  }) async {
+    try {
+      await _runWithRetry(
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snap.data()!;
+          final status = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          if (status != BookingStatus.pending) {
+            throw StateError('Only pending bookings can be rejected.');
+          }
+
+          final rejectedBy = {
+            ..._strList(data[BookingFields.rejectedBy]),
+            operatorId,
+          };
+          final onlineOperatorsSnap = await _db
+              .collection(FirestoreCollections.operatorPresence)
+              .where(OperatorPresenceFields.isOnline, isEqualTo: true)
+              .get();
+          final onlineOperators = onlineOperatorsSnap.docs
+              .map((d) => d.id)
+              .toSet();
+          final allOnlineRejected =
+              onlineOperators.isNotEmpty &&
+              onlineOperators.difference(rejectedBy).isEmpty;
+
+          tx.update(ref, {
+            BookingFields.rejectedBy: rejectedBy.toList(),
+            BookingFields.status: allOnlineRejected
+                ? BookingStatus.rejected.firestoreValue
+                : BookingStatus.pending.firestoreValue,
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+          });
+
+          if (allOnlineRejected) {
+            _appendStatusHistory(
+              tx: tx,
+              ref: ref,
+              from: status,
+              to: BookingStatus.rejected,
+              changedBy: operatorId,
+            );
+          }
+        }),
+      );
+      return const OperationSuccess('Booking rejected.');
+    } on StateError catch (e) {
+      return OperationFailure(
+        'Unable to reject booking',
+        e.message,
+        isInfo: true,
+      );
+    } catch (e) {
+      return OperationFailure('Reject failed', 'Could not reject booking: $e');
+    }
+  }
+
+  Future<OperationResult> _startTripDirect({
+    required String bookingId,
+    required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
+  }) async {
+    try {
+      await _runWithRetry(
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snap.data()!;
+          final status = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          if (status != BookingStatus.accepted ||
+              _assignedOperatorUid(data) != operatorId) {
+            throw StateError('Only your accepted booking can be started.');
+          }
+
+          tx.update(ref, {
+            BookingFields.status: BookingStatus.onTheWay.firestoreValue,
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            if (operatorLat != null) BookingFields.operatorLat: operatorLat,
+            if (operatorLng != null) BookingFields.operatorLng: operatorLng,
+          });
+
+          _appendStatusHistory(
+            tx: tx,
+            ref: ref,
+            from: status,
+            to: BookingStatus.onTheWay,
+            changedBy: operatorId,
+          );
+        }),
+      );
+      return const OperationSuccess('Route started successfully.');
+    } on StateError catch (e) {
+      return OperationFailure('Unable to start trip', e.message, isInfo: true);
+    } catch (e) {
+      return OperationFailure('Start failed', 'Could not start trip: $e');
+    }
+  }
+
+  Future<OperationResult> _markPassengerPickedUpDirect({
+    required String bookingId,
+    required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
+  }) async {
+    try {
+      await _runWithRetry(
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snap.data()!;
+          final status = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          if (status != BookingStatus.onTheWay ||
+              _assignedOperatorUid(data) != operatorId) {
+            throw StateError('Only your active trip stop can be completed.');
+          }
+
+          tx.update(ref, {
+            BookingFields.passengerPickedUpAt:
+                data[BookingFields.passengerPickedUpAt] ??
+                FieldValue.serverTimestamp(),
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            if (operatorLat != null) BookingFields.operatorLat: operatorLat,
+            if (operatorLng != null) BookingFields.operatorLng: operatorLng,
+          });
+        }),
+      );
+      return const OperationSuccess('Pool stop completed.');
+    } on StateError catch (e) {
+      return OperationFailure(
+        'Unable to complete stop',
+        e.message,
+        isInfo: true,
+      );
+    } catch (e) {
+      return OperationFailure('Update failed', 'Could not complete stop: $e');
+    }
+  }
+
+  Future<OperationResult> _completeTripDirect({
+    required String bookingId,
+    required String operatorId,
+    double? operatorLat,
+    double? operatorLng,
+  }) async {
+    try {
+      await _runWithRetry(
+        () => _db.runTransaction((tx) async {
+          final ref = _db
+              .collection(FirestoreCollections.bookings)
+              .doc(bookingId);
+          final archiveRef = _db
+              .collection(FirestoreCollections.bookingsArchive)
+              .doc(bookingId);
+          final snap = await tx.get(ref);
+          if (!snap.exists || snap.data() == null) {
+            throw StateError('This booking no longer exists.');
+          }
+
+          final data = snap.data()!;
+          final status = BookingStatus.fromString(
+            (data[BookingFields.status] ?? '').toString(),
+          );
+          if (status != BookingStatus.onTheWay ||
+              _assignedOperatorUid(data) != operatorId) {
+            throw StateError('Only your active trip can be completed.');
+          }
+
+          final updates = <String, dynamic>{
+            BookingFields.status: BookingStatus.completed.firestoreValue,
+            BookingFields.completedAt: FieldValue.serverTimestamp(),
+            BookingFields.updatedAt: FieldValue.serverTimestamp(),
+            if (operatorLat != null) BookingFields.operatorLat: operatorLat,
+            if (operatorLng != null) BookingFields.operatorLng: operatorLng,
+          };
+          tx.update(ref, updates);
+          tx.set(archiveRef, {
+            ...data,
+            ...updates,
+            'archivedAt': FieldValue.serverTimestamp(),
+            'archivedStatus': BookingStatus.completed.firestoreValue,
+          }, SetOptions(merge: true));
+
+          _appendStatusHistory(
+            tx: tx,
+            ref: ref,
+            from: status,
+            to: BookingStatus.completed,
+            changedBy: operatorId,
+          );
+        }),
+      );
+      return const OperationSuccess('Pool stop completed successfully.');
+    } on StateError catch (e) {
+      return OperationFailure(
+        'Unable to complete stop',
+        e.message,
+        isInfo: true,
+      );
+    } catch (e) {
+      return OperationFailure('Complete failed', 'Could not complete trip: $e');
+    }
+  }
+
+  Future<T> _runWithFreshTokenIfNeeded<T>(Future<T> Function() action) {
+    if (_useCallableBackend) {
+      return FirebaseSessionService.runWithFreshToken(action);
+    }
+    return action();
+  }
 
   static Future<T> _runWithRetry<T>(Future<T> Function() action) async {
     const maxAttempts = 2;

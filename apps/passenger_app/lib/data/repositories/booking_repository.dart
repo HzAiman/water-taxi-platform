@@ -51,15 +51,17 @@ class BookingCreationParams {
 /// Data-access layer for the `bookings` Firestore collection (passenger side).
 class BookingRepository {
   BookingRepository({FirebaseFirestore? firestore})
-    : _db = firestore ?? FirebaseFirestore.instance;
+    : _db = firestore ?? FirebaseFirestore.instance,
+      _requiresFreshToken = firestore == null;
 
   final FirebaseFirestore _db;
+  final bool _requiresFreshToken;
 
   // ── Write ────────────────────────────────────────────────────────────────
 
   /// Creates a new booking document and returns the generated booking ID.
   Future<String> createBooking(BookingCreationParams p) async {
-    return FirebaseSessionService.runWithFreshToken(() async {
+    return _runWithFreshTokenIfNeeded(() async {
       final ref = _db.collection(FirestoreCollections.bookings).doc();
       final id = ref.id;
       final passengerCount = p.adultCount + p.childCount;
@@ -101,7 +103,8 @@ class BookingRepository {
         BookingFields.operatorUid: null,
         if (routeSelection.routePolylineId != null)
           BookingFields.routePolylineId: routeSelection.routePolylineId,
-        if (routeSelection.routePolyline != null &&
+        if (routeSelection.routePolylineId == null &&
+            routeSelection.routePolyline != null &&
             routeSelection.routePolyline!.isNotEmpty)
           BookingFields.routePolyline: routeSelection.routePolyline,
         BookingFields.createdAt: FieldValue.serverTimestamp(),
@@ -114,7 +117,7 @@ class BookingRepository {
 
   /// Cancels a booking owned by the current passenger.
   Future<void> cancelBooking(String bookingId) async {
-    await FirebaseSessionService.runWithFreshToken(() async {
+    await _runWithFreshTokenIfNeeded(() async {
       await _db.runTransaction((tx) async {
         final ref = _db
             .collection(FirestoreCollections.bookings)
@@ -160,7 +163,7 @@ class BookingRepository {
     required String orderNumber,
     required String userId,
   }) async {
-    await FirebaseSessionService.runWithFreshToken(() async {
+    await _runWithFreshTokenIfNeeded(() async {
       await _db.runTransaction((tx) async {
         final ref = _db
             .collection(FirestoreCollections.orderNumberIndex)
@@ -188,6 +191,13 @@ class BookingRepository {
 
   DocumentReference<Map<String, dynamic>> _trackingRef(String bookingId) {
     return _db.collection(FirestoreCollections.tracking).doc(bookingId);
+  }
+
+  Future<T> _runWithFreshTokenIfNeeded<T>(Future<T> Function() action) {
+    if (_requiresFreshToken) {
+      return FirebaseSessionService.runWithFreshToken(action);
+    }
+    return action();
   }
 
   // ── Read / Stream ────────────────────────────────────────────────────────

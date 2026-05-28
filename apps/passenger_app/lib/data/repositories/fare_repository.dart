@@ -22,13 +22,27 @@ class FareRepository {
         .limit(1)
         .get();
 
-    if (byJettyId.docs.isEmpty) {
+    if (byJettyId.docs.isNotEmpty) {
+      return FareModel.fromMap(
+        byJettyId.docs.first.data(),
+        snapshotId: byJettyId.docs.first.id,
+      );
+    }
+
+    final byName = await _db
+        .collection(FirestoreCollections.fares)
+        .where(FareFields.origin, isEqualTo: origin)
+        .where(FareFields.destination, isEqualTo: destination)
+        .limit(1)
+        .get();
+
+    if (byName.docs.isEmpty) {
       return null;
     }
 
     return FareModel.fromMap(
-      byJettyId.docs.first.data(),
-      snapshotId: byJettyId.docs.first.id,
+      byName.docs.first.data(),
+      snapshotId: byName.docs.first.id,
     );
   }
 
@@ -47,6 +61,4 @@ class FareRepository {
     );
     return fare != null;
   }
-
-  
 }

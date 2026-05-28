@@ -81,7 +81,8 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
     passengerPickedUp: passengerPickedUp,
     operatorPoint: liveOperatorPoint,
   );
-  final polyline =
+  final currentStop = booking.currentPoolStop;
+  var polyline =
       OperatorMapLayers.resolvedRoutePointsForPhase(
             booking,
             passengerPickedUp: passengerPickedUp,
@@ -93,9 +94,13 @@ OperatorNavigationGuidance? computeOperatorNavigationGuidance({
                 BookingRoutePoint(lat: point.latitude, lng: point.longitude),
           )
           .toList(growable: false);
+  if (polyline.length < 2 &&
+      currentStop != null &&
+      booking.routePolyline.length >= 2) {
+    polyline = booking.routePolyline;
+  }
   final startLat = currentLat;
   final startLng = currentLng;
-  final currentStop = booking.currentPoolStop;
   final endLat =
       currentStop?.lat ??
       (passengerPickedUp ? booking.destinationLat : booking.originLat);

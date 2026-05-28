@@ -12,15 +12,19 @@ class OperatorRepository {
     FirebaseFirestore? firestore,
     FirebaseFunctions? functions,
   }) : _db = firestore ?? FirebaseFirestore.instance,
-       _functions =
-           functions ?? FirebaseFunctions.instanceFor(region: _functionsRegion),
-       _useCallableProfileSave = firestore == null || functions != null;
+       _functions = functions,
+       _useCallableProfileSave = firestore == null || functions != null,
+       _requiresFreshToken = firestore == null;
 
   static const _functionsRegion = 'asia-southeast1';
 
   final FirebaseFirestore _db;
-  final FirebaseFunctions _functions;
+  final FirebaseFunctions? _functions;
   final bool _useCallableProfileSave;
+  final bool _requiresFreshToken;
+
+  FirebaseFunctions get _callableFunctions =>
+      _functions ?? FirebaseFunctions.instanceFor(region: _functionsRegion);
 
   /// Returns the operator document, or `null` if it doesn't exist.
   Future<OperatorModel?> getOperator(String uid) async {
@@ -147,7 +151,9 @@ class OperatorRepository {
   }) async {
     try {
       await FirebaseSessionService.runWithFreshToken(() async {
-        final callable = _functions.httpsCallable('saveOperatorProfile');
+        final callable = _callableFunctions.httpsCallable(
+          'saveOperatorProfile',
+        );
         await callable.call(<String, dynamic>{
           'name': name,
           'email': email,
@@ -203,7 +209,7 @@ class OperatorRepository {
     required String phoneNumber,
     bool? isOnline,
   }) async {
-    await FirebaseSessionService.runWithFreshToken(() async {
+    await _runWithFreshTokenIfNeeded(() async {
       final operatorRef = _db
           .collection(FirestoreCollections.operators)
           .doc(uid);
@@ -273,7 +279,7 @@ class OperatorRepository {
     String? email,
     String? phoneNumber,
   }) async {
-    await FirebaseSessionService.runWithFreshToken(() async {
+    await _runWithFreshTokenIfNeeded(() async {
       final updates = <String, dynamic>{
         OperatorFields.updatedAt: FieldValue.serverTimestamp(),
       };
@@ -292,7 +298,7 @@ class OperatorRepository {
 
   /// Sets the operator's online status.
   Future<void> setOnlineStatus(String uid, {required bool isOnline}) async {
-    await FirebaseSessionService.runWithFreshToken(() async {
+    await _runWithFreshTokenIfNeeded(() async {
       final presenceRef = _db
           .collection(FirestoreCollections.operatorPresence)
           .doc(uid);
@@ -306,7 +312,7 @@ class OperatorRepository {
 
   /// Mirrors the current online flag into the presence collection.
   Future<void> syncPresence(String uid, {required bool isOnline}) async {
-    await FirebaseSessionService.runWithFreshToken(() async {
+    await _runWithFreshTokenIfNeeded(() async {
       await _db.collection(FirestoreCollections.operatorPresence).doc(uid).set({
         OperatorPresenceFields.isOnline: isOnline,
         OperatorPresenceFields.updatedAt: FieldValue.serverTimestamp(),
@@ -333,5 +339,12 @@ class OperatorRepository {
       createdAt: createdAt,
       updatedAt: updatedAt,
     );
+  }
+
+  Future<T> _runWithFreshTokenIfNeeded<T>(Future<T> Function() action) {
+    if (_requiresFreshToken) {
+      return FirebaseSessionService.runWithFreshToken(action);
+    }
+    return action();
   }
 }

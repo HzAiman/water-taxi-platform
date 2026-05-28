@@ -26,7 +26,7 @@ const Map<String, String> countryCodes = {
 @visibleForTesting
 class OtpRequestThrottle {
   static const Duration normalCooldown = Duration(seconds: 60);
-  static const Duration lockoutCooldown = Duration(minutes: 10);
+  static const Duration lockoutCooldown = Duration(minutes: 5);
 
   static final Map<String, DateTime> _nextAllowedAt = <String, DateTime>{};
   static final Map<String, DateTime> _serverLockoutUntil = <String, DateTime>{};
@@ -88,7 +88,7 @@ String _friendlyPhoneAuthError(FirebaseAuthException error) {
   final text = '${error.code} $message'.toLowerCase();
 
   if (_isOtpRateLimitError(error)) {
-    return 'Too many OTP attempts. Please wait about ${_formatCooldown(OtpRequestThrottle.lockoutCooldown)} before requesting another code.';
+    return 'Too many OTP attempts. Please wait a few minutes before requesting another code.';
   }
 
   if (error.code == 'invalid-phone-number') {

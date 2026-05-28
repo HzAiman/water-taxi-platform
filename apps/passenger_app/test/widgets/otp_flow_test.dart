@@ -26,7 +26,7 @@ void main() {
 
       final remaining = OtpRequestThrottle.remainingFor(phoneNumber);
 
-      expect(remaining, greaterThan(const Duration(minutes: 9)));
+      expect(remaining, greaterThan(const Duration(minutes: 4)));
       expect(OtpRequestThrottle.isServerLockedOut(phoneNumber), isTrue);
     });
 
