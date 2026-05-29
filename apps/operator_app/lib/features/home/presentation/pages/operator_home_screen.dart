@@ -779,17 +779,27 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       return null;
     }
     final verb = stop.isPickup ? 'Pick up' : 'Drop off';
-    final stopBookingIds = stop.bookingIds.toSet();
-    final passengerCount = poolBookings
-        .where((booking) => stopBookingIds.contains(booking.bookingId))
-        .fold<int>(0, (sum, booking) => sum + booking.passengerCount);
-    final count = passengerCount > 0
-        ? passengerCount
-        : stop.bookingIds.isEmpty
-        ? 1
-        : stop.bookingIds.length;
+    final count = _resolvedStopPassengerCount(stop, poolBookings);
     final noun = count == 1 ? 'passenger' : 'passengers';
     return '$verb $count $noun';
+  }
+
+  int _resolvedStopPassengerCount(
+    PoolStopPlanItem stop,
+    List<BookingModel> poolBookings,
+  ) {
+    final stopPassengerCount = stop.passengerCount;
+    if (stopPassengerCount != null && stopPassengerCount > 0) {
+      return stopPassengerCount;
+    }
+    final stopBookingIds = stop.bookingIds.toSet();
+    final count = poolBookings
+        .where((booking) => stopBookingIds.contains(booking.bookingId))
+        .fold<int>(0, (sum, booking) => sum + booking.passengerCount);
+    if (count > 0) {
+      return count;
+    }
+    return stop.bookingIds.isEmpty ? 1 : stop.bookingIds.length;
   }
 
   String _poolStopDisplayName(PoolStopPlanItem stop) {
@@ -844,15 +854,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
     if (stop == null) {
       return null;
     }
-    final stopBookingIds = stop.bookingIds.toSet();
-    final count = poolBookings
-        .where((booking) => stopBookingIds.contains(booking.bookingId))
-        .fold<int>(0, (sum, booking) => sum + booking.passengerCount);
-    final passengerCount = count > 0
-        ? count
-        : stop.bookingIds.isEmpty
-        ? 1
-        : stop.bookingIds.length;
+    final passengerCount = _resolvedStopPassengerCount(stop, poolBookings);
     final noun = passengerCount == 1 ? 'passenger' : 'passengers';
     final state = stop.isPickup ? 'waiting' : 'onboard';
     return '$passengerCount $noun $state';

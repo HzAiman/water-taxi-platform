@@ -705,6 +705,10 @@ int _stopPassengerCount(
   PoolStopPlanItem stop,
   List<BookingModel> poolBookings,
 ) {
+  final stopPassengerCount = stop.passengerCount;
+  if (stopPassengerCount != null && stopPassengerCount > 0) {
+    return stopPassengerCount;
+  }
   final stopBookingIds = stop.bookingIds.toSet();
   final count = poolBookings
       .where((booking) => stopBookingIds.contains(booking.bookingId))

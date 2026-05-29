@@ -453,6 +453,81 @@ void main() {
     expect(bookingRepo.lastPickedUpOperatorId, 'operator-1');
   });
 
+  testWidgets('pool stop labels prefer stop-level passenger totals', (
+    tester,
+  ) async {
+    final operatorRepo = _FakeOperatorRepository(
+      operator: const OperatorModel(
+        uid: 'operator-1',
+        operatorId: 'MWT-1',
+        name: 'Muzaffar Shah',
+        email: 'muzaffar@example.com',
+        isOnline: true,
+      ),
+    );
+    final bookingRepo = _FakeBookingRepository();
+    final stopPlan = <PoolStopPlanItem>[
+      const PoolStopPlanItem(
+        stopId: 'pickup-samudera',
+        index: 0,
+        stopType: 'pickup',
+        stopName: '27 - Samudera',
+        lat: 2.195,
+        lng: 102.247,
+        bookingIds: <String>['booking-a', 'booking-b'],
+        passengerCount: 2,
+        adultCount: 2,
+        childCount: 0,
+        status: 'active',
+      ),
+      const PoolStopPlanItem(
+        stopId: 'dropoff-quayside',
+        index: 1,
+        stopType: 'dropoff',
+        stopName: '26 - Quayside',
+        lat: 2.196,
+        lng: 102.248,
+        bookingIds: <String>['booking-a'],
+        passengerCount: 1,
+        adultCount: 1,
+        childCount: 0,
+        status: 'pending',
+      ),
+    ];
+
+    await tester.pumpWidget(
+      buildTestWidget(
+        operatorId: 'operator-1',
+        operatorEmail: 'muzaffar@example.com',
+        operatorRepo: operatorRepo,
+        bookingRepo: bookingRepo,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bookingRepo.emitActive([
+      _sampleBooking(
+        id: 'booking-a',
+        status: BookingStatus.accepted,
+        origin: '27 - Samudera',
+        destination: '26 - Quayside',
+        poolGroupId: 'pool-1',
+        poolStopPlan: stopPlan,
+        currentStopIndex: 0,
+        currentStopId: 'pickup-samudera',
+        currentPoolStopId: 'pickup-samudera',
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Active Trip'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('View route order'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Pick up 2 passengers'), findsOneWidget);
+  });
+
   testWidgets('go offline is blocked during active trip', (tester) async {
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(

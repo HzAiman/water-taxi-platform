@@ -54,6 +54,8 @@ const BOOKING_FIELDS = {
   operatorLat: "operatorLat",
   operatorLng: "operatorLng",
   updatedAt: "updatedAt",
+  adultCount: "adultCount",
+  childCount: "childCount",
   passengerCount: "passengerCount",
   paymentStatus: "paymentStatus",
   orderNumber: "orderNumber",
@@ -148,6 +150,12 @@ function isWithinMinutes(then, now, windowMinutes) {
 
 function asString(value) {
   return value == null ? "" : String(value).trim();
+}
+
+function asNonNegativeInt(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
 }
 
 const EARTH_RADIUS_METERS = 6371000;
@@ -935,7 +943,27 @@ function completedStopKeysFromPreviousItems(previousItems = []) {
   return keys;
 }
 
-function completedStopsFromPreviousItems(previousItems = [], activeIds = new Set()) {
+function passengerTotalsForBookingIds(bookingIds = [], bookingTotals = new Map()) {
+  const totals = {
+    passengerCount: 0,
+    adultCount: 0,
+    childCount: 0,
+  };
+  for (const bookingId of bookingIds) {
+    const itemTotals = bookingTotals.get(asString(bookingId));
+    if (!itemTotals) continue;
+    totals.passengerCount += itemTotals.passengerCount;
+    totals.adultCount += itemTotals.adultCount;
+    totals.childCount += itemTotals.childCount;
+  }
+  return totals;
+}
+
+function completedStopsFromPreviousItems(
+  previousItems = [],
+  activeIds = new Set(),
+  bookingTotals = new Map()
+) {
   const seen = new Set();
   const stops = [];
   for (const item of previousItems) {
@@ -951,9 +979,19 @@ function completedStopsFromPreviousItems(previousItems = [], activeIds = new Set
       const key = `${asString(stop.stopType)}|${asString(stop.stopName)}|${bookingIds.sort().join(",")}`;
       if (seen.has(key)) continue;
       seen.add(key);
+      const fallbackTotals = passengerTotalsForBookingIds(bookingIds, bookingTotals);
+      const passengerCount = asNonNegativeInt(
+        stop.passengerCount,
+        fallbackTotals.passengerCount
+      );
+      const adultCount = asNonNegativeInt(stop.adultCount, fallbackTotals.adultCount);
+      const childCount = asNonNegativeInt(stop.childCount, fallbackTotals.childCount);
       stops.push({
         ...stop,
         bookingIds,
+        passengerCount,
+        adultCount,
+        childCount,
         status,
       });
     }
@@ -984,7 +1022,28 @@ function buildPoolStopPlan({
 }) {
   const activeIds = new Set(items.map((item) => asString(item.id)));
   const completedKeys = completedStopKeysFromPreviousItems(previousItems);
-  const completedStops = completedStopsFromPreviousItems(previousItems, activeIds);
+  const bookingTotals = new Map();
+  for (const item of items) {
+    const booking = item.data || {};
+    const bookingId = asString(item.id || booking[BOOKING_FIELDS.bookingId]);
+    if (!bookingId) continue;
+    const adultCount = asNonNegativeInt(booking[BOOKING_FIELDS.adultCount]);
+    const childCount = asNonNegativeInt(booking[BOOKING_FIELDS.childCount]);
+    const fallbackPassengerCount = adultCount + childCount;
+    bookingTotals.set(bookingId, {
+      passengerCount: asNonNegativeInt(
+        booking[BOOKING_FIELDS.passengerCount],
+        fallbackPassengerCount > 0 ? fallbackPassengerCount : 1
+      ),
+      adultCount,
+      childCount,
+    });
+  }
+  const completedStops = completedStopsFromPreviousItems(
+    previousItems,
+    activeIds,
+    bookingTotals
+  );
   const grouped = new Map();
   const direction = resolvePoolRouteDirection(items, corridor, routeDirection);
 
@@ -1026,9 +1085,20 @@ function buildPoolStopPlan({
         lng: stop.point.lng,
         routePositionMeters: stop.routePositionMeters,
         bookingIds: [],
+        passengerCount: 0,
+        adultCount: 0,
+        childCount: 0,
         status: "pending",
       };
       existing.bookingIds.push(bookingId);
+      const totals = bookingTotals.get(bookingId) || {
+        passengerCount: 1,
+        adultCount: 0,
+        childCount: 0,
+      };
+      existing.passengerCount += totals.passengerCount;
+      existing.adultCount += totals.adultCount;
+      existing.childCount += totals.childCount;
       grouped.set(key, existing);
     }
   }
@@ -1058,6 +1128,9 @@ function buildPoolStopPlan({
     lng: Number(stop.lng || 0),
     routePositionMeters: Number(stop.routePositionMeters || 0),
     bookingIds: [...new Set(stop.bookingIds)].sort(),
+    passengerCount: asNonNegativeInt(stop.passengerCount),
+    adultCount: asNonNegativeInt(stop.adultCount),
+    childCount: asNonNegativeInt(stop.childCount),
     status: stop.status || "pending",
     reachedAt: stop.reachedAt || null,
     completedAt: stop.completedAt || null,

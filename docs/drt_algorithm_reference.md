@@ -23,6 +23,7 @@ Core ideas:
 - Candidate bookings are accepted only when they fit the current corridor and current sweep direction.
 - A route direction is stored as `forward` or `reverse`.
 - A pool stop plan groups pickups/dropoffs at the same jetty/route position.
+- Grouped stops carry stop-level passenger totals so the operator UI can show "Pick up 2 passengers" even if only one booking document is currently selected/rendered.
 - Completed stops are preserved across replans so the route does not resurrect already-served stops.
 - The operator app uses the pool stop plan and route polyline to render navigation to the current stop.
 
@@ -94,6 +95,18 @@ The backend defines booking field names in `BOOKING_FIELDS` in `index.js`.
 - `droppedOffAt`: timestamp when rider was dropped off
 - `passengerPickedUpAt`: passenger pickup timestamp used by app logic
 - `onboard`: boolean rider onboard flag
+
+Each object in `poolStopPlan` may contain:
+
+- `stopId`, `stopIndex`, `stopType`, `jettyId`, `jettyName`, `stopName`
+- `lat`, `lng`, `routePositionMeters`
+- `bookingIds`: booking IDs served by this stop
+- `passengerCount`: total passengers served by this stop
+- `adultCount`: total adults served by this stop
+- `childCount`: total children served by this stop
+- `status`, `reachedAt`, `completedAt`
+
+The stop-level passenger totals are additive fields. Older stop plans may not have them, so clients still fall back to summing loaded bookings or using `bookingIds.length`.
 
 ### Current-sweep deferral fields
 
@@ -368,6 +381,12 @@ reason = pickup_behind_operator
 
 This is a current-sweep rejection, not necessarily a permanent rejection.
 
+Important mid-trip behavior:
+
+- A candidate with a second pickup ahead of the boat and the same dropoff as an onboard rider is valid when it fits direction, corridor, pool size, and ETA limits.
+- Example: active `A -> C`, candidate `B -> C`, route order `A < B < C`. If the operator is between A and B, the candidate should remain eligible. If the operator has already passed B, the expected reason is `pickup_behind_operator`.
+- Same-pickup projection jitter is softened when the active pool still has an uncompleted pickup at the candidate's pickup jetty, so a booking at the current pickup is not incorrectly deferred just because live projection is slightly ahead of the marker.
+
 ### Step 7: Reject max pool size
 
 If active booking count is already at `maxConcurrent`:
@@ -545,6 +564,8 @@ stopType|bookingId
 
 This prevents completed pickup/dropoff stops from returning as pending after a replan.
 
+Completed/skipped stops also preserve or recompute `passengerCount`, `adultCount`, and `childCount` for their remaining active booking IDs. This keeps route-order labels stable after replans and avoids completed grouped stops losing their passenger totals.
+
 ### Pending stop generation
 
 For each booking item:
@@ -561,6 +582,14 @@ stopType|jettyId-or-stopName|roundedRoutePositionMeters
 ```
 
 This lets multiple passengers share one pickup/dropoff stop when they are at the same jetty/position.
+
+For each grouped stop, the backend accumulates:
+
+- `passengerCount`: sum of `booking.passengerCount` for all grouped booking IDs
+- `adultCount`: sum of `booking.adultCount`
+- `childCount`: sum of `booking.childCount`
+
+If a booking lacks `passengerCount`, the backend falls back to `adultCount + childCount`; if that is also unavailable, it uses `1`. This is primarily for legacy booking compatibility.
 
 ### Stop ordering
 
@@ -588,9 +617,14 @@ Each stop receives:
 - `lng`
 - `routePositionMeters`
 - `bookingIds`
+- `passengerCount`
+- `adultCount`
+- `childCount`
 - `status`
 - `reachedAt`
 - `completedAt`
+
+Operator UI labels prefer these stop-level totals. If they are missing, the UI falls back to summing currently loaded `poolBookings`, then to `bookingIds.length`. This prevents grouped stops from displaying a single passenger just because the selected active booking card only has one booking loaded at that moment.
 
 ## 13. Current Stop State
 
@@ -1118,6 +1152,20 @@ This prevents the top booking card from rebuilding on every GPS tick while still
 8. B gets `status = accepted`.
 9. B gets sequence based on route-aware cost.
 
+For a two-pickup, one-dropoff case:
+
+- A: Jetty 15 to Jetty 22
+- B: Jetty 18 to Jetty 22
+- Forward route order: 15, 18, 22
+
+Expected stop plan:
+
+1. Pickup A at Jetty 15
+2. Pickup B at Jetty 18
+3. Grouped dropoff A+B at Jetty 22
+
+The grouped dropoff has `bookingIds = [A, B]` and `passengerCount = 2` when both bookings have one passenger.
+
 ### Start A
 
 1. Operator starts first route-aware booking.
@@ -1143,6 +1191,8 @@ This prevents the top booking card from rebuilding on every GPS tick while still
 5. A remains `on_the_way`.
 6. C waits until its pickup stop or start condition promotes it.
 
+For a mid-trip two-pickup, one-dropoff case, candidate B should be accepted while the operator is still before B. Once the operator has passed B, B is deferred for a future sweep with `pickup_behind_operator`.
+
 ## 25. Key Algorithmic Assumptions
 
 The current DRT system assumes:
@@ -1152,6 +1202,7 @@ The current DRT system assumes:
 - Existing `on_the_way` booking should dominate corridor choice.
 - Direction consistency matters more than opportunistic reverse pickup.
 - Stop-level grouping by jetty/route position is sufficient.
+- Stop-level passenger totals are the source of truth for grouped stop labels.
 - Travel time can be approximated by route distance divided by constant speed.
 - Operator GPS may be noisy, so progress must be monotonic and off-route-aware.
 
@@ -1170,6 +1221,7 @@ Limitations:
 - Closed-loop routes require correct `routeDirection` to avoid wrong loop segment.
 - Multiple bookings can become `on_the_way` after grouped pickup stops, which is intentional for onboard riders but can complicate "only one active booking" assumptions in older code paths.
 - Replanning preserves completed stops, but route changes can still affect future pending stop positions.
+- Older stop plans may not include stop-level passenger totals, so clients must keep fallback count logic.
 - Off-route detection is geometric distance from polyline, not navigability.
 
 ## 27. Important Rejection Reasons
@@ -1204,6 +1256,9 @@ Deferrable current-sweep reasons:
 - Completed pickup preservation.
 - Adding a new booking mid-route.
 - Stop ordering and grouped dropoff checks.
+- Grouped pickup/dropoff passenger totals.
+- Two-pickup, one-shared-dropoff acceptance before the second pickup is passed.
+- Two-pickup, one-shared-dropoff deferral after the second pickup is passed.
 
 This is currently the best single test file for understanding the DRT backend behavior.
 
@@ -1230,11 +1285,15 @@ When you want to understand why a candidate booking was accepted/rejected:
    - along-track ratio not too far before/after corridor
 7. Check live operator position:
    - candidate pickup must not be behind current sweep
+   - for `A -> C` active and `B -> C` candidate, B is valid only while B is ahead of the operator
 8. Check pool size <= 3.
 9. Estimate added distance and ETA.
 10. Check max per-rider added ETA <= 8 minutes.
 11. Check candidate pickup distance <= 1000 m from active/operator reference.
 12. Inspect `poolEtaSnapshot` written on accepted bookings for diagnostics.
+13. Inspect `poolStopPlan` grouped stops:
+   - shared pickup/dropoff stops should contain all grouped `bookingIds`
+   - `passengerCount`, `adultCount`, and `childCount` should match the grouped bookings
 
 ## 30. Suggested Future Improvements
 

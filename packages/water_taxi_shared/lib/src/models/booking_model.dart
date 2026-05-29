@@ -577,6 +577,9 @@ class PoolStopPlanItem {
     this.routePositionMeters,
     this.distanceFromRouteMeters,
     required this.bookingIds,
+    this.passengerCount,
+    this.adultCount,
+    this.childCount,
     this.status = 'pending',
     this.etaToStopMinutes,
     this.reachedAt,
@@ -593,6 +596,9 @@ class PoolStopPlanItem {
   final double? routePositionMeters;
   final double? distanceFromRouteMeters;
   final List<String> bookingIds;
+  final int? passengerCount;
+  final int? adultCount;
+  final int? childCount;
   final String status;
   final double? etaToStopMinutes;
   final DateTime? reachedAt;
@@ -613,6 +619,9 @@ class PoolStopPlanItem {
       routePositionMeters: _nullableDouble(data['routePositionMeters']),
       distanceFromRouteMeters: _nullableDouble(data['distanceFromRouteMeters']),
       bookingIds: _strList(data['bookingIds']),
+      passengerCount: _nullableInt(data['passengerCount']),
+      adultCount: _nullableInt(data['adultCount']),
+      childCount: _nullableInt(data['childCount']),
       status: _str(data['status']).isEmpty ? 'pending' : _str(data['status']),
       etaToStopMinutes: _nullableDouble(data['etaToStop']),
       reachedAt: _nullableDateTime(data['reachedAt']),
@@ -639,6 +648,13 @@ class PoolStopPlanItem {
     if (v is int) return v;
     if (v is num) return v.truncate();
     return int.tryParse(v?.toString() ?? '') ?? 0;
+  }
+
+  static int? _nullableInt(dynamic v) {
+    if (v == null) return null;
+    if (v is int) return v;
+    if (v is num) return v.truncate();
+    return int.tryParse(v.toString());
   }
 
   static String? _nullableString(dynamic v) {

@@ -55,6 +55,9 @@ function booking(id, pickupIndex, dropoffIndex, overrides = {}) {
     [BOOKING_FIELDS.originCoords]: geo(pickup),
     [BOOKING_FIELDS.destinationCoords]: geo(dropoff),
     [BOOKING_FIELDS.routePolyline]: routePolyline,
+    [BOOKING_FIELDS.passengerCount]: 1,
+    [BOOKING_FIELDS.adultCount]: 1,
+    [BOOKING_FIELDS.childCount]: 0,
     [BOOKING_FIELDS.createdAt]: new Date("2026-05-12T00:00:00.000Z"),
     [BOOKING_FIELDS.updatedAt]: new Date("2026-05-12T00:00:00.000Z"),
     ...overrides,
@@ -240,6 +243,110 @@ test("start gate follows current pool stop before booking sequence", () => {
     canStartBookingAtCurrentPoolStop([], "the-shore-booking"),
     null,
     "Missing stop plan falls back to the booking-level sequence gate"
+  );
+});
+
+test("one pickup to two dropoffs stores grouped pickup passenger totals", () => {
+  const a = booking("A", 18, 22);
+  const b = booking("B", 18, 24);
+
+  const stopPlan = planFor([a, b]);
+  const pickup = stopPlan.find(
+    (stop) => stop.stopType === "pickup" && stop.stopName === "Jetty 18"
+  );
+
+  assert.deepEqual(pendingStopLabels(stopPlan), [
+    "pickup:Jetty 18:A,B",
+    "dropoff:Jetty 22:A",
+    "dropoff:Jetty 24:B",
+  ]);
+  assert.equal(pickup?.passengerCount, 2);
+  assert.equal(pickup?.adultCount, 2);
+  assert.equal(pickup?.childCount, 0);
+});
+
+test("two pickups to one dropoff stores shared dropoff passenger totals", () => {
+  const a = booking("A", 15, 22);
+  const b = booking("B", 18, 22);
+
+  const stopPlan = planFor([a, b]);
+  const sharedDropoff = stopPlan.find(
+    (stop) => stop.stopType === "dropoff" && stop.stopName === "Jetty 22"
+  );
+
+  assert.deepEqual(pendingStopLabels(stopPlan), [
+    "pickup:Jetty 15:A",
+    "pickup:Jetty 18:B",
+    "dropoff:Jetty 22:A,B",
+  ]);
+  assert.equal(sharedDropoff?.passengerCount, 2);
+  assert.equal(sharedDropoff?.adultCount, 2);
+  assert.equal(sharedDropoff?.childCount, 0);
+});
+
+test("two pickups to one dropoff is eligible until the second pickup is passed", () => {
+  const active = booking("A", 15, 22, {
+    [BOOKING_FIELDS.status]: "on_the_way",
+    [BOOKING_FIELDS.routeDirection]: "forward",
+    [BOOKING_FIELDS.operatorLat]: baseLat,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 15.5 * lngStep,
+    [BOOKING_FIELDS.passengerPickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+    [BOOKING_FIELDS.pickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+    [BOOKING_FIELDS.onboard]: true,
+  });
+  const candidate = booking("B", 18, 22, {
+    [BOOKING_FIELDS.status]: "pending",
+  });
+
+  const beforeSecondPickup = evaluatePoolingEligibility([active], candidate);
+  assert.equal(beforeSecondPickup.eligible, true);
+  assert.equal(beforeSecondPickup.reason, "eligible");
+
+  const activePastSecondPickup = {
+    ...active,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 18.5 * lngStep,
+  };
+  const afterSecondPickup = evaluatePoolingEligibility(
+    [activePastSecondPickup],
+    candidate
+  );
+  assert.equal(afterSecondPickup.reason, "pickup_behind_operator");
+});
+
+test("completed first pickup remains completed when replanning two pickups to one dropoff", () => {
+  const a = booking("A", 15, 22, {
+    [BOOKING_FIELDS.status]: "on_the_way",
+    [BOOKING_FIELDS.routeDirection]: "forward",
+    [BOOKING_FIELDS.operatorLat]: baseLat,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 16 * lngStep,
+    [BOOKING_FIELDS.passengerPickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+    [BOOKING_FIELDS.pickedUpAt]: new Date("2026-05-12T07:10:00.000Z"),
+    [BOOKING_FIELDS.onboard]: true,
+  });
+  const b = booking("B", 18, 22);
+  const initialPlan = planFor([a]);
+  const pickupACompletedPlan = initialPlan.map((stop) =>
+    stop.stopName === "Jetty 15" && stop.stopType === "pickup"
+      ? { ...stop, status: "completed", completedAt: new Date() }
+      : stop
+  );
+
+  const replanned = planFor(
+    [a, b],
+    a,
+    [item("A", { ...a, [BOOKING_FIELDS.poolStopPlan]: pickupACompletedPlan })]
+  );
+
+  assert.deepEqual(
+    replanned.map(
+      (stop) =>
+        `${stop.status}:${stop.stopType}:${stop.stopName}:${[...stop.bookingIds].sort().join(",")}:${stop.passengerCount}`
+    ),
+    [
+      "completed:pickup:Jetty 15:A:1",
+      "active:pickup:Jetty 18:B:1",
+      "pending:dropoff:Jetty 22:A,B:2",
+    ]
   );
 });
 
