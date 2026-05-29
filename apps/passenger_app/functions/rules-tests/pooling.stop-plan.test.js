@@ -313,6 +313,32 @@ test("two pickups to one dropoff is eligible until the second pickup is passed",
   assert.equal(afterSecondPickup.reason, "pickup_behind_operator");
 });
 
+test("static accepted pool can add same-direction pickup ahead without live movement", () => {
+  const previousMaxPickupDistance = POOLING_POLICY.maxPickupDistanceMeters;
+  POOLING_POLICY.maxPickupDistanceMeters = 10;
+  try {
+    const active = booking("A", 15, 22, {
+      [BOOKING_FIELDS.status]: "accepted",
+      [BOOKING_FIELDS.routeDirection]: "forward",
+    });
+    const candidate = booking("B", 18, 22, {
+      [BOOKING_FIELDS.status]: "pending",
+    });
+
+    const eligibility = evaluatePoolingEligibility([active], candidate);
+
+    assert.equal(eligibility.eligible, true);
+    assert.equal(eligibility.reason, "eligible");
+    assert.equal(
+      eligibility.candidatePickupRouteAheadDistanceMeters > 0,
+      true,
+      "Candidate pickup should be treated as ahead from the route-origin fallback anchor"
+    );
+  } finally {
+    POOLING_POLICY.maxPickupDistanceMeters = previousMaxPickupDistance;
+  }
+});
+
 test("completed first pickup remains completed when replanning two pickups to one dropoff", () => {
   const a = booking("A", 15, 22, {
     [BOOKING_FIELDS.status]: "on_the_way",

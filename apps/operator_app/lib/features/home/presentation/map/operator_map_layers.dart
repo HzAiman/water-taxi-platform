@@ -38,7 +38,7 @@ class OperatorMapLayers {
   const OperatorMapLayers._();
 
   static const double _closedLoopToleranceMeters = 12.0;
-  static const double _maxStopRouteAnchorDistanceMeters = 15.0;
+  static const double _maxStopRouteAnchorDistanceMeters = 50.0;
   static const double _maxStopRouteSevereOffRouteMeters = 300.0;
 
   static bool isActiveNavigationBooking(BookingModel booking) {

@@ -364,12 +364,13 @@ class OperatorHomeViewModel extends ChangeNotifier {
     final result = await _withBusy(
       () async {
         final position = await _currentPositionOrNull();
+        final effectivePosition = position ?? _latestOperatorPosition;
         return _bookingRepo.acceptBooking(
           bookingId: bookingId,
           operatorId: operatorId,
-          operatorLat: position?.latitude,
-          operatorLng: position?.longitude,
-          locationUpdatedAt: position?.timestamp,
+          operatorLat: effectivePosition?.latitude,
+          operatorLng: effectivePosition?.longitude,
+          locationUpdatedAt: effectivePosition?.timestamp,
         );
       },
       actionName: 'accept_booking',

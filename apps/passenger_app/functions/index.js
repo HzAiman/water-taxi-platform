@@ -293,6 +293,76 @@ function getOperatorPoint(booking) {
   return isValidPoint(point) ? point : null;
 }
 
+function pointFromPoolStop(stop) {
+  const point = {
+    lat: Number(stop?.lat),
+    lng: Number(stop?.lng),
+  };
+  return isValidPoint(point) ? point : null;
+}
+
+function currentStopPointFromBooking(booking) {
+  const stopPlan = Array.isArray(booking?.[BOOKING_FIELDS.poolStopPlan])
+    ? booking[BOOKING_FIELDS.poolStopPlan]
+    : [];
+  if (stopPlan.length === 0) return null;
+
+  const currentStopId = asString(
+    booking?.[BOOKING_FIELDS.currentPoolStopId] ||
+      booking?.[BOOKING_FIELDS.currentStopId]
+  );
+  if (currentStopId) {
+    const byId = stopPlan.find((stop) => asString(stop?.stopId) === currentStopId);
+    const point = pointFromPoolStop(byId);
+    if (point) return point;
+  }
+
+  const currentStopIndex = Number(booking?.[BOOKING_FIELDS.currentStopIndex]);
+  if (
+    Number.isInteger(currentStopIndex) &&
+    currentStopIndex >= 0 &&
+    currentStopIndex < stopPlan.length
+  ) {
+    const point = pointFromPoolStop(stopPlan[currentStopIndex]);
+    if (point) return point;
+  }
+
+  const firstIncomplete = stopPlan.find((stop) => {
+    const status = asString(stop?.status);
+    return status !== "completed" && status !== "skipped";
+  });
+  return pointFromPoolStop(firstIncomplete);
+}
+
+function selectEligibilityAnchorPoint(activeBookings, operatorPoint) {
+  if (isValidPoint(operatorPoint)) {
+    return { point: operatorPoint, source: "request_operator" };
+  }
+
+  const storedOperatorPoint = activeBookings
+    .map((booking) => getOperatorPoint(booking))
+    .find((point) => isValidPoint(point));
+  if (storedOperatorPoint) {
+    return { point: storedOperatorPoint, source: "stored_operator" };
+  }
+
+  const currentStopPoint = activeBookings
+    .map((booking) => currentStopPointFromBooking(booking))
+    .find((point) => isValidPoint(point));
+  if (currentStopPoint) {
+    return { point: currentStopPoint, source: "current_stop" };
+  }
+
+  const firstOrigin = activeBookings
+    .map((booking) => getBookingEndpoints(booking)?.origin)
+    .find((point) => isValidPoint(point));
+  if (firstOrigin) {
+    return { point: firstOrigin, source: "active_origin" };
+  }
+
+  return { point: null, source: "" };
+}
+
 function getBookingEndpoints(booking) {
   const origin = getBookingPoint(booking, BOOKING_FIELDS.originCoords);
   const destination = getBookingPoint(booking, BOOKING_FIELDS.destinationCoords);
@@ -1405,11 +1475,14 @@ function evaluatePoolingEligibility(
     };
   }
 
-  const liveOperatorPoint = isValidPoint(operatorPoint)
-    ? operatorPoint
-    : activeBookings
-    .map((booking) => getOperatorPoint(booking))
-    .find((point) => isValidPoint(point));
+  const eligibilityAnchor = selectEligibilityAnchorPoint(
+    activeBookings,
+    operatorPoint
+  );
+  const liveOperatorPoint = eligibilityAnchor.point;
+  const hasLiveOperatorAnchor =
+    eligibilityAnchor.source === "request_operator" ||
+    eligibilityAnchor.source === "stored_operator";
   let operatorProjection = null;
   let candidatePickupAheadOfOperator = false;
   let candidatePickupRouteAheadDistanceMeters = 0;
@@ -1428,7 +1501,7 @@ function evaluatePoolingEligibility(
     const samePickupStillReachable = isSamePickupStillReachable({
       activeBookings,
       candidateBooking,
-      liveOperatorPoint,
+      liveOperatorPoint: hasLiveOperatorAnchor ? liveOperatorPoint : null,
     });
     const sameUncompletedPickupInActivePool =
       isSameUncompletedPickupInActivePool(activeBookings, candidateBooking);
@@ -1444,6 +1517,7 @@ function evaluatePoolingEligibility(
           reason: "pickup_behind_operator",
           corridor,
           routeDirection,
+          operatorAnchorSource: eligibilityAnchor.source,
           operatorRoutePositionMeters: operatorProjection.alongMeters,
           candidateMetrics,
         };
