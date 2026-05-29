@@ -316,7 +316,7 @@ void main() {
 
     expect(find.text('Passenger One'), findsOneWidget);
     expect(find.text('Ready To Start'), findsOneWidget);
-    expect(find.text('Call'), findsOneWidget);
+    expect(find.text('Call'), findsNothing);
     expect(find.text('Start Route'), findsOneWidget);
     expect(find.text('Release'), findsOneWidget);
   });

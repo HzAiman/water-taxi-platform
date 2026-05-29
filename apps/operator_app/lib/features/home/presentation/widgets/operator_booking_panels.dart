@@ -233,27 +233,9 @@ class OperatorActiveBookingCard extends StatelessWidget {
           ],
           if (!isNavigating) ...[
             const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: isUpdating
-                        ? null
-                        : () => unawaited(onCallCustomer()),
-                    icon: const Icon(Icons.call, size: 18),
-                    label: const Text('Call'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: OperatorBrand.magenta,
-                      side: BorderSide(
-                        color: OperatorBrand.magenta.withValues(alpha: 0.20),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 11),
-                      textStyle: const TextStyle(fontSize: 13),
-                    ),
-                  ),
-                ),
-                if (isAccepted) ...[
-                  const SizedBox(width: 8),
+            if (isAccepted)
+              Row(
+                children: [
                   Expanded(
                     child: OutlinedButton(
                       onPressed: isUpdating
@@ -296,8 +278,7 @@ class OperatorActiveBookingCard extends StatelessWidget {
                     ),
                   ),
                 ],
-              ],
-            ),
+              ),
           ],
         ],
       ),
