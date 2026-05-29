@@ -103,10 +103,11 @@ class BookingRepository {
         BookingFields.operatorUid: null,
         if (routeSelection.routePolylineId != null)
           BookingFields.routePolylineId: routeSelection.routePolylineId,
-        if (routeSelection.routePolylineId == null &&
-            routeSelection.routePolyline != null &&
+        if (routeSelection.routePolyline != null &&
             routeSelection.routePolyline!.isNotEmpty)
           BookingFields.routePolyline: routeSelection.routePolyline,
+        if (routeSelection.routeDirection != null)
+          BookingFields.routeDirection: routeSelection.routeDirection,
         BookingFields.createdAt: FieldValue.serverTimestamp(),
         BookingFields.updatedAt: FieldValue.serverTimestamp(),
       });
@@ -402,6 +403,7 @@ class BookingRepository {
           routePolyline: segment
               .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
               .toList(),
+          routeDirection: 'forward',
         );
       }
     }
@@ -411,6 +413,7 @@ class BookingRepository {
         <String, double>{'lat': origin.lat, 'lng': origin.lng},
         <String, double>{'lat': destination.lat, 'lng': destination.lng},
       ],
+      routeDirection: 'forward',
     );
   }
 
@@ -507,7 +510,10 @@ class BookingRepository {
     );
   }
 
-  static List<_LatLngPoint> _extractSegment(_PolylineMatch match) {
+  static List<_LatLngPoint> _extractSegment(
+    _PolylineMatch match, {
+    String? routeDirection,
+  }) {
     final start = match.start;
     final end = match.end;
     final points = match.polyline;
@@ -518,6 +524,14 @@ class BookingRepository {
 
     if (!_isClosedLoopPolyline(points)) {
       return _extractLinearSegment(match);
+    }
+
+    final normalizedDirection = _normalizeRouteDirection(routeDirection);
+    if (normalizedDirection == 'forward') {
+      return _extractLoopSegment(match, step: 1);
+    }
+    if (normalizedDirection == 'reverse') {
+      return _extractLoopSegment(match, step: -1);
     }
 
     final forward = _extractLoopSegment(match, step: 1);
@@ -578,7 +592,7 @@ class BookingRepository {
     if (points.length < 3) {
       return false;
     }
-    return _distanceBetweenPoints(points.first, points.last) <= 1e-6;
+    return _haversineDistanceMeters(points.first, points.last) <= 25;
   }
 
   static void _addIfDistinct(List<_LatLngPoint> points, _LatLngPoint next) {
@@ -598,6 +612,28 @@ class BookingRepository {
     final dLat = a.lat - b.lat;
     final dLng = a.lng - b.lng;
     return math.sqrt((dLat * dLat) + (dLng * dLng));
+  }
+
+  static double _haversineDistanceMeters(_LatLngPoint a, _LatLngPoint b) {
+    const earthRadiusMeters = 6371000.0;
+    final dLat = _degreesToRadians(b.lat - a.lat);
+    final dLng = _degreesToRadians(b.lng - a.lng);
+    final lat1 = _degreesToRadians(a.lat);
+    final lat2 = _degreesToRadians(b.lat);
+    final sinLat = math.sin(dLat / 2);
+    final sinLng = math.sin(dLng / 2);
+    final aa =
+        sinLat * sinLat + math.cos(lat1) * math.cos(lat2) * sinLng * sinLng;
+    return earthRadiusMeters * 2 * math.atan2(math.sqrt(aa), math.sqrt(1 - aa));
+  }
+
+  static double _degreesToRadians(double degrees) => degrees * math.pi / 180;
+
+  static String _normalizeRouteDirection(String? value) {
+    final normalized = value?.trim().toLowerCase();
+    return normalized == 'forward' || normalized == 'reverse'
+        ? normalized!
+        : '';
   }
 
   static double _polylineLength(List<_LatLngPoint> points) {
@@ -645,7 +681,7 @@ class BookingRepository {
   ) async {
     final embedded = _normaliseRoutePolyline(_extractRoutePolylineRaw(data));
     if (embedded != null && embedded.isNotEmpty) {
-      return embedded;
+      return _bookingSegmentFromPolyline(data, embedded) ?? embedded;
     }
 
     final routePolylineId = data[BookingFields.routePolylineId]?.toString();
@@ -669,10 +705,50 @@ class BookingRepository {
           snap.data()![BookingFields.routePolyline],
     );
     if (polyline != null && polyline.isNotEmpty) {
-      return polyline;
+      return _bookingSegmentFromPolyline(data, polyline) ?? polyline;
     }
 
     return _directRoutePolyline(data);
+  }
+
+  List<Map<String, double>>? _bookingSegmentFromPolyline(
+    Map<String, dynamic> data,
+    List<Map<String, double>> polyline,
+  ) {
+    final origin = data[BookingFields.originCoords] as GeoPoint?;
+    final dest = data[BookingFields.destinationCoords] as GeoPoint?;
+    if (origin == null || dest == null || polyline.length < 2) {
+      return null;
+    }
+
+    final points = polyline
+        .map((p) => _LatLngPoint(lat: p['lat']!, lng: p['lng']!))
+        .toList();
+    final originPoint = _LatLngPoint(
+      lat: origin.latitude,
+      lng: origin.longitude,
+    );
+    final destinationPoint = _LatLngPoint(
+      lat: dest.latitude,
+      lng: dest.longitude,
+    );
+    final match = _PolylineMatch(
+      polylineId: _asStringOrEmpty(data[BookingFields.routePolylineId]),
+      polyline: points,
+      start: _snapPointToPolyline(originPoint, points),
+      end: _snapPointToPolyline(destinationPoint, points),
+      score: 0,
+    );
+    final segment = _extractSegment(
+      match,
+      routeDirection: data[BookingFields.routeDirection]?.toString(),
+    );
+    if (segment.length < 2) {
+      return null;
+    }
+    return segment
+        .map((p) => <String, double>{'lat': p.lat, 'lng': p.lng})
+        .toList();
   }
 
   List<Map<String, double>> _directRoutePolyline(Map<String, dynamic> data) {
@@ -734,6 +810,10 @@ class BookingRepository {
 
     if (points.isEmpty) return null;
     return points;
+  }
+
+  static String _asStringOrEmpty(dynamic value) {
+    return value == null ? '' : value.toString().trim();
   }
 
   static Map<String, double>? _toRoutePointMap(dynamic entry) {
@@ -811,10 +891,15 @@ class _PolylineSource {
 }
 
 class _PolylineSelection {
-  const _PolylineSelection({this.routePolylineId, this.routePolyline});
+  const _PolylineSelection({
+    this.routePolylineId,
+    this.routePolyline,
+    this.routeDirection,
+  });
 
   final String? routePolylineId;
   final List<Map<String, double>>? routePolyline;
+  final String? routeDirection;
 }
 
 class _LatLngPoint {

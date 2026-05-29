@@ -1248,8 +1248,9 @@ class BookingRepository {
             snap.data()![BookingFields.routePolyline],
       );
       if (polyline != null && polyline.isNotEmpty) {
+        final segment = _segmentFromRoutePolyline(data, polyline);
         return _ResolvedRoutePolyline(
-          points: polyline,
+          points: segment != null && segment.isNotEmpty ? segment : polyline,
           sourceId: routePolylineId,
         );
       }
@@ -1351,11 +1352,46 @@ class BookingRepository {
     }
 
     return _ResolvedRoutePolyline(
-      points: bestMatch.polyline
+      points: _extractSegment(bestMatch)
           .map((point) => <String, double>{'lat': point.lat, 'lng': point.lng})
           .toList(growable: false),
       sourceId: bestMatch.polylineId,
     );
+  }
+
+  List<Map<String, double>>? _segmentFromRoutePolyline(
+    Map<String, dynamic> data,
+    List<Map<String, double>> polyline,
+  ) {
+    final origin = data[BookingFields.originCoords] as GeoPoint?;
+    final destination = data[BookingFields.destinationCoords] as GeoPoint?;
+    if (origin == null || destination == null || polyline.length < 2) {
+      return null;
+    }
+
+    final points = polyline
+        .map((point) => _LatLngPoint(lat: point['lat']!, lng: point['lng']!))
+        .toList(growable: false);
+    final match = _PolylineMatch(
+      polylineId: data[BookingFields.routePolylineId]?.toString() ?? '',
+      polyline: points,
+      start: _snapPointToPolyline(
+        _LatLngPoint(lat: origin.latitude, lng: origin.longitude),
+        points,
+      ),
+      end: _snapPointToPolyline(
+        _LatLngPoint(lat: destination.latitude, lng: destination.longitude),
+        points,
+      ),
+      score: 0,
+    );
+    final segment = _extractSegment(match);
+    if (segment.length < 2) {
+      return null;
+    }
+    return segment
+        .map((point) => <String, double>{'lat': point.lat, 'lng': point.lng})
+        .toList(growable: false);
   }
 
   List<Map<String, double>> _directRoutePolyline(Map<String, dynamic> data) {
@@ -1737,7 +1773,7 @@ class BookingRepository {
     if (points.length < 3) {
       return false;
     }
-    return _distanceBetweenPoints(points.first, points.last) <= 1e-6;
+    return _haversineDistanceMeters(points.first, points.last) <= 25;
   }
 
   static void _addIfDistinct(List<_LatLngPoint> points, _LatLngPoint next) {
@@ -1758,6 +1794,21 @@ class BookingRepository {
     final dLng = a.lng - b.lng;
     return math.sqrt((dLat * dLat) + (dLng * dLng));
   }
+
+  static double _haversineDistanceMeters(_LatLngPoint a, _LatLngPoint b) {
+    const earthRadiusMeters = 6371000.0;
+    final dLat = _degreesToRadians(b.lat - a.lat);
+    final dLng = _degreesToRadians(b.lng - a.lng);
+    final lat1 = _degreesToRadians(a.lat);
+    final lat2 = _degreesToRadians(b.lat);
+    final sinLat = math.sin(dLat / 2);
+    final sinLng = math.sin(dLng / 2);
+    final aa =
+        sinLat * sinLat + math.cos(lat1) * math.cos(lat2) * sinLng * sinLng;
+    return earthRadiusMeters * 2 * math.atan2(math.sqrt(aa), math.sqrt(1 - aa));
+  }
+
+  static double _degreesToRadians(double degrees) => degrees * math.pi / 180;
 
   static double _polylineLength(List<_LatLngPoint> points) {
     if (points.length < 2) {

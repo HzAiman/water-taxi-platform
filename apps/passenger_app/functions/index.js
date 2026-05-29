@@ -25,6 +25,7 @@ const MINIMUM_STRIPE_CHARGE_BY_CURRENCY = {
 const COLLECTIONS = {
   bookings: "bookings",
   bookingsArchive: "bookings_archive",
+  polylines: "polylines",
   orderNumberIndex: "order_number_index",
   fares: "fares",
   jetties: "jetties",
@@ -41,6 +42,8 @@ const BOOKING_FIELDS = {
   status: "status",
   origin: "origin",
   destination: "destination",
+  originJettyId: "originJettyId",
+  destinationJettyId: "destinationJettyId",
   originCoords: "originCoords",
   destinationCoords: "destinationCoords",
   operatorUid: "operatorUid",
@@ -64,6 +67,7 @@ const BOOKING_FIELDS = {
   poolMax: "poolMax",
   poolEligibilityScore: "poolEligibilityScore",
   poolEtaSnapshot: "poolEtaSnapshot",
+  routePolylineId: "routePolylineId",
   routePolyline: "routePolyline",
   routeDirection: "routeDirection",
   poolStatus: "poolStatus",
@@ -231,10 +235,30 @@ function normalizeRoutePoint(entry) {
   return null;
 }
 
+function unwrapRoutePolylinePayload(raw) {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    return (
+      raw.path ||
+      raw.coordinates ||
+      raw.polyline ||
+      raw.points ||
+      raw.geometry ||
+      raw[BOOKING_FIELDS.routePolyline]
+    );
+  }
+  return raw;
+}
+
+function routePointsFromRaw(raw) {
+  const unwrapped = unwrapRoutePolylinePayload(raw);
+  if (!Array.isArray(unwrapped)) return [];
+  return unwrapped
+    .map(normalizeRoutePoint)
+    .filter((point) => isValidPoint(point));
+}
+
 function routePointsFromBooking(booking) {
-  const raw = booking?.[BOOKING_FIELDS.routePolyline];
-  if (!Array.isArray(raw)) return [];
-  return raw.map(normalizeRoutePoint).filter((point) => isValidPoint(point));
+  return routePointsFromRaw(booking?.[BOOKING_FIELDS.routePolyline]);
 }
 
 function isValidPoint(point) {
@@ -307,6 +331,148 @@ function buildCorridorFromBooking(booking) {
     cumulativeMeters,
     totalMeters,
   };
+}
+
+function isClosedLoopRoute(points) {
+  if (!Array.isArray(points) || points.length < 3) return false;
+  return haversineDistanceMeters(points[0], points[points.length - 1]) <= 25;
+}
+
+function projectPointToRouteSegment(points, point) {
+  let best = null;
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const aPoint = points[i];
+    const bPoint = points[i + 1];
+    const refLat = (aPoint.lat + bPoint.lat + point.lat) / 3;
+    const a = toXY(aPoint, refLat);
+    const b = toXY(bPoint, refLat);
+    const p = toXY(point, refLat);
+    const abx = b.x - a.x;
+    const aby = b.y - a.y;
+    const abLen2 = abx * abx + aby * aby;
+    const rawT =
+      abLen2 <= 1 ? 0 : ((p.x - a.x) * abx + (p.y - a.y) * aby) / abLen2;
+    const t = Math.max(0, Math.min(1, rawT));
+    const projectedPoint = {
+      lat: aPoint.lat + (bPoint.lat - aPoint.lat) * t,
+      lng: aPoint.lng + (bPoint.lng - aPoint.lng) * t,
+    };
+    const deviationMeters = haversineDistanceMeters(projectedPoint, point);
+    if (!best || deviationMeters < best.deviationMeters) {
+      best = {
+        point: projectedPoint,
+        segmentIndex: i,
+        deviationMeters,
+      };
+    }
+  }
+  return best;
+}
+
+function addDistinctRoutePoint(points, next) {
+  if (!isValidPoint(next)) return;
+  const last = points[points.length - 1];
+  if (last && haversineDistanceMeters(last, next) <= 0.5) return;
+  points.push(next);
+}
+
+function extractRouteSegment(points, start, end, routeDirection = "") {
+  if (!Array.isArray(points) || points.length < 2 || !start || !end) {
+    return [];
+  }
+
+  const normalizedDirection = normalizeRouteDirection(routeDirection);
+  const segment = [start.point];
+  const closedLoop = isClosedLoopRoute(points);
+
+  if (closedLoop) {
+    const segmentCount = points.length - 1;
+    const step = normalizedDirection === "reverse" ? -1 : 1;
+    let index = start.segmentIndex;
+    let guard = 0;
+    while (index !== end.segmentIndex && guard <= segmentCount + 1) {
+      if (step > 0) {
+        const nextIndex = (index + 1) % segmentCount;
+        addDistinctRoutePoint(segment, points[nextIndex]);
+        index = nextIndex;
+      } else {
+        addDistinctRoutePoint(segment, points[index]);
+        index = (index - 1 + segmentCount) % segmentCount;
+      }
+      guard += 1;
+    }
+    addDistinctRoutePoint(segment, end.point);
+    return segment;
+  }
+
+  if (start.segmentIndex <= end.segmentIndex) {
+    for (let i = start.segmentIndex + 1; i <= end.segmentIndex; i += 1) {
+      addDistinctRoutePoint(segment, points[i]);
+    }
+  } else {
+    for (let i = start.segmentIndex; i >= end.segmentIndex + 1; i -= 1) {
+      addDistinctRoutePoint(segment, points[i]);
+    }
+  }
+  addDistinctRoutePoint(segment, end.point);
+  return segment;
+}
+
+function routeSegmentForBooking(booking, routePoints) {
+  const endpoints = getBookingEndpoints(booking);
+  if (!endpoints || !Array.isArray(routePoints) || routePoints.length < 2) {
+    return [];
+  }
+
+  const start = projectPointToRouteSegment(routePoints, endpoints.origin);
+  const end = projectPointToRouteSegment(routePoints, endpoints.destination);
+  return extractRouteSegment(
+    routePoints,
+    start,
+    end,
+    booking?.[BOOKING_FIELDS.routeDirection]
+  );
+}
+
+async function hydrateBookingRouteGeometry(tx, booking) {
+  const embedded = routePointsFromBooking(booking);
+  if (embedded.length >= 2) return booking;
+
+  const routePolylineId = asString(booking?.[BOOKING_FIELDS.routePolylineId]);
+  if (!routePolylineId) return booking;
+
+  const snap = await tx.get(
+    db.collection(COLLECTIONS.polylines).doc(routePolylineId)
+  );
+  if (!snap.exists) return booking;
+
+  const data = snap.data() || {};
+  const sourcePoints = routePointsFromRaw(
+    data.path ||
+      data.coordinates ||
+      data.polyline ||
+      data.geometry ||
+      data[BOOKING_FIELDS.routePolyline]
+  );
+  const segment = routeSegmentForBooking(booking, sourcePoints);
+  if (segment.length < 2) return booking;
+
+  return {
+    ...booking,
+    [BOOKING_FIELDS.routePolyline]: segment.map((point) => ({
+      lat: point.lat,
+      lng: point.lng,
+    })),
+    [BOOKING_FIELDS.routeDirection]:
+      normalizeRouteDirection(booking?.[BOOKING_FIELDS.routeDirection]) ||
+      "forward",
+  };
+}
+
+async function hydrateBookingsRouteGeometry(tx, bookings) {
+  return Promise.all(
+    bookings.map((booking) => hydrateBookingRouteGeometry(tx, booking))
+  );
 }
 
 function projectPointToCorridor(corridor, point) {
@@ -452,6 +618,54 @@ function nearestActivePickupDistanceMeters(activeBookings, candidateMetrics) {
     ...referencePoints.map((point) =>
       haversineDistanceMeters(point, candidateMetrics.endpoints.origin)
     )
+  );
+}
+
+function normalizedJettyId(value) {
+  return asString(value).toLowerCase();
+}
+
+function bookingOriginsMatch(a, b) {
+  const aJettyId = normalizedJettyId(a?.[BOOKING_FIELDS.originJettyId]);
+  const bJettyId = normalizedJettyId(b?.[BOOKING_FIELDS.originJettyId]);
+  if (aJettyId && bJettyId && aJettyId === bJettyId) {
+    return true;
+  }
+
+  const aOrigin = getBookingPoint(a, BOOKING_FIELDS.originCoords);
+  const bOrigin = getBookingPoint(b, BOOKING_FIELDS.originCoords);
+  return (
+    isValidPoint(aOrigin) &&
+    isValidPoint(bOrigin) &&
+    haversineDistanceMeters(aOrigin, bOrigin) <=
+      Math.max(POOLING_POLICY.stopArrivalRadiusMeters * 2, 60)
+  );
+}
+
+function isSamePickupStillReachable({
+  activeBookings,
+  candidateBooking,
+  liveOperatorPoint,
+}) {
+  if (!isValidPoint(liveOperatorPoint)) return false;
+  const candidateOrigin = getBookingPoint(candidateBooking, BOOKING_FIELDS.originCoords);
+  if (!isValidPoint(candidateOrigin)) return false;
+  if (
+    haversineDistanceMeters(liveOperatorPoint, candidateOrigin) >
+    Math.max(POOLING_POLICY.stopArrivalRadiusMeters * 4, 120)
+  ) {
+    return false;
+  }
+  return activeBookings.some((activeBooking) =>
+    bookingOriginsMatch(activeBooking, candidateBooking)
+  );
+}
+
+function isSameUncompletedPickupInActivePool(activeBookings, candidateBooking) {
+  return activeBookings.some(
+    (activeBooking) =>
+      !isPassengerAlreadyPickedUp(activeBooking) &&
+      bookingOriginsMatch(activeBooking, candidateBooking)
   );
 }
 
@@ -1138,15 +1352,36 @@ function evaluatePoolingEligibility(
       routeDirection === "reverse"
         ? candidateMetrics.originAlongMeters >= operatorProjection.alongMeters
         : candidateMetrics.originAlongMeters <= operatorProjection.alongMeters;
-    if (pickupBehindOperator) {
-      return {
-        eligible: false,
-        reason: "pickup_behind_operator",
-        corridor,
-        routeDirection,
-        operatorRoutePositionMeters: operatorProjection.alongMeters,
-        candidateMetrics,
-      };
+    const samePickupStillReachable = isSamePickupStillReachable({
+      activeBookings,
+      candidateBooking,
+      liveOperatorPoint,
+    });
+    const sameUncompletedPickupInActivePool =
+      isSameUncompletedPickupInActivePool(activeBookings, candidateBooking);
+    const samePickupProjectionJitter =
+      sameUncompletedPickupInActivePool &&
+      Math.abs(
+        candidateMetrics.originAlongMeters - operatorProjection.alongMeters
+      ) <= 250;
+    if (pickupBehindOperator && !samePickupStillReachable) {
+      if (!samePickupProjectionJitter) {
+        return {
+          eligible: false,
+          reason: "pickup_behind_operator",
+          corridor,
+          routeDirection,
+          operatorRoutePositionMeters: operatorProjection.alongMeters,
+          candidateMetrics,
+        };
+      }
+    }
+    if (samePickupStillReachable || samePickupProjectionJitter) {
+      candidatePickupAheadOfOperator = true;
+      candidatePickupRouteAheadDistanceMeters = Math.max(
+        0,
+        candidatePickupRouteAheadDistanceMeters
+      );
     }
   }
 
@@ -1887,7 +2122,10 @@ exports.acceptPooledBooking = onCall(
         throw new HttpsError("not-found", "Booking not found.");
       }
 
-      const booking = bookingSnap.data() || {};
+      const booking = await hydrateBookingRouteGeometry(
+        tx,
+        bookingSnap.data() || {}
+      );
       const status = asString(booking[BOOKING_FIELDS.status]);
       if (status !== "pending") {
         throw new HttpsError(
@@ -1934,7 +2172,10 @@ exports.acceptPooledBooking = onCall(
 
       const activeSnap = await tx.get(activeQuery);
       const activeDocs = activeSnap.docs;
-      const activeBookings = activeDocs.map((doc) => doc.data() || {});
+      const activeBookings = await hydrateBookingsRouteGeometry(
+        tx,
+        activeDocs.map((doc) => doc.data() || {})
+      );
       const onTheWayDocs = activeDocs.filter(
         (doc) => asString(doc.data()?.[BOOKING_FIELDS.status]) === "on_the_way"
       );
@@ -2036,10 +2277,10 @@ exports.acceptPooledBooking = onCall(
         [BOOKING_FIELDS.operatorUid]: operatorUid,
         [BOOKING_FIELDS.routeDirection]: eligibility.routeDirection,
       };
-      const activeItems = activeDocs.map((doc) => ({
+      const activeItems = activeDocs.map((doc, index) => ({
         id: doc.id,
         ref: doc.ref,
-        data: doc.data() || {},
+        data: activeBookings[index] || doc.data() || {},
       }));
       const sequencePlan = planRouteAwarePoolSequence({
         items: [
@@ -2127,6 +2368,9 @@ exports.acceptPooledBooking = onCall(
         [BOOKING_FIELDS.poolSequence]: nextSequence,
         [BOOKING_FIELDS.poolCriteriaVersion]: POOLING_POLICY.criteriaVersion,
         [BOOKING_FIELDS.routeDirection]: eligibility.routeDirection,
+        ...(routePointsFromBooking(booking).length >= 2
+          ? { [BOOKING_FIELDS.routePolyline]: routePointsFromBooking(booking) }
+          : {}),
         [BOOKING_FIELDS.poolMax]: POOLING_POLICY.maxConcurrent,
         [BOOKING_FIELDS.poolStatus]: stopState.poolStatus,
         [BOOKING_FIELDS.poolStopPlan]: stopState.plannedStops,
@@ -2234,7 +2478,10 @@ exports.rejectPooledBooking = onCall(
         throw new HttpsError("not-found", "Booking not found.");
       }
 
-      const booking = bookingSnap.data() || {};
+      const booking = await hydrateBookingRouteGeometry(
+        tx,
+        bookingSnap.data() || {}
+      );
       const status = asString(booking[BOOKING_FIELDS.status]);
       const assignedOperator =
         asString(booking[BOOKING_FIELDS.operatorUid]) ||

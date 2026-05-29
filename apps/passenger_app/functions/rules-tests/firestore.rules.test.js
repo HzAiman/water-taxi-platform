@@ -34,6 +34,7 @@ function bookingPayload({ userId, bookingId, createdAt = serverTimestamp(), upda
     originJettyId: "jetty-origin-1",
     destinationJettyId: "jetty-destination-2",
     routePolylineId: "polyline-1",
+    routeDirection: "forward",
     originCoords: { latitude: 2.2, longitude: 102.2 },
     destinationCoords: { latitude: 2.3, longitude: 102.3 },
     routePolyline: [

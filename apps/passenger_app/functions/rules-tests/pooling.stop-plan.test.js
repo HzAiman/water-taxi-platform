@@ -385,3 +385,23 @@ test("mid-trip ETA calculation does not revisit already completed active pickup"
     "Already picked-up passengers should be evaluated from their remaining dropoff leg, not from their completed pickup stop"
   );
 });
+
+test("same uncompleted pickup is not deferred by projection jitter", () => {
+  const active = booking("A", 18, 24, {
+    [BOOKING_FIELDS.status]: "on_the_way",
+    [BOOKING_FIELDS.routeDirection]: "forward",
+    [BOOKING_FIELDS.operatorLat]: baseLat,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 17.95 * lngStep,
+  });
+  const samePickupCandidate = booking("B", 18, 21, {
+    [BOOKING_FIELDS.status]: "pending",
+  });
+
+  const eligibility = evaluatePoolingEligibility([active], samePickupCandidate);
+
+  assert.equal(
+    eligibility.eligible,
+    true,
+    "A booking at the same uncompleted pickup should stay in the current sweep when projection is near the pickup"
+  );
+});

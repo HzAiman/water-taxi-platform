@@ -250,28 +250,41 @@ class PaymentViewModel extends ChangeNotifier {
         );
       }
 
-      final bookingId = await _bookingRepo.createBooking(
-        BookingCreationParams(
-          userId: userId,
-          userName: user?.name ?? 'Passenger',
-          userPhone: user?.phoneNumber ?? '',
-          origin: origin,
-          destination: destination,
-          originJettyId: originJettyId,
-          destinationJettyId: destinationJettyId,
-          originLat: originJetty.lat,
-          originLng: originJetty.lng,
-          destinationLat: destJetty.lat,
-          destinationLng: destJetty.lng,
-          adultCount: adultCount,
-          childCount: childCount,
-          totalFare: _fareBreakdown!.total,
-          paymentMethod: _gatewayPaymentMethod,
-          fareSnapshotId: _fareSnapshotId!,
-          orderNumber: orderNumber,
-          transactionId: paymentResult.transactionId,
-        ),
-      );
+      late final String bookingId;
+      try {
+        bookingId = await _bookingRepo.createBooking(
+          BookingCreationParams(
+            userId: userId,
+            userName: user?.name ?? 'Passenger',
+            userPhone: user?.phoneNumber ?? '',
+            origin: origin,
+            destination: destination,
+            originJettyId: originJettyId,
+            destinationJettyId: destinationJettyId,
+            originLat: originJetty.lat,
+            originLng: originJetty.lng,
+            destinationLat: destJetty.lat,
+            destinationLng: destJetty.lng,
+            adultCount: adultCount,
+            childCount: childCount,
+            totalFare: _fareBreakdown!.total,
+            paymentMethod: _gatewayPaymentMethod,
+            fareSnapshotId: _fareSnapshotId!,
+            orderNumber: orderNumber,
+            transactionId: paymentResult.transactionId,
+          ),
+        );
+      } catch (e) {
+        final paymentIntentId = paymentResult.transactionId;
+        if (paymentIntentId != null && paymentIntentId.trim().isNotEmpty) {
+          await _paymentGateway.cancelPayment(
+            paymentIntentId: paymentIntentId,
+            orderNumber: orderNumber,
+            reason: 'booking_creation_failed',
+          );
+        }
+        rethrow;
+      }
 
       return OperationSuccess(bookingId);
     } catch (e) {
