@@ -17,6 +17,7 @@ const {
   currentStopFromPlan,
   canStartBookingAtCurrentPoolStop,
   startableBookingIdAtCurrentPoolStop,
+  canCompleteCurrentPoolStopWithBooking,
   shouldEnforceActivePoolPickupWindow,
 } = __poolingTest;
 
@@ -373,6 +374,63 @@ test("completed first pickup remains completed when replanning two pickups to on
       "active:pickup:Jetty 18:B:1",
       "pending:dropoff:Jetty 22:A,B:2",
     ]
+  );
+});
+
+test("active pool handle can complete the next pickup stop", () => {
+  const stopPlan = [
+    {
+      stopId: "pickup_stadthuys",
+      stopIndex: 0,
+      stopType: "pickup",
+      stopName: "Stadthuys",
+      bookingIds: ["stadthuys-booking"],
+      status: "completed",
+    },
+    {
+      stopId: "pickup_quayside",
+      stopIndex: 1,
+      stopType: "pickup",
+      stopName: "Quayside",
+      bookingIds: ["quayside-booking"],
+      status: "active",
+    },
+    {
+      stopId: "dropoff_samudera",
+      stopIndex: 2,
+      stopType: "dropoff",
+      stopName: "Samudera",
+      bookingIds: ["stadthuys-booking", "quayside-booking"],
+      status: "pending",
+    },
+  ];
+
+  assert.equal(
+    canCompleteCurrentPoolStopWithBooking(
+      stopPlan,
+      "stadthuys-booking",
+      new Set(["stadthuys-booking"])
+    ),
+    true,
+    "The current on-the-way booking can act as the pool-level completion handle"
+  );
+  assert.equal(
+    canCompleteCurrentPoolStopWithBooking(
+      stopPlan,
+      "quayside-booking",
+      new Set(["stadthuys-booking"])
+    ),
+    true,
+    "The booking attached to the current pickup stop can complete that stop"
+  );
+  assert.equal(
+    canCompleteCurrentPoolStopWithBooking(
+      stopPlan,
+      "samudera-only-booking",
+      new Set(["stadthuys-booking"])
+    ),
+    false,
+    "A non-current booking that is not the active pool handle is rejected"
   );
 });
 

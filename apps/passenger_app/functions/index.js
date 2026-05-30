@@ -1262,6 +1262,25 @@ function startableBookingIdAtCurrentPoolStop(stopPlan, acceptedIds = new Set()) 
   return null;
 }
 
+function canCompleteCurrentPoolStopWithBooking(
+  stopPlan,
+  bookingId,
+  activePoolHandleIds = new Set()
+) {
+  const currentStop = currentStopFromPlan(stopPlan);
+  const currentStopBookingIds = Array.isArray(currentStop?.bookingIds)
+    ? currentStop.bookingIds.map(asString).filter((id) => id.length > 0)
+    : [];
+  const requestedBookingId = asString(bookingId);
+  if (currentStopBookingIds.length === 0 || !requestedBookingId) {
+    return null;
+  }
+  return (
+    currentStopBookingIds.includes(requestedBookingId) ||
+    activePoolHandleIds.has(requestedBookingId)
+  );
+}
+
 function shouldEnforceActivePoolPickupWindow({ hasActiveTrip } = {}) {
   return hasActiveTrip !== true;
 }
@@ -3049,7 +3068,8 @@ exports.markPoolStopReached = onCall(
       }
 
       const booking = bookingSnap.data() || {};
-      if (asString(booking[BOOKING_FIELDS.status]) !== "on_the_way") {
+      const requestedStatus = asString(booking[BOOKING_FIELDS.status]);
+      if (!["accepted", "on_the_way"].includes(requestedStatus)) {
         throw new HttpsError(
           "failed-precondition",
           "Only an active pooled booking can update a pool stop."
@@ -3084,6 +3104,15 @@ exports.markPoolStopReached = onCall(
         throw new HttpsError(
           "failed-precondition",
           "This booking is not part of the active pool."
+        );
+      }
+      const hasActivePoolTrip = poolItems.some(
+        (item) => asString(item.data?.[BOOKING_FIELDS.status]) === "on_the_way"
+      );
+      if (!hasActivePoolTrip) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Only an active pooled booking can update a pool stop."
         );
       }
 
@@ -3141,7 +3170,21 @@ exports.markPoolStopReached = onCall(
           "The current pool stop has no active bookings."
         );
       }
-      if (!stopBookingIds.includes(bookingId)) {
+      const activePoolHandleIds = new Set(
+        poolItems
+          .filter(
+            (item) =>
+              asString(item.data?.[BOOKING_FIELDS.status]) === "on_the_way"
+          )
+          .map((item) => item.id)
+      );
+      if (
+        !canCompleteCurrentPoolStopWithBooking(
+          stopPlan,
+          bookingId,
+          activePoolHandleIds
+        )
+      ) {
         throw new HttpsError(
           "failed-precondition",
           "Complete the current pool stop first."
@@ -5170,6 +5213,7 @@ if (process.env.NODE_ENV === "test") {
     currentStopFromPlan,
     canStartBookingAtCurrentPoolStop,
     startableBookingIdAtCurrentPoolStop,
+    canCompleteCurrentPoolStopWithBooking,
     shouldEnforceActivePoolPickupWindow,
   };
   module.exports.__pendingNoOperatorTest = {
