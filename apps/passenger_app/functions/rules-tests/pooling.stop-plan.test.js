@@ -340,6 +340,28 @@ test("static accepted pool can add same-direction pickup ahead without live move
   }
 });
 
+test("pre-start batching ignores operator GPS and follows planned pickup order", () => {
+  const active = booking("A", 20, 17, {
+    [BOOKING_FIELDS.status]: "accepted",
+    [BOOKING_FIELDS.routeDirection]: "reverse",
+  });
+  const candidate = booking("B", 19, 15, {
+    [BOOKING_FIELDS.status]: "pending",
+  });
+
+  const eligibility = evaluatePoolingEligibility([active], candidate, {
+    operatorPoint: jetty(12),
+  });
+
+  assert.equal(eligibility.eligible, true);
+  assert.equal(eligibility.reason, "eligible");
+  assert.equal(
+    eligibility.candidatePickupRouteAheadDistanceMeters > 0,
+    true,
+    "Candidate pickup should be ahead of the planned first pickup before route start"
+  );
+});
+
 test("completed first pickup remains completed when replanning two pickups to one dropoff", () => {
   const a = booking("A", 15, 22, {
     [BOOKING_FIELDS.status]: "on_the_way",

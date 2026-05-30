@@ -335,15 +335,21 @@ function currentStopPointFromBooking(booking) {
 }
 
 function selectEligibilityAnchorPoint(activeBookings, operatorPoint) {
-  if (isValidPoint(operatorPoint)) {
-    return { point: operatorPoint, source: "request_operator" };
-  }
+  const hasActiveTrip = activeBookings.some(
+    (booking) => asString(booking?.[BOOKING_FIELDS.status]) === "on_the_way"
+  );
 
-  const storedOperatorPoint = activeBookings
-    .map((booking) => getOperatorPoint(booking))
-    .find((point) => isValidPoint(point));
-  if (storedOperatorPoint) {
-    return { point: storedOperatorPoint, source: "stored_operator" };
+  if (hasActiveTrip) {
+    if (isValidPoint(operatorPoint)) {
+      return { point: operatorPoint, source: "request_operator" };
+    }
+
+    const storedOperatorPoint = activeBookings
+      .map((booking) => getOperatorPoint(booking))
+      .find((point) => isValidPoint(point));
+    if (storedOperatorPoint) {
+      return { point: storedOperatorPoint, source: "stored_operator" };
+    }
   }
 
   const currentStopPoint = activeBookings
