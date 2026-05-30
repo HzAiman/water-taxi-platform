@@ -1448,6 +1448,66 @@ void main() {
       );
     });
 
+    test('navigation helper shows soft warning after passing stop slightly', () {
+      final booking = _sampleBooking(
+        id: 'slightly-passed-pickup',
+        status: BookingStatus.onTheWay,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        ],
+        poolStopPlan: _twoStopPlan(),
+        currentStopIndex: 0,
+        currentStopId: 'pickup-active-1',
+        currentPoolStopId: 'pickup-active-1',
+        routeDirection: 'forward',
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.2016,
+        currentLng: 102.2516,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+      );
+
+      expect(guidance, isNotNull);
+      expect(
+        guidance!.stopOvershootSeverity,
+        OperatorStopOvershootSeverity.soft,
+      );
+    });
+
+    test('navigation helper marks clear missed stop without movement sample', () {
+      final booking = _sampleBooking(
+        id: 'clear-missed-pickup',
+        status: BookingStatus.onTheWay,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        ],
+        poolStopPlan: _twoStopPlan(),
+        currentStopIndex: 0,
+        currentStopId: 'pickup-active-1',
+        currentPoolStopId: 'pickup-active-1',
+        routeDirection: 'forward',
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.20185,
+        currentLng: 102.25185,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+      );
+
+      expect(guidance, isNotNull);
+      expect(
+        guidance!.stopOvershootSeverity,
+        OperatorStopOvershootSeverity.missed,
+      );
+    });
+
     test('navigation helper warns when first pickup stop is missed', () {
       final booking = _sampleBooking(
         id: 'missed-pickup',

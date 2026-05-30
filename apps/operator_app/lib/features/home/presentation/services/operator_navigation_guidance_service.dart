@@ -235,6 +235,8 @@ _StopOvershoot _resolveStopOvershoot({
   const softOvershootMeters = 50.0;
   const missedOvershootMeters = 75.0;
   const stopProximityMeters = 80.0;
+  const missedDistanceFromStopMeters = 120.0;
+  const clearMissedOvershootMeters = 120.0;
   const minMovementMeters = 8.0;
   const movingAwayToleranceMeters = 5.0;
 
@@ -274,44 +276,45 @@ _StopOvershoot _resolveStopOvershoot({
     return const _StopOvershoot.none();
   }
 
-  if (lastSampleAt == null ||
-      lastSampleLat == null ||
-      lastSampleLng == null ||
-      !now.isAfter(lastSampleAt)) {
-    return const _StopOvershoot.none();
+  var hasReliableMovementSample = false;
+  var isMovingAwayFromStop = false;
+  if (lastSampleAt != null &&
+      lastSampleLat != null &&
+      lastSampleLng != null &&
+      now.isAfter(lastSampleAt)) {
+    final previousDistanceToStopMeters = Geolocator.distanceBetween(
+      lastSampleLat,
+      lastSampleLng,
+      currentStop.lat,
+      currentStop.lng,
+    );
+    final movementMeters = Geolocator.distanceBetween(
+      lastSampleLat,
+      lastSampleLng,
+      currentLat,
+      currentLng,
+    );
+    hasReliableMovementSample = movementMeters >= minMovementMeters;
+    isMovingAwayFromStop =
+        distanceToStopMeters >
+        previousDistanceToStopMeters + movingAwayToleranceMeters;
   }
 
-  final previousDistanceToStopMeters = Geolocator.distanceBetween(
-    lastSampleLat,
-    lastSampleLng,
-    currentStop.lat,
-    currentStop.lng,
-  );
-  final movementMeters = Geolocator.distanceBetween(
-    lastSampleLat,
-    lastSampleLng,
-    currentLat,
-    currentLng,
-  );
-  final hasReliableMovementSample = movementMeters >= minMovementMeters;
-  final isMovingAwayFromStop =
-      distanceToStopMeters >
-      previousDistanceToStopMeters + movingAwayToleranceMeters;
-
-  if (overshootDistance < missedOvershootMeters ||
-      !hasReliableMovementSample ||
-      !isMovingAwayFromStop) {
-    if (!hasReliableMovementSample || !isMovingAwayFromStop) {
-      return const _StopOvershoot.none();
-    }
+  final isFarFromStop = distanceToStopMeters > missedDistanceFromStopMeters;
+  final isClearlyPastStop = overshootDistance >= clearMissedOvershootMeters;
+  if (isFarFromStop &&
+      (isClearlyPastStop ||
+          (overshootDistance >= missedOvershootMeters &&
+              hasReliableMovementSample &&
+              isMovingAwayFromStop))) {
     return _StopOvershoot(
-      severity: OperatorStopOvershootSeverity.soft,
+      severity: OperatorStopOvershootSeverity.missed,
       distanceMeters: overshootDistance,
     );
   }
 
   return _StopOvershoot(
-    severity: OperatorStopOvershootSeverity.missed,
+    severity: OperatorStopOvershootSeverity.soft,
     distanceMeters: overshootDistance,
   );
 }
