@@ -69,6 +69,7 @@ Passenger tracking merges booking + tracking streams to show real-time operator 
 Prerequisites:
 
 - Flutter SDK and Android/iOS toolchains.
+- iOS builds require macOS with Xcode and CocoaPods; Windows can run Dart analysis/tests, but cannot run `pod install`, iOS simulators, Xcode signing, or `flutter build ios`.
 - Firebase project with Auth, Firestore, FCM enabled.
 - Stripe account with API keys.
 
@@ -79,11 +80,13 @@ cd apps/passenger_app
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 
-Maps API key:
+Maps API keys:
 
 ```properties
 MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
 ```
+
+For iOS, replace `YOUR_IOS_MAPS_API_KEY` in each app's `ios/Runner/Info.plist`.
 
 Stripe client config (passenger app uses dart-define values):
 
@@ -103,6 +106,28 @@ flutter run
 cd ../operator_app
 flutter run
 ```
+
+## iOS readiness notes
+
+The apps include iOS project scaffolding, Podfiles, development push-notification entitlements, iOS Google Maps API-key hooks, and required location permission strings. The current default iOS bundle identifiers are:
+
+- Passenger: `com.melakawatertaxi.passenger`
+- Operator: `com.melakawatertaxi.operator`
+
+These iOS items still require macOS/Xcode or Firebase console access and cannot be completed from this Windows workspace:
+
+- Register both iOS apps in Firebase using the exact bundle identifiers above, or update the Xcode bundle identifiers to match the Firebase apps you register.
+- Download each app's `GoogleService-Info.plist` and place it in the matching `ios/Runner/` folder.
+- Regenerate `lib/firebase_options.dart` with iOS entries, for example with FlutterFire CLI on macOS:
+
+```bash
+flutterfire configure --project=melaka-water-taxi
+```
+
+- Open each `ios/Runner.xcworkspace` in Xcode, select a signing team, verify Push Notifications and Background Modes as needed, and let Xcode resolve provisioning profiles.
+- Run `pod install` from each app's `ios/` folder, then validate with `flutter run -d <ios-device>` or `flutter build ios`.
+
+Current Windows-side validation can confirm Dart package resolution, static analysis, and non-iOS tests only. It cannot prove APNs delivery, Apple signing, CocoaPods resolution, simulator launch, or physical-device behavior.
 
 ## Documentation map
 
