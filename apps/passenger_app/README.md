@@ -73,10 +73,12 @@ BookingRepository builds routePolyline from polylines/{id}:
 
 ### Notifications and deep links
 
-- FCM tokens are stored in user_devices/{uid}.
-- PassengerNotificationCoordinator watches booking history and emits local OS notifications when backgrounded.
-- PushNotificationService shows in-app alerts for foreground FCM notifications.
-- MainScreen handles FCM tap, local-notification tap, and app-links deep links and navigates to BookingTrackingScreen.
+- FCM tokens are stored in user_devices/{uid} and refreshed on token rotation.
+- notifyBookingStatusChanged sends passenger push notifications for booking status changes from Cloud Functions.
+- PassengerNotificationCoordinator watches booking history and emits local OS notifications while the app is backgrounded.
+- Foreground booking updates are shown as in-app alerts instead of OS notifications.
+- MainScreen handles FCM taps, local-notification taps, and app-links deep links, then navigates to BookingTrackingScreen.
+- Full trigger coverage is documented in ../../docs/push_notifications_features.md.
 
 ## Firestore model highlights
 
@@ -110,7 +112,7 @@ The default endpoint points to createStripePaymentIntentHttp in Cloud Functions.
 ### Firebase and Maps
 
 - Phone Auth enabled.
-- Firestore collections: users, bookings, fares, jetties, polylines.
+- Firestore collections used by the passenger app: users, bookings, bookings_archive, tracking, fares, jetties, polylines, user_devices.
 - FCM enabled for booking status notifications.
 - Google Maps API key in android/local.properties:
 
@@ -130,5 +132,12 @@ flutter analyze
 flutter test
 ```
 
-Documentation sync: May 2026 (code-aligned update).
+## Related documentation
+
+- ../../docs/passenger_app_features.md
+- ../../docs/push_notifications_features.md
+- ../../docs/firestore_schema_inventory.md
+- ../../docs/drt_algorithm_reference.md
+
+Documentation sync: June 2026 (code-aligned update).
 

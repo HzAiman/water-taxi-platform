@@ -221,7 +221,72 @@ void main() {
       },
     );
 
-    test('goOfflineSafely keeps online when presence update fails', () async {
+    test(
+      'goOfflineSafely keeps offline when presence fails after release',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository()..releasedCount = 1;
+        final operatorRepo = FakeOperatorRepository(
+          operator: const OperatorModel(
+            uid: 'operator-1',
+            operatorId: 'OP-1',
+            name: 'Captain Aiman',
+            email: 'captain@example.com',
+            isOnline: true,
+          ),
+        )..setOnlineStatusError = StateError('presence failed');
+        final viewModel = createViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: operatorRepo,
+        );
+
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(id: 'accepted-1', status: BookingStatus.accepted),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        final result = await viewModel.goOfflineSafely();
+
+        expect(result, isA<OperationFailure>());
+        expect((result as OperationFailure).title, 'Offline sync pending');
+        expect(result.isInfo, isTrue);
+        expect(result.message, contains('1 accepted booking released'));
+        expect(viewModel.isOnline, isFalse);
+        expect(operatorRepo.lastOnlineStatus, isNull);
+        viewModel.dispose();
+      },
+    );
+
+    test(
+      'goOfflineSafely keeps online when presence fails before release',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final operatorRepo = FakeOperatorRepository(
+          operator: const OperatorModel(
+            uid: 'operator-1',
+            operatorId: 'OP-1',
+            name: 'Captain Aiman',
+            email: 'captain@example.com',
+            isOnline: true,
+          ),
+        )..setOnlineStatusError = StateError('presence failed');
+        final viewModel = createViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: operatorRepo,
+        );
+
+        await viewModel.initialize('operator-1');
+
+        final result = await viewModel.goOfflineSafely();
+
+        expect(result, isA<OperationFailure>());
+        expect((result as OperationFailure).title, 'Status update failed');
+        expect(viewModel.isOnline, isTrue);
+        expect(operatorRepo.lastOnlineStatus, isNull);
+      },
+    );
+
+    test('goOnline cancels pending offline presence retry', () async {
       final bookingRepo = FakeOperatorBookingRepository()..releasedCount = 1;
       final operatorRepo = FakeOperatorRepository(
         operator: const OperatorModel(
@@ -242,12 +307,16 @@ void main() {
         _sampleBooking(id: 'accepted-1', status: BookingStatus.accepted),
       ]);
       await Future<void>.delayed(Duration.zero);
+      await viewModel.goOfflineSafely();
 
-      final result = await viewModel.goOfflineSafely();
+      operatorRepo.setOnlineStatusError = null;
+      final onlineResult = await viewModel.goOnline();
+      await Future<void>.delayed(const Duration(milliseconds: 2200));
 
-      expect(result, isA<OperationFailure>());
+      expect(onlineResult, isA<OperationSuccess>());
       expect(viewModel.isOnline, isTrue);
-      expect(operatorRepo.lastOnlineStatus, isNull);
+      expect(operatorRepo.lastOnlineStatus, isTrue);
+      viewModel.dispose();
     });
 
     test('acceptBooking delegates operator id and resets busy state', () async {

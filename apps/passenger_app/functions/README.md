@@ -39,8 +39,10 @@ This module contains the Cloud Functions backend for payment lifecycle, pooled d
 
 ### Notifications
 
-- notifyOperatorsOnIncomingBooking (on create): Sends FCM to online operators for pending bookings.
-- notifyBookingStatusChanged (on update): Sends FCM to passenger and assigned operator when status changes.
+- notifyOperatorsOnIncomingBooking (on create): Sends incoming-booking FCM notifications to operators whose operator_presence/{uid}.isOnline value is true, using tokens from operator_devices/{uid}.
+- notifyBookingStatusChanged (on update): Sends booking status FCM notifications to the passenger through user_devices/{uid} and to the assigned operator through operator_devices/{uid}.
+- Notification payloads include booking identifiers and status context so each app can route taps back to the active booking workflow.
+- Invalid or expired FCM tokens are removed from device token arrays after send failures.
 
 ### Maintenance
 
@@ -62,6 +64,12 @@ This module contains the Cloud Functions backend for payment lifecycle, pooled d
 - fares, jetties, operators, polylines, users
 - payment_webhooks (Stripe audit log)
 - webhook_events (Stripe idempotency tracker)
+
+## Related documentation
+
+- ../../../docs/push_notifications_features.md
+- ../../../docs/firestore_schema_inventory.md
+- ../../../docs/drt_algorithm_reference.md
 
 ## Local setup
 
@@ -105,5 +113,5 @@ curl -X POST "https://asia-southeast1-<project-id>.cloudfunctions.net/cleanupLeg
   -d '{"dryRun":true,"limit":200}'
 ```
 
-Documentation sync: May 2026 (code-aligned update).
+Documentation sync: June 2026 (code-aligned update).
 

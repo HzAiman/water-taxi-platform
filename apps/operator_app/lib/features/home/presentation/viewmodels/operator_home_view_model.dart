@@ -51,6 +51,8 @@ class OperatorHomeViewModel extends ChangeNotifier {
   StreamSubscription<List<BookingModel>>? _pendingSubscription;
   StreamSubscription<Position>? _locationSubscription;
   Timer? _liveLocationRefreshTimer;
+  Timer? _offlinePresenceRetryTimer;
+  int _offlinePresenceRetryAttempt = 0;
 
   String? _operatorId;
   String? _lastCancelledNoticeBookingId;
@@ -265,6 +267,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
 
     _isToggling = true;
     _isOnline = true;
+    _cancelOfflinePresenceRetry();
     notifyListeners();
 
     try {
@@ -309,16 +312,16 @@ class OperatorHomeViewModel extends ChangeNotifier {
     _isOnline = false;
     notifyListeners();
 
-    try {
-      final releasedCount = await _bookingRepo.releaseAllAcceptedBookings(
-        operatorId,
-      );
+    var releasedCount = 0;
 
+    try {
+      releasedCount = await _bookingRepo.releaseAllAcceptedBookings(operatorId);
       _stopLocationSharing();
 
       await _operatorRepo
           .setOnlineStatus(operatorId, isOnline: false)
           .timeout(const Duration(seconds: 6));
+      _cancelOfflinePresenceRetry();
 
       if (releasedCount > 0) {
         return OperationSuccess(
@@ -331,12 +334,28 @@ class OperatorHomeViewModel extends ChangeNotifier {
             : 'You are now offline.',
       );
     } on TimeoutException {
+      if (releasedCount > 0) {
+        _scheduleOfflinePresenceRetry(operatorId);
+        return OperationFailure(
+          'Offline sync pending',
+          '$releasedCount accepted booking${releasedCount == 1 ? '' : 's'} released, but the online status update timed out. The app will keep retrying in the background.',
+          isInfo: true,
+        );
+      }
       _isOnline = wasOnline;
       return const OperationFailure(
         'Timeout',
         'Updating status timed out. Check your network.',
       );
     } catch (e) {
+      if (releasedCount > 0) {
+        _scheduleOfflinePresenceRetry(operatorId);
+        return OperationFailure(
+          'Offline sync pending',
+          '$releasedCount accepted booking${releasedCount == 1 ? '' : 's'} released, but the online status update failed. The app will keep retrying in the background.',
+          isInfo: true,
+        );
+      }
       _isOnline = wasOnline;
       return OperationFailure('Status update failed', e.toString());
     } finally {
@@ -1785,6 +1804,53 @@ class OperatorHomeViewModel extends ChangeNotifier {
     );
   }
 
+  void _scheduleOfflinePresenceRetry(String operatorId) {
+    _cancelOfflinePresenceRetry();
+    _offlinePresenceRetryAttempt = 0;
+    _offlinePresenceRetryTimer = Timer(
+      const Duration(seconds: 2),
+      () => unawaited(_retryOfflinePresence(operatorId)),
+    );
+  }
+
+  Future<void> _retryOfflinePresence(String operatorId) async {
+    const maxAttempts = 5;
+    if (_operatorId != operatorId || _isOnline) {
+      _cancelOfflinePresenceRetry();
+      return;
+    }
+
+    try {
+      await _operatorRepo
+          .setOnlineStatus(operatorId, isOnline: false)
+          .timeout(const Duration(seconds: 6));
+      _cancelOfflinePresenceRetry();
+      return;
+    } catch (e) {
+      _offlinePresenceRetryAttempt += 1;
+      if (kDebugMode) {
+        debugPrint(
+          '[operator_presence_retry_failure] operatorId=$operatorId attempt=$_offlinePresenceRetryAttempt error=$e',
+        );
+      }
+      if (_offlinePresenceRetryAttempt >= maxAttempts) {
+        _offlinePresenceRetryTimer = null;
+        return;
+      }
+      final delay = Duration(seconds: 2 * (_offlinePresenceRetryAttempt + 1));
+      _offlinePresenceRetryTimer = Timer(
+        delay,
+        () => unawaited(_retryOfflinePresence(operatorId)),
+      );
+    }
+  }
+
+  void _cancelOfflinePresenceRetry() {
+    _offlinePresenceRetryTimer?.cancel();
+    _offlinePresenceRetryTimer = null;
+    _offlinePresenceRetryAttempt = 0;
+  }
+
   static const OperationResult _notInitialised = OperationFailure(
     'Not initialised',
     'Operator ID is not available.',
@@ -1793,6 +1859,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
   @override
   void dispose() {
     _stopStreams();
+    _cancelOfflinePresenceRetry();
     _initializationFuture = null;
     _locationWarningHandler = null;
     super.dispose();

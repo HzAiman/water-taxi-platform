@@ -2,7 +2,7 @@
 
 This directory contains the iOS launch image assets used by operator_app.
 
-Status: active. Documentation sync: May 2026.
+Status: active. Documentation sync: June 2026.
 
 To customize the launch screen, replace the image files in this folder or update them from Xcode (open ios/Runner.xcworkspace and edit Runner/Assets.xcassets).
 

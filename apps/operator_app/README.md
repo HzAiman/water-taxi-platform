@@ -40,6 +40,7 @@ Key view models:
 - AuthWrapper waits for operators/{uid}. If missing, routes to profile setup.
 - saveOperatorProfile callable enforces unique operatorId via operator_id_index.
 - Operator presence is stored in operator_presence/{uid}.
+- When the operator releases active work to go offline, the app retries a failed offline presence write and cancels that retry if the operator intentionally goes online again.
 
 ### Booking lifecycle
 
@@ -80,10 +81,13 @@ Pooling deferrals:
 
 ### Notifications
 
-- FCM tokens stored in operator_devices/{uid}.
-- Cloud Functions send incoming booking notifications to online operators.
-- OperatorNotificationCoordinator emits local OS notifications for queue changes and status updates.
+- FCM tokens are stored in operator_devices/{uid} and refreshed on token rotation.
+- notifyOperatorsOnIncomingBooking sends incoming-booking FCM notifications to operators currently online in operator_presence.
+- Foreground incoming-booking FCM messages are suppressed because the live booking stream already shows the request.
+- OperatorNotificationCoordinator emits local OS notifications for queue changes and status updates while backgrounded.
+- Navigation alerts are surfaced locally for route progress, off-route warnings, route recovery, and stop completion context.
 - LocalNotificationService manages a persistent online reminder when the app is backgrounded.
+- Full trigger coverage is documented in ../../docs/push_notifications_features.md.
 
 ### Earnings summaries
 
@@ -100,6 +104,10 @@ Operators collection:
 Presence collection:
 
 - operator_presence/{uid}.isOnline, updatedAt
+
+Device token collection:
+
+- operator_devices/{uid}.tokens
 
 Bookings used by operator app:
 
@@ -129,5 +137,12 @@ flutter analyze
 flutter test
 ```
 
-Documentation sync: May 2026 (code-aligned update).
+## Related documentation
+
+- ../../docs/operator_app_features.md
+- ../../docs/push_notifications_features.md
+- ../../docs/firestore_schema_inventory.md
+- ../../docs/drt_algorithm_reference.md
+
+Documentation sync: June 2026 (code-aligned update).
 

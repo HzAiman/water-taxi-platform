@@ -119,6 +119,88 @@ These prevent repeatedly showing a booking that is not suitable for the current 
 - `poolDeferredUntil`
 - `poolDeferredAt`
 
+### Firestore collections and data functionality
+
+The DRT algorithm is centered on `bookings`, but several adjacent live-observed collections make dispatch, navigation, notification, payment state, and cleanup behavior work correctly. The live field inventory is maintained in `docs/firestore_schema_inventory.md`; that inventory is intentionally based only on collections and fields observed in the latest Firestore sample. This section explains runtime purpose for the live-observed collections that participate in DRT-adjacent behavior.
+
+#### `bookings`
+
+`bookings` is the active lifecycle collection. Pending bookings are the dispatch queue. Accepted and `on_the_way` bookings are the operator's active work. DRT and pooling state is stored directly on each booking so the passenger app, operator app, and Cloud Functions can all read a single canonical state document.
+
+Important DRT responsibilities:
+
+- Stores route endpoints, route geometry snapshots, and route direction.
+- Stores pool membership through `poolGroupId`, `poolSequence`, `pooled`, `poolStatus`, and `poolMax`.
+- Stores stop plan state through `poolStopPlan`, `currentStopIndex`, `currentStopId`, and `currentPoolStopId`.
+- Stores rider progress through `poolPickupStopId`, `poolDropoffStopId`, `poolPhase`, `onboard`, `pickedUpAt`, `passengerPickedUpAt`, and `droppedOffAt`.
+- Stores dispatch contention state through `rejectedBy`, `operatorUid`, and copied assigned-operator display fields.
+- Stores payment state that determines whether payment should be captured, cancelled, refunded, or reconciled.
+
+#### `bookings/{bookingId}/statusHistory`
+
+`statusHistory` is the audit trail for booking lifecycle transitions. It records the previous status, next status, actor/source, and timestamp. This is useful when debugging DRT behavior because the current booking document only shows the final state, while the subcollection shows how the booking reached that state.
+
+Examples:
+
+- Passenger creates a booking: initial pending state.
+- Operator accepts: `pending` to `accepted`.
+- Operator starts route: `accepted` to `on_the_way`.
+- Operator completes trip: `on_the_way` to `completed`.
+- All online operators reject: `pending` to `rejected`.
+
+#### `bookings_archive`
+
+`bookings_archive` stores terminal booking snapshots. DRT logic operates on active `bookings`, but history and retention workflows use the archive so completed/cancelled/rejected records can be shown later without keeping every terminal record in the active dispatch queue. Scheduled archive cleanup removes records past the retention window.
+
+#### `tracking`
+
+`tracking/{bookingId}` stores live operator coordinates for active trips. It is intentionally separate from `bookings` because location can update frequently. Passenger tracking combines booking state with tracking state. Operator navigation also uses location freshness, published booking snapshots, and heartbeat recovery so route guidance can keep working when GPS callbacks become stale.
+
+#### `operator_presence`
+
+`operator_presence/{uid}` is the online/offline source of truth. DRT dispatch does not use `operators.isOnline`; that field is deprecated. The presence collection controls:
+
+- Whether passengers can see that at least one operator is available.
+- Which operators receive incoming booking notifications.
+- Whether a rejected booking should remain pending or become fully rejected after every currently online operator has declined.
+- Whether stale pending bookings should be rejected by the scheduled no-operator cleanup.
+
+The operator app has a safety net for offline transitions: if accepted bookings are released but the presence write fails, the app keeps the local operator workflow offline and retries writing `isOnline = false` in the background. The retry is cancelled when the same operator goes online again, which prevents an old offline retry from later flipping presence back to offline. This reduces the risk of an operator appearing available after their accepted queue was already released.
+
+#### `operators` and `operator_id_index`
+
+`operators/{uid}` stores operator profile data: display ID, name, email, phone, and timestamps. During assignment, selected profile fields are copied into the booking so historical booking cards can show stable operator details.
+
+`operator_id_index/{operatorId}` enforces uniqueness for public operator IDs. It is not part of routing math, but it protects dispatch readability because `assignedOperatorDisplayId` should refer to one operator only.
+
+#### `users`
+
+`users/{uid}` stores passenger profile data. Booking creation snapshots passenger name and phone into the booking document. This lets booking lifecycle and history views remain stable even if the passenger later edits their profile.
+
+#### `operator_devices` and `user_devices`
+
+Device collections store FCM tokens. They do not affect route eligibility, but they are part of the operational dispatch loop:
+
+- `operator_devices` lets Cloud Functions notify online operators when a new pending booking is created.
+- `user_devices` lets Cloud Functions notify passengers when booking status changes.
+
+#### `jetties`
+
+`jetties` is the canonical stop list. Jetty document IDs are used as `originJettyId`, `destinationJettyId`, and stop-plan `jettyId` values. Jetty coordinates support fare lookup, route endpoint snapshots, stop labels, and fallback route geometry.
+
+#### `fares`
+
+`fares` stores route price data keyed by origin/destination jetty IDs. Fare lookup happens before booking creation, and the selected fare is snapshotted into `bookings`. The DRT algorithm does not recalculate fare when pooling changes; it preserves the booking's existing fare snapshot.
+
+#### `polylines`
+
+`polylines` stores route geometry. This is the backbone for route-aware pooling:
+
+- Candidate pickup/dropoff points are projected onto a route corridor.
+- Route direction is determined from route positions.
+- Eligibility checks use pickup distance, corridor deviation, route overshoot, and added ETA.
+- Operator map layers and navigation guidance use the same route geometry to draw active routes and progress.
+
 ## 4. Pooling Policy Constants
 
 Defined in `POOLING_POLICY` in `index.js`.

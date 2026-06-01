@@ -18,8 +18,8 @@ water-taxi-platform/
 
 ## Apps and packages
 
-- apps/passenger_app: Phone auth, booking creation, hold-first Stripe payment, live tracking, notifications, booking history.
-- apps/operator_app: Operator auth, profile bootstrap, online availability, pooled queue handling, navigation, live location sharing, earnings summary.
+- apps/passenger_app: Phone auth, booking creation, hold-first Stripe payment, live tracking, FCM/local notifications, booking history.
+- apps/operator_app: Operator auth, profile bootstrap, online availability, pooled queue handling, navigation guidance, live location sharing, FCM/local notifications, earnings summary.
 - packages/water_taxi_shared: Firestore field constants, typed models, booking status enum, and shared operation result types.
 - apps/passenger_app/functions: Gen 2 Cloud Functions for pooling/dispatch, payment lifecycle, and push notifications.
 
@@ -51,6 +51,7 @@ Key rules:
 - bookings/{id} is the canonical lifecycle record (status, fare, assignment, pooling fields).
 - tracking/{id} contains live operator coordinates while a trip is on_the_way.
 - polylines/{id} stores route geometry; passengers embed a chosen route polyline at booking time.
+- user_devices/{uid} and operator_devices/{uid} store FCM tokens; operator_presence/{uid} controls online dispatch eligibility.
 
 Passenger tracking merges booking + tracking streams to show real-time operator movement and route geometry.
 
@@ -105,8 +106,11 @@ flutter run
 
 ## Documentation map
 
-- docs/drt_algorithm_reference.md: Pooling + route-aware sequencing algorithm.
-- docs/firestore_schema_inventory.md: Firestore schema inventory, refreshed from live Firestore samples plus code-supported fields.
+- docs/drt_algorithm_reference.md: Pooling, route-aware sequencing, stop planning, and operator presence safety behavior.
+- docs/firestore_schema_inventory.md: Firestore schema inventory refreshed from live observed samples only.
+- docs/push_notifications_features.md: Passenger/operator push, local notification, foreground alert, tap handling, and trigger matrix.
+- docs/passenger_app_features.md: Passenger-facing feature reference.
+- docs/operator_app_features.md: Operator-facing feature reference.
 - apps/passenger_app/README.md: Passenger app architecture + flows.
 - apps/operator_app/README.md: Operator app architecture + flows.
 - apps/passenger_app/functions/README.md: Cloud Functions details.
