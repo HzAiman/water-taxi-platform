@@ -136,6 +136,11 @@ Current Windows-side validation can confirm Dart package resolution, static anal
 - docs/push_notifications_features.md: Passenger/operator push, local notification, foreground alert, tap handling, and trigger matrix.
 - docs/passenger_app_features.md: Passenger-facing feature reference.
 - docs/operator_app_features.md: Operator-facing feature reference.
+- docs/stripe_payment_backend_lifecycle.md: Stripe manual-capture payment, webhook, refund, capture, and reconciliation lifecycle.
+- docs/cloud_functions_api_contracts.md: Callable, HTTP, Firestore trigger, and scheduled Cloud Functions contracts.
+- docs/security_rules_access_control.md: Firestore rules, collection permissions, access matrix, and security assumptions.
+- docs/maintenance_and_migration_functions.md: Scheduled cleanup jobs, stale-state safety nets, and admin migration endpoints.
+- docs/shared_package_model_api.md: Shared Dart package constants, models, parsers, and result types.
 - apps/passenger_app/README.md: Passenger app architecture + flows.
 - apps/operator_app/README.md: Operator app architecture + flows.
 - apps/passenger_app/functions/README.md: Cloud Functions details.
