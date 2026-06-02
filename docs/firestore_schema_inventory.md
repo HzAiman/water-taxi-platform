@@ -6,8 +6,13 @@ Source:
 
 - Live Firestore inspection of project `melaka-water-taxi`, database `(default)`, at `2026-06-01T22:56:26Z`.
 - Inspection sampled up to 25 documents per top-level collection and up to 25 `bookings/*/statusHistory` documents through a collection-group query.
+- Code-supported/runtime collection audit from:
+  - `apps/passenger_app/functions/index.js`
+  - `apps/passenger_app/firestore.rules`
+  - `packages/water_taxi_shared/lib/src/constants/firestore_collections.dart`
+  - passenger/operator repository usage.
 
-This inventory is intentionally live-observed only. Collections and fields that were not present in the live sample are not listed here.
+Live-observed collections and fields are labelled with live sample counts. Collections that are supported by code but absent from the live sample are listed as code-supported/runtime collections and marked `not observed in live sample`.
 
 ## Top-Level Collections
 
@@ -26,6 +31,12 @@ Live-observed collections:
 - `user_devices`
 - `users`
 
+Code-supported/runtime collections not observed in the live sample:
+
+- `order_number_index`
+- `payment_webhooks`
+- `webhook_events`
+
 ## Relationships
 
 - `bookings.userId` -> `users/{uid}`
@@ -42,11 +53,14 @@ Live-observed collections:
 - `operator_devices/{uid}` stores operator push-device metadata
 - `user_devices/{uid}` stores passenger push-device metadata
 - `operator_id_index/{operatorId}` reserves unique public operator display IDs
+- `order_number_index/{orderNumber}` reserves passenger order numbers before booking creation
+- `payment_webhooks/{autoId}` stores Stripe webhook audit events
+- `webhook_events/{eventId}` stores processed Stripe event IDs for webhook idempotency
 
 ## Collection Functionality Summary
 
-| Collection | Live sample | Functionality |
-| --- | ---: | --- |
+| Collection | Source/sample | Functionality |
+| --- | --- | --- |
 | `bookings` | 25 | Active booking lifecycle, pending dispatch queue, operator assignment, DRT/pooling state, payment state, route snapshots, and operator location snapshots. |
 | `bookings/{bookingId}/statusHistory` | 25 | Per-booking status transition audit trail. |
 | `bookings_archive` | 25 | Terminal booking mirror for completed, cancelled, or rejected booking history and retention. |
@@ -60,6 +74,9 @@ Live-observed collections:
 | `tracking` | 25 | Live operator coordinate records for active or recently active bookings. |
 | `user_devices` | 9 | Passenger FCM token metadata for booking status notifications. |
 | `users` | 7 | Passenger profile and contact metadata. |
+| `order_number_index` | code-supported, not observed | Temporary/reservation index for unique passenger order numbers. |
+| `payment_webhooks` | code-supported, not observed | Stripe webhook audit log written by `stripeWebhook`. |
+| `webhook_events` | code-supported, not observed | Stripe webhook event idempotency records keyed by Stripe event ID. |
 
 ## bookings
 
@@ -187,7 +204,15 @@ Live-observed fields:
 
 ## bookings_archive
 
-Purpose: terminal-state booking mirror for historical display and retention.
+Purpose: terminal-state booking mirror for audit/history snapshots and retention.
+
+Important current behavior:
+
+- The app currently still reads passenger booking history and operator transaction history from `bookings`, not from `bookings_archive`.
+- `bookings_archive` is written for passenger cancellations and operator/backend completions as a terminal snapshot.
+- `bookings_archive` is retained and cleaned separately by `cleanupExpiredBookingArchive`.
+- Live `bookings` are not currently pruned after terminal status, so archive documents can look like duplicates of terminal booking documents.
+- The archive is therefore currently a backup/audit/future-retention layer, not the primary history source.
 
 Live sample: 25 documents.
 
@@ -348,6 +373,51 @@ Live-observed fields:
 - `uid`: string; observed on 1/1 sampled docs
 - `updatedAt`: timestamp; observed on 1/1 sampled docs
 
+## order_number_index
+
+Purpose: runtime reservation index for passenger-facing order numbers before booking creation.
+
+Source: code-supported/runtime collection; not observed in the live sample used for this document.
+
+Why it may be absent from Firestore:
+
+- Reservation documents are created only during payment/booking creation.
+- They are temporary and include an expiry.
+- Terminal booking cleanup deletes the matching reservation when a booking reaches `completed`, `cancelled`, or `rejected`.
+- Scheduled cleanup deletes expired abandoned reservations every 30 minutes.
+- If no booking is currently mid-payment and previous reservations were cleaned, Firestore may not show this collection.
+
+Writers:
+
+- Passenger app `BookingRepository.reserveOrderNumber`.
+- Backend cleanup functions delete reservations:
+  - `cleanupOrderNumberIndexOnTerminalBooking`
+  - `cleanupExpiredOrderNumberReservations`
+
+Security rules:
+
+- signed-in users may read for transaction existence checks
+- signed-in users may create their own reservation
+- clients cannot update or delete reservations
+- backend Admin SDK cleanup bypasses client rules
+
+Code-supported document ID:
+
+- `order_number_index/{orderNumber}`
+
+Code-supported fields:
+
+- `orderNumber`: string; must match document ID
+- `userId`: string; passenger UID that reserved the order number
+- `reservedAt`: timestamp; reservation creation time
+- `expiresAt`: timestamp; reservation expiry, currently created as 24 hours after reservation
+
+Functionality:
+
+- Prevents duplicate order numbers during retries and concurrent payment starts.
+- Separates order-number uniqueness from booking creation, because payment authorization happens before the booking document is written.
+- Protects against abandoned payment flows by allowing scheduled expiry cleanup.
+
 ## operator_presence
 
 Purpose: canonical operator online availability records used by dispatch, notifications, passenger availability checks, and no-operator cleanup.
@@ -394,6 +464,76 @@ Live-observed nested keys:
 - `city`: string; observed on 1 sampled map
 - `route_name`: string; observed on 1 sampled map
 
+## payment_webhooks
+
+Purpose: Stripe webhook audit log.
+
+Source: code-supported/runtime collection; not observed in the live sample used for this document.
+
+Why it may be absent from Firestore:
+
+- Documents are written only when the deployed `stripeWebhook` endpoint receives a valid Stripe webhook.
+- If Stripe webhooks have not been configured, have not fired, failed signature verification, or were never triggered in the live environment, this collection will not appear.
+
+Writer:
+
+- Cloud Function `stripeWebhook`.
+
+Document ID:
+
+- auto-generated Firestore document ID.
+
+Code-supported fields:
+
+- `provider`: string; currently `stripe`
+- `eventId`: string; Stripe event ID
+- `eventType`: string; Stripe event type such as `payment_intent.succeeded`
+- `paymentIntentId`: string; Stripe PaymentIntent ID from the event payload
+- `status`: string; Stripe object status
+- `orderNumber`: string; order number from PaymentIntent metadata
+- `payload`: map/object; full Stripe event payload stored for audit
+- `receivedAt`: timestamp-like Date value written by Cloud Functions
+
+Functionality:
+
+- Provides an audit trail of received Stripe webhook events.
+- Helps debug payment status mismatches between Stripe and Firestore.
+- Is not the source of truth for booking payment status; booking documents still carry `paymentStatus` and `transactionId`.
+
+Current webhook status effects:
+
+- `payment_intent.amount.capturably_held` can mark matching booking payment status `authorized`.
+- `payment_intent.succeeded` can mark matching booking payment status `paid`.
+
+## webhook_events
+
+Purpose: Stripe webhook idempotency records.
+
+Source: code-supported/runtime collection; not observed in the live sample used for this document.
+
+Why it may be absent from Firestore:
+
+- Documents are written only when `stripeWebhook` receives a valid Stripe event.
+- If no valid webhook has been processed, no event IDs have been stored.
+
+Writer:
+
+- Cloud Function `stripeWebhook`, through helper `isWebhookEventNew`.
+
+Document ID:
+
+- `webhook_events/{eventId}`, where `eventId` is the Stripe event ID.
+
+Code-supported fields:
+
+- `processedAt`: timestamp-like Date value written when the event ID is first accepted
+
+Functionality:
+
+- Prevents duplicate Stripe webhook processing.
+- If Stripe retries the same event, the function sees the existing `webhook_events/{eventId}` document and returns success without applying duplicate updates.
+- Should not be manually deleted unless webhook replay/reprocessing is intentionally desired.
+
 ## tracking
 
 Purpose: operator location records keyed by booking ID.
@@ -439,5 +579,6 @@ Live-observed fields:
 ## Notes For Future Schema Audits
 
 - This document is sample-based. A field absent from this document is not guaranteed absent from Firestore.
-- Keep this file live-observed only. Do not add collections or fields unless they appear in a fresh live sample.
+- Keep live-observed sample counts separate from code-supported/runtime sections.
+- If a code-supported collection appears in a future live sample, move or duplicate its observed fields into a live-observed section with sample counts.
 - Re-run the live inspection after major DRT field migrations, payment flow changes, or archive cleanup changes.

@@ -52,6 +52,8 @@ This module contains the Cloud Functions backend for payment lifecycle, pooled d
 - rejectStalePendingBookingsWithoutOnlineOperators (scheduled): Rejects stale pending bookings when no operators are online.
 - releaseStaleAcceptedPooledBookings (scheduled): Releases accepted pooled bookings after staleAcceptedMinutes.
 
+For detailed schedules, side effects, cleanup policies, and operational notes, see ../../../docs/maintenance_and_migration_functions.md.
+
 ### Migrations
 
 - backfillJettyIds (HTTP): Backfills originJettyId/destinationJettyId on fares and bookings.
@@ -70,6 +72,9 @@ This module contains the Cloud Functions backend for payment lifecycle, pooled d
 - ../../../docs/push_notifications_features.md
 - ../../../docs/firestore_schema_inventory.md
 - ../../../docs/drt_algorithm_reference.md
+- ../../../docs/maintenance_and_migration_functions.md
+- ../../../docs/cloud_functions_api_contracts.md
+- ../../../docs/stripe_payment_backend_lifecycle.md
 
 ## Local setup
 
