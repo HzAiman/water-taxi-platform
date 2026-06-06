@@ -7,6 +7,7 @@ import 'package:operator_app/core/theme/operator_brand.dart';
 import 'package:operator_app/core/widgets/gradient_app_bar.dart';
 import 'package:operator_app/core/widgets/top_alert.dart';
 import 'package:operator_app/features/profile/presentation/viewmodels/operator_transaction_summary_view_model.dart';
+import 'package:operator_app/features/profile/presentation/pages/operator_detailed_ride_history_page.dart';
 import 'package:operator_app/features/profile/presentation/widgets/operator_transaction_summary_widgets.dart';
 import 'package:water_taxi_shared/water_taxi_shared.dart';
 
@@ -330,42 +331,47 @@ class _OperatorTransactionSummaryPageState
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        physics: const BouncingScrollPhysics(),
-                        child: Row(
-                          children: HistoryFilter.values
-                              .map(
-                                (f) => Padding(
-                                  padding: const EdgeInsets.only(right: 8),
-                                  child: _buildFilterChip(
-                                    label: f.label,
-                                    selected: vm.selectedHistoryFilter == f,
-                                    onSelected: () => vm.selectHistoryFilter(f),
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                      ),
-                      const SizedBox(height: 10),
-                      TextField(
-                        decoration: const InputDecoration(
-                          prefixIcon: Icon(Icons.search, color: _brandMagenta),
-                          hintText:
-                              'Search by route, status, passenger, or phone',
-                        ),
-                        onChanged: vm.setHistorySearchQuery,
-                      ),
-                      const SizedBox(height: 12),
-                      if (vm.historyForSelectedPeriod.isEmpty)
-                        const Text('No rides found for selected filters.')
-                      else
+                      if (vm.unfilteredHistoryForSelectedPeriod.isEmpty)
+                        const Text('No rides found for selected period.')
+                      else ...[
                         Column(
-                          children: vm.historyForSelectedPeriod
+                          children: vm.unfilteredHistoryForSelectedPeriod
+                              .take(3)
                               .map((b) => RideHistoryTile(booking: b))
                               .toList(),
                         ),
+                        const SizedBox(height: 8),
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => ChangeNotifierProvider.value(
+                                    value: vm,
+                                    child: const OperatorDetailedRideHistoryPage(),
+                                  ),
+                                ),
+                              );
+                            },
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _brandMagenta,
+                              side: const BorderSide(color: _brandMagenta),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            icon: const Icon(Icons.history_rounded, size: 18),
+                            label: Text(
+                              'See All History (${vm.unfilteredHistoryForSelectedPeriod.length})',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

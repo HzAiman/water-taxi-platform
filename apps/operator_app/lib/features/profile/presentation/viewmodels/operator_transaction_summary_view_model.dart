@@ -211,6 +211,19 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     return list;
   }
 
+  List<BookingModel> get unfilteredHistoryForSelectedPeriod {
+    final list = _bookingsForSelectedPeriod.toList()
+      ..sort((a, b) {
+        final at = a.updatedAt ?? a.createdAt;
+        final bt = b.updatedAt ?? b.createdAt;
+        if (at == null && bt == null) return 0;
+        if (at == null) return 1;
+        if (bt == null) return -1;
+        return bt.compareTo(at);
+      });
+    return list;
+  }
+
   Future<void> initialize() async {
     _isLoading = true;
     _error = null;
