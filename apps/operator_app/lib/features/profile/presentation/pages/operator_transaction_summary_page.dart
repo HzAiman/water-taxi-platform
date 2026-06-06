@@ -40,6 +40,14 @@ class _OperatorTransactionSummaryPageState
     _showOperationResult(result);
   }
 
+  Future<void> _viewStatement(StatementRecord record) async {
+    final result = await context
+        .read<OperatorTransactionSummaryViewModel>()
+        .viewStatement(record);
+
+    _showOperationResult(result);
+  }
+
   Future<void> _shareStatement(StatementRecord record) async {
     final result = await context
         .read<OperatorTransactionSummaryViewModel>()
@@ -371,6 +379,7 @@ class _OperatorTransactionSummaryPageState
                               .map(
                                 (s) => StatementTile(
                                   record: s,
+                                  onView: () => _viewStatement(s),
                                   onShare: () => _shareStatement(s),
                                   onDelete: () => _deleteStatement(s),
                                 ),

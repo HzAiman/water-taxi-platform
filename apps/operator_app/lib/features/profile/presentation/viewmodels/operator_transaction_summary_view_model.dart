@@ -303,10 +303,10 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
       _statements = [record, ..._statements];
       await _saveStatements();
 
-      await Printing.sharePdf(bytes: bytes, filename: fileName);
+      await Printing.layoutPdf(onLayout: (_) => bytes, name: fileName);
 
       return const OperationSuccess(
-        'Statement generated, saved, and ready to share.',
+        'Statement generated, saved, and ready to view or print.',
       );
     } catch (e) {
       return OperationFailure(
@@ -316,6 +316,25 @@ class OperatorTransactionSummaryViewModel extends ChangeNotifier {
     } finally {
       _isExporting = false;
       notifyListeners();
+    }
+  }
+
+  Future<OperationResult> viewStatement(StatementRecord record) async {
+    try {
+      final file = File(record.filePath);
+      if (!await file.exists()) {
+        return const OperationFailure(
+          'Statement missing',
+          'The saved statement file was not found on this device.',
+          isInfo: true,
+        );
+      }
+
+      final bytes = await file.readAsBytes();
+      await Printing.layoutPdf(onLayout: (_) => bytes, name: record.fileName);
+      return const OperationSuccess('Statement opened successfully.');
+    } catch (e) {
+      return OperationFailure('Open failed', 'Could not open statement: $e');
     }
   }
 

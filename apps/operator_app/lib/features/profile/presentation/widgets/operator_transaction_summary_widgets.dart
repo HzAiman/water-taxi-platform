@@ -562,11 +562,13 @@ class StatementTile extends StatelessWidget {
   const StatementTile({
     super.key,
     required this.record,
+    required this.onView,
     required this.onShare,
     required this.onDelete,
   });
 
   final StatementRecord record;
+  final Future<void> Function() onView;
   final Future<void> Function() onShare;
   final Future<void> Function() onDelete;
 
@@ -602,23 +604,46 @@ class StatementTile extends StatelessWidget {
             children: [
               Expanded(
                 child: OutlinedButton.icon(
+                  onPressed: () => unawaited(onView()),
+                  icon: const Icon(
+                    Icons.visibility_outlined,
+                    color: OperatorBrand.magenta,
+                    size: 16,
+                  ),
+                  label: const Text('View'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: OutlinedButton.icon(
                   onPressed: () => unawaited(onShare()),
                   icon: const Icon(
                     Icons.share_outlined,
                     color: OperatorBrand.magenta,
+                    size: 16,
                   ),
                   label: const Text('Share'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
                 ),
               ),
-              const SizedBox(width: 8),
+              const SizedBox(width: 6),
               Expanded(
                 child: OutlinedButton.icon(
                   onPressed: () => unawaited(onDelete()),
                   icon: const Icon(
                     Icons.delete_outline,
                     color: OperatorBrand.magenta,
+                    size: 16,
                   ),
                   label: const Text('Delete'),
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
                 ),
               ),
             ],

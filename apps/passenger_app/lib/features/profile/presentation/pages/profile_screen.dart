@@ -234,6 +234,7 @@ class _HistoryRouteTitleState extends State<_HistoryRouteTitle>
           text: TextSpan(text: widget.route, style: widget.style),
           maxLines: 1,
           textDirection: Directionality.of(context),
+          textScaler: MediaQuery.textScalerOf(context),
         )..layout();
         final maxWidth = constraints.maxWidth;
         final textWidth = textPainter.width;
@@ -247,6 +248,7 @@ class _HistoryRouteTitleState extends State<_HistoryRouteTitle>
             widget.route,
             style: widget.style,
             maxLines: 1,
+            softWrap: false,
             overflow: TextOverflow.clip,
           );
         }
@@ -1052,6 +1054,7 @@ class _BookingHistoryRoutePageState extends State<_BookingHistoryRoutePage> {
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 10,
