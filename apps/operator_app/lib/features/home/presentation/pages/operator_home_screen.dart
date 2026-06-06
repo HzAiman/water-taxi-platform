@@ -881,6 +881,7 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
       pendingCount: pendingCount,
       isUpdating: viewModel.isUpdatingBooking,
       detailText: _buildBookingDetailText(booking),
+      onCallCustomer: () => _callCustomer(booking),
       onAccept: () async {
         final result = await viewModel.acceptBooking(booking.bookingId);
         if (!mounted) {

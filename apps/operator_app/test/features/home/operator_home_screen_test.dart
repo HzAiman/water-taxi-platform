@@ -235,6 +235,27 @@ void main() {
   testWidgets('online operator can expand pending queue and accept booking', (
     tester,
   ) async {
+    final dialedPhones = <String>[];
+    messenger.setMockMethodCallHandler(
+      const MethodChannel('operator_app/phone'),
+      (MethodCall call) async {
+        if (call.method == 'dial') {
+          final arguments = Map<Object?, Object?>.from(
+            call.arguments as Map<Object?, Object?>,
+          );
+          dialedPhones.add(arguments['phone']! as String);
+          return true;
+        }
+        return false;
+      },
+    );
+    addTearDown(() {
+      messenger.setMockMethodCallHandler(
+        const MethodChannel('operator_app/phone'),
+        (MethodCall call) async => true,
+      );
+    });
+
     final operatorRepo = _FakeOperatorRepository(
       operator: const OperatorModel(
         uid: 'operator-1',
@@ -268,6 +289,17 @@ void main() {
     expect(find.text('Pending'), findsOneWidget);
     expect(find.text('Accept Booking'), findsOneWidget);
     expect(find.text('Reject'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('pending-booking-call-pending-1')),
+      findsOneWidget,
+    );
+
+    await tester.tap(
+      find.byKey(const ValueKey('pending-booking-call-pending-1')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(dialedPhones, ['0123456789']);
 
     await tester.tap(find.text('Accept Booking'));
     await tester.pumpAndSettle();

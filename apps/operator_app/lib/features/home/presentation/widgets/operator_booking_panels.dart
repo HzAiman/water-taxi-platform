@@ -347,19 +347,18 @@ class OperatorActiveBookingCard extends StatelessWidget {
       decoration: const BoxDecoration(color: Colors.white),
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 190),
-        child: SingleChildScrollView(
-          physics: const BouncingScrollPhysics(),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              for (var i = 0; i < stops.length; i++)
-                _buildRouteOrderRow(
-                  stops[i],
-                  currentStop,
-                  isFirst: i == 0,
-                  isLast: i == stops.length - 1,
-                ),
-            ],
+        child: ListView.builder(
+          padding: EdgeInsets.zero,
+          shrinkWrap: true,
+          physics: const AlwaysScrollableScrollPhysics(
+            parent: BouncingScrollPhysics(),
+          ),
+          itemCount: stops.length,
+          itemBuilder: (context, index) => _buildRouteOrderRow(
+            stops[index],
+            currentStop,
+            isFirst: index == 0,
+            isLast: index == stops.length - 1,
           ),
         ),
       ),
@@ -1003,6 +1002,7 @@ class OperatorPendingBookingCard extends StatelessWidget {
     required this.pendingCount,
     required this.isUpdating,
     required this.detailText,
+    required this.onCallCustomer,
     required this.onAccept,
     required this.onReject,
   });
@@ -1011,6 +1011,7 @@ class OperatorPendingBookingCard extends StatelessWidget {
   final int pendingCount;
   final bool isUpdating;
   final String detailText;
+  final Future<void> Function() onCallCustomer;
   final Future<void> Function() onAccept;
   final Future<void> Function() onReject;
 
@@ -1098,6 +1099,22 @@ class OperatorPendingBookingCard extends StatelessWidget {
           const SizedBox(height: 12),
           Row(
             children: [
+              Tooltip(
+                message: 'Call $passengerName',
+                child: IconButton.filled(
+                  key: ValueKey('pending-booking-call-${booking.bookingId}'),
+                  style: IconButton.styleFrom(
+                    backgroundColor: OperatorBrand.orange,
+                    foregroundColor: Colors.white,
+                    minimumSize: const Size(44, 44),
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    padding: EdgeInsets.zero,
+                  ),
+                  onPressed: () => unawaited(onCallCustomer()),
+                  icon: const Icon(Icons.call_rounded, size: 20),
+                ),
+              ),
+              const SizedBox(width: 10),
               Expanded(
                 child: OutlinedButton(
                   onPressed: isUpdating ? null : () => unawaited(onReject()),
