@@ -89,10 +89,10 @@ class BookingTrackingViewModel extends ChangeNotifier {
         isInfo: true,
       );
     }
-    if (!currentBooking.status.canBeCancelledByPassenger) {
-      return OperationFailure(
+    if (!currentBooking.status.canBeCancelledByPassenger || currentBooking.onboard) {
+      return const OperationFailure(
         'Cancellation unavailable',
-        'This booking is already ${currentBooking.status.firestoreValue.replaceAll('_', ' ')} and cannot be cancelled.',
+        'This booking is already in progress with passenger onboard and cannot be cancelled.',
         isInfo: true,
       );
     }

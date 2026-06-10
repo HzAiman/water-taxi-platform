@@ -230,7 +230,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
         : widget.passengerCount;
     final status = booking.status;
     final statusTheme = _statusThemeFor(booking);
-    final canCancel = status.canBeCancelledByPassenger;
+    final canCancel = status.canBeCancelledByPassenger && !booking.onboard;
     final isRejected = status == BookingStatus.rejected;
     final hasOperatorLocation =
         booking.operatorLat != null && booking.operatorLng != null;

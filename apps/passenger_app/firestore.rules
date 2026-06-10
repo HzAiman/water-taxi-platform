@@ -334,6 +334,94 @@ service cloud.firestore {
 
       allow create: if isSignedIn()
         && request.resource.data.userId == request.auth.uid
+      allow read: if isSignedIn();
+      allow create: if isOwner(operatorUid)
+        && request.resource.data.keys().hasOnly(['isOnline', 'updatedAt']);
+      allow update: if isOwner(operatorUid)
+        && request.resource.data.keys().hasOnly(['isOnline', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    match /user_devices/{userId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && request.resource.data.keys().hasOnly(['token', 'platform', 'appRole', 'updatedAt'])
+        && request.resource.data.appRole == 'passenger';
+      allow delete: if isOwner(userId);
+    }
+
+    match /operator_devices/{operatorUid} {
+      allow read: if isOwner(operatorUid);
+      allow create, update: if isOwner(operatorUid)
+        && request.resource.data.keys().hasOnly(['token', 'platform', 'appRole', 'updatedAt'])
+        && request.resource.data.appRole == 'operator';
+      allow delete: if isOwner(operatorUid);
+    }
+
+    match /order_number_index/{orderNumber} {
+      // Booking flow reserves order numbers with a transaction that first
+      // performs tx.get(orderNumber). Allow signed-in reads for that
+      // existence check, then keep create strictly owner-bound.
+      allow read: if isSignedIn();
+      allow create: if isSignedIn()
+        && request.resource.data.keys().hasOnly(['orderNumber', 'userId', 'reservedAt', 'expiresAt'])
+        && request.resource.data.orderNumber == orderNumber
+        && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    match /tracking/{bookingId} {
+      allow read: if isSignedIn()
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && (
+          isOwner(get(/databases/$(database)/documents/bookings/$(bookingId)).data.userId)
+          || (
+            isOperator()
+            && bookingAssignedToAuthFromData(get(/databases/$(database)/documents/bookings/$(bookingId)).data)
+          )
+        );
+      allow create, update: if isOperator()
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && request.resource.data.keys().hasOnly([
+          'bookingId',
+          'operatorUid',
+          'operatorLat',
+          'operatorLng',
+          'updatedAt'
+        ])
+        && request.resource.data.bookingId == bookingId
+        && request.resource.data.operatorUid == request.auth.uid
+        && bookingAssignedToAuthFromData(get(/databases/$(database)/documents/bookings/$(bookingId)).data);
+      allow delete: if false;
+    }
+
+    match /jetties/{jettyId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /fares/{fareId} {
+      allow read: if isSignedIn();
+      allow write: if false;
+    }
+
+    match /polylines/{polylineId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if false;
+    }
+
+    match /bookings/{bookingId} {
+      allow read: if isOwner(resource.data.userId)
+        || (
+          isOperator()
+          && (
+            resource.data.status == 'pending'
+            || bookingOperatorUid(resource.data) == request.auth.uid
+          )
+        );
+
+      allow create: if isSignedIn()
+        && request.resource.data.userId == request.auth.uid
         && request.resource.data.bookingId == bookingId
         && request.resource.data.status == 'pending'
         && request.resource.data.paymentStatus == 'authorized'
@@ -344,6 +432,7 @@ service cloud.firestore {
         && request.resource.data.bookingId == resource.data.bookingId
         && request.resource.data.diff(resource.data).changedKeys().hasOnly(['status', 'updatedAt', 'cancelledAt'])
         && ['pending', 'accepted', 'on_the_way'].hasAny([resource.data.status])
+        && !(resource.data.keys().hasAny(['onboard']) && resource.data.onboard == true)
         && request.resource.data.status == 'cancelled'
         && bookingUpdateHasExpectedFields();
 
