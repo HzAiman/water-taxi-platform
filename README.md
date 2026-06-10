@@ -18,8 +18,8 @@ water-taxi-platform/
 
 ## Apps and packages
 
-- apps/passenger_app: Phone auth, booking creation, hold-first Stripe payment, live tracking, FCM/local notifications, booking history.
-- apps/operator_app: Operator auth, profile bootstrap, online availability, pooled queue handling, navigation guidance, live location sharing, FCM/local notifications, earnings summary.
+- apps/passenger_app: Phone auth, booking creation, hold-first Stripe payment, live tracking with route snap, coordinated FCM/local notifications, enhanced ride history, and in-app direct customer-operator calling.
+- apps/operator_app: Operator auth, profile bootstrap, online availability, pooled queue handling (DRT), navigation guidance with overshoot detection, live location sharing, local persistent background notification, and in-app interactive PDF earnings statement viewer.
 - packages/water_taxi_shared: Firestore field constants, typed models, booking status enum, and shared operation result types.
 - apps/passenger_app/functions: Gen 2 Cloud Functions for pooling/dispatch, payment lifecycle, and push notifications.
 
@@ -49,6 +49,7 @@ Key rules:
 ## Real-time data flow
 
 - bookings/{id} is the canonical lifecycle record (status, fare, assignment, pooling fields).
+  - Booking documents embed a `poolStopPlan` (ordered stop list) and `poolSequence` to control dispatch sequencing.
 - tracking/{id} contains live operator coordinates while a trip is on_the_way.
 - polylines/{id} stores route geometry; passengers embed a chosen route polyline at booking time.
 - user_devices/{uid} and operator_devices/{uid} store FCM tokens; operator_presence/{uid} controls online dispatch eligibility.
@@ -69,9 +70,19 @@ Passenger tracking merges booking + tracking streams to show real-time operator 
 Prerequisites:
 
 - Flutter SDK and Android/iOS toolchains.
+- Node.js (version 22) for Cloud Functions development.
 - iOS builds require macOS with Xcode and CocoaPods; Windows can run Dart analysis/tests, but cannot run `pod install`, iOS simulators, Xcode signing, or `flutter build ios`.
 - Firebase project with Auth, Firestore, FCM enabled.
 - Stripe account with API keys.
+
+### Firestore & Cloud Functions Setup
+
+Install Cloud Functions dependencies locally:
+
+```bash
+cd apps/passenger_app/functions
+npm install
+```
 
 Firestore rules and indexes live in apps/passenger_app. Deploy them from that folder:
 
@@ -80,7 +91,30 @@ cd apps/passenger_app
 firebase deploy --only firestore:rules,firestore:indexes
 ```
 
-Maps API keys:
+Deploy Cloud Functions to Firebase:
+
+```bash
+cd apps/passenger_app
+firebase deploy --only functions
+```
+
+### Local Development & Emulators
+
+To run the Firebase Emulator Suite for local logic verification and API calls:
+
+```bash
+cd apps/passenger_app
+firebase emulators:start --only functions,firestore
+```
+
+To run offline Firestore security rules tests:
+
+```bash
+cd apps/passenger_app
+firebase emulators:exec --only firestore "npm --prefix functions run test:rules"
+```
+
+### Maps API keys:
 
 ```properties
 MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
@@ -88,7 +122,7 @@ MAPS_API_KEY=YOUR_ANDROID_MAPS_API_KEY
 
 For iOS, replace `YOUR_IOS_MAPS_API_KEY` in each app's `ios/Runner/Info.plist`.
 
-Stripe client config (passenger app uses dart-define values):
+### Stripe client config (passenger app uses dart-define values):
 
 - STRIPE_PUBLISHABLE_KEY
 - STRIPE_MERCHANT_IDENTIFIER (iOS)
@@ -147,5 +181,6 @@ Current Windows-side validation can confirm Dart package resolution, static anal
 
 ## Status
 
-Core flows are implemented end-to-end: booking creation, manual-capture payment, pooled dispatch, operator navigation, and push notifications. Remaining work focuses on production hardening: monitoring/alerting, stricter Firestore rules/index coverage, and full E2E test automation.
+Core flows are fully implemented end-to-end: booking creation, manual-capture Stripe payment holds, pooled Demand Responsive Transport (DRT) dispatch, operator map navigation with stop overshoot detection, and background notification synchronization.
 
+Stricter Firestore rules, comprehensive composite indexing, and robust test coverage for backend pooling logic and navigation guidance have been successfully completed. Remaining work focuses on production release logistics, APNs push certificate uploads on Apple Developer Console, and end-to-end physical device verification.

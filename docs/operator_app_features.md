@@ -470,6 +470,7 @@ Pending booking card displays:
 - Passenger name, or `Pending Booking` if empty.
 - Passenger count.
 - Fare, or `Fare N/A`.
+- `Call` button (IconButton, filled orange).
 - `Reject` button.
 - `Accept Booking` button.
 
@@ -620,6 +621,7 @@ Output:
 Location:
 
 - Inside `Active booking list` rows.
+- Inside Pending booking cards (`Pending Queue Section`).
 
 Normal flow:
 
@@ -1135,7 +1137,7 @@ If no Firebase user exists:
 
 File: `operator_transaction_summary_page.dart`, `operator_transaction_summary_view_model.dart`, `operator_transaction_summary_widgets.dart`
 
-This page lets operators inspect ride history, period summaries, earnings, and locally saved PDF statements.
+This page lets operators inspect period earnings summaries, a quick 3-ride preview, saved PDF statements, and navigate to a detailed full-screen ride history log.
 
 ### UI Layout
 
@@ -1272,8 +1274,8 @@ Normal export flow:
 7. PDF is saved under app documents directory in `operator_statements`.
 8. A `StatementRecord` is added to local statement history.
 9. Statement records are saved to `SharedPreferences`.
-10. `Printing.sharePdf` opens the native share sheet.
-11. Top success: `Statement generated, saved, and ready to share.`
+10. `Printing.layoutPdf` immediately opens the interactive PDF preview layout for viewing and printing.
+11. Top success: `Statement generated, saved, and ready to view or print.`
 
 File naming:
 
@@ -1290,15 +1292,17 @@ Exception and alternative outputs:
 
 ### Detailed Ride History Section
 
-Controls:
+On the main Transaction Summary page, the operator is presented with a **quick preview** showing up to the **3 most recent rides** for the selected statement period.
 
-- History filter chips:
-  - `All`
-  - `Completed`
-  - `Cancelled`
-  - `Active`
-- Search text field.
-- Ride history list.
+Beneath the preview, an outlined button **`See All History ({count})`** transitions the operator to a dedicated, full-screen **`OperatorDetailedRideHistoryPage`**.
+
+#### Detailed Ride History Screen Controls
+
+Inside the dedicated history page, the operator has access to the following:
+
+- **History filter chips** (All, Completed, Cancelled, Active) to filter records in memory.
+- **Search field** (Search by route, status, passenger name, or phone number) with a clear button.
+- **Scrollable ride history list** of `RideHistoryTile`s with bouncing physics.
 
 #### History Filter Chips
 
@@ -1380,8 +1384,26 @@ If statements exist, each statement tile shows:
 - Generated timestamp.
 - Completed rides.
 - Earnings.
+- `View` button.
 - `Share` button.
 - `Delete` button.
+
+#### View Statement Button
+
+Normal flow:
+
+1. Operator taps `View`.
+2. App checks if the PDF file exists under `operator_statements/{fileName}.pdf`.
+3. If file exists, layout is parsed and PDF viewer opens directly.
+
+Exception output:
+
+- If file is missing:
+  - Title: `Statement missing`
+  - Message: `The saved statement file was not found on this device.`
+- If open fails:
+  - Title: `Open failed`
+  - Message: `Could not open statement: {error}`
 
 #### Share Statement Button
 
@@ -1572,9 +1594,11 @@ Accepted but not-started bookings can be released back to queue when going offli
 | Transaction Summary | Monthly chip | Tap | Selects monthly period. |
 | Transaction Summary | Yearly chip | Tap | Selects yearly period. |
 | Transaction Summary | Custom chip | Tap | Opens date range picker and applies custom range if selected. |
-| Transaction Summary | Export PDF | Tap | Generates, saves, records, and shares statement PDF. |
-| Transaction Summary | History filter chips | Tap | Filters ride list in memory. |
-| Transaction Summary | Search field | Text input | Filters ride list by booking, passenger, route, phone, or status. |
+| Transaction Summary | Export PDF | Tap | Generates, saves, records, and opens the PDF statement preview. |
+| Transaction Summary | See All History | Tap | Opens the dedicated, full-screen Detailed Ride History screen. |
+| Transaction Summary | Statement View | Tap | Opens the saved PDF locally using printing layout viewer. |
 | Transaction Summary | Statement Share | Tap | Shares saved PDF or shows missing/share error. |
 | Transaction Summary | Statement Delete | Tap | Deletes local file/record and updates UI. |
+| Detailed Ride History | History filter chips | Tap | Filters ride list in memory. |
+| Detailed Ride History | Search field | Text input | Filters ride list by booking, passenger, route, phone, or status. |
 
