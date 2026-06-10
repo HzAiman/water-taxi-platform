@@ -175,6 +175,7 @@ Current Windows-side validation can confirm Dart package resolution, static anal
 - docs/security_rules_access_control.md: Firestore rules, collection permissions, access matrix, and security assumptions.
 - docs/maintenance_and_migration_functions.md: Scheduled cleanup jobs, stale-state safety nets, and admin migration endpoints.
 - docs/shared_package_model_api.md: Shared Dart package constants, models, parsers, and result types.
+- docs/booking_archive_analysis_and_risk_triage.md: Detailed structural audit of the platform's booking archive feature, including legacy system vulnerabilities, payment webhook safety analysis, and a zero-risk triggers remediation roadmap.
 - apps/passenger_app/README.md: Passenger app architecture + flows.
 - apps/operator_app/README.md: Operator app architecture + flows.
 - apps/passenger_app/functions/README.md: Cloud Functions details.

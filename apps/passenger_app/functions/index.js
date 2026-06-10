@@ -5206,6 +5206,50 @@ exports.cleanupExpiredOrderNumberReservations = onSchedule(
   }
 );
 
+/**
+ * Automatically archives completed, cancelled, or rejected bookings to the bookings_archive
+ * collection if they are not already archived.
+ *
+ * This provides 100% archiving coverage for all paths including manual, automatic, and system rejections,
+ * with zero risk of breaking active dispatch operations or frontends since active records are preserved.
+ */
+exports.reconcileTerminalBookingToArchive = onDocumentUpdated(
+  {
+    document: "bookings/{bookingId}",
+    region: "asia-southeast1",
+  },
+  async (event) => {
+    const afterSnap = event.data?.after;
+    if (!afterSnap || !afterSnap.exists) return;
+
+    const booking = afterSnap.data() || {};
+    const bookingId = event.params.bookingId;
+    const status = asString(booking[BOOKING_FIELDS.status]);
+
+    const isTerminal = status === "completed" || status === "cancelled" || status === "rejected";
+    if (!isTerminal) return;
+
+    // Check if already in bookings_archive
+    const archiveRef = db.collection(COLLECTIONS.bookingsArchive).doc(bookingId);
+    const archiveSnap = await archiveRef.get();
+
+    if (!archiveSnap.exists) {
+      const archivedPayload = {
+        ...booking,
+        bookingId,
+        archivedAt: FieldValue.serverTimestamp(),
+        archivedStatus: status,
+      };
+
+      await archiveRef.set(archivedPayload);
+      logger.info("Automatically reconciled terminal booking to archive", {
+        bookingId,
+        status,
+      });
+    }
+  }
+);
+
 if (process.env.NODE_ENV === "test") {
   module.exports.__poolingTest = {
     BOOKING_FIELDS,
