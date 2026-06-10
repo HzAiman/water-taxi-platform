@@ -48,6 +48,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
 
   GoogleMapController? _mapController;
   late final AnimationController _pulseController;
+  BookingStatus? _lastAnimationStatus;
+  bool? _lastAnimationOnboard;
   String? _initialFitBookingId;
   LatLng? _lastFocusedOperatorPoint;
   DateTime? _lastOperatorFocusAt;
@@ -77,8 +79,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
     super.initState();
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1400),
-    )..repeat(reverse: true);
+    );
     Future.microtask(() {
       if (!mounted) {
         return;
@@ -145,6 +146,14 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
   Widget build(BuildContext context) {
     final viewModel = context.watch<BookingTrackingViewModel>();
     final booking = viewModel.booking;
+
+    if (booking != null) {
+      _updateAnimationForState(booking.status, booking.onboard);
+    } else {
+      _pulseController.stop();
+      _lastAnimationStatus = null;
+      _lastAnimationOnboard = null;
+    }
 
     if (booking == null) {
       final slowLoad =
@@ -220,7 +229,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
         ? booking.passengerCount
         : widget.passengerCount;
     final status = booking.status;
-    final statusTheme = _statusThemeFor(status);
+    final statusTheme = _statusThemeFor(booking);
     final canCancel = status.canBeCancelledByPassenger;
     final isRejected = status == BookingStatus.rejected;
     final hasOperatorLocation =
@@ -365,7 +374,7 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
                             height: 28,
                             alignment: Alignment.center,
                             child: _buildStatusRippleDot(
-                              status: status,
+                              booking: booking,
                               color: statusTheme.color,
                             ),
                           ),
@@ -727,15 +736,31 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
   }
 
   Widget _buildStatusRippleDot({
-    required BookingStatus status,
+    required BookingModel booking,
     required Color color,
   }) {
-    final rippleMode = _rippleModeFor(status);
-    if (rippleMode == _StatusRippleMode.none) {
+    final status = booking.status;
+    final onboard = booking.onboard;
+
+    // Terminal states do not animate
+    if (status == BookingStatus.completed ||
+        status == BookingStatus.cancelled ||
+        status == BookingStatus.rejected ||
+        status == BookingStatus.unknown) {
       return Container(
         width: 12,
         height: 12,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.4),
+              blurRadius: 4,
+              spreadRadius: 1,
+            ),
+          ],
+        ),
       );
     }
 
@@ -743,47 +768,200 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
       animation: _pulseController,
       builder: (context, child) {
         final value = _pulseController.value;
-        final progress = rippleMode == _StatusRippleMode.outward
-            ? value
-            : 1 - value;
-        final outerScale = 1.0 + (progress * 1.35);
-        final innerScale = 1.0 + ((progress + 0.45) % 1.0 * 1.1);
-        final outerOpacity = 0.30 * (1 - progress);
-        final innerOpacity = 0.18 * (1 - ((progress + 0.45) % 1.0));
+        final List<Widget> rings = [];
+
+        if (status == BookingStatus.pending) {
+          // ==========================================
+          // PENDING STATE: Rapid Outward Radar Search
+          // ==========================================
+          final waveProgresses = [
+            value,
+            (value + 0.33) % 1.0,
+            (value + 0.66) % 1.0,
+          ];
+
+          for (final progress in waveProgresses) {
+            final scale = 1.0 + (progress * 1.8); // up to 2.8x size
+            final opacity = 0.45 * (1.0 - progress);
+
+            rings.add(
+              Transform.scale(
+                scale: scale,
+                child: Container(
+                  width: 12,
+                  height: 12,
+                  decoration: BoxDecoration(
+                    color: color.withValues(alpha: opacity),
+                    shape: BoxShape.circle,
+                  ),
+                ),
+              ),
+            );
+          }
+        } else if (status == BookingStatus.accepted) {
+          // ==========================================
+          // ACCEPTED STATE: Slow Reassuring Breathe
+          // ==========================================
+          final scale1 = 1.0 + (value * 1.2); // up to 2.2x
+          final scale2 = 1.0 + (value * 0.6); // up to 1.6x
+          final opacity1 = 0.08 + (value * 0.27); // 0.08 to 0.35
+          final opacity2 = 0.15 + (value * 0.35); // 0.15 to 0.50
+
+          rings.addAll([
+            Transform.scale(
+              scale: scale1,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity1),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            Transform.scale(
+              scale: scale2,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity2),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ]);
+        } else if (status == BookingStatus.onTheWay && !onboard) {
+          // ==================================================
+          // ON THE WAY - NOT ONBOARD: Inward Vortices (Incoming)
+          // ==================================================
+          final progress1 = value;
+          final progress2 = (value + 0.5) % 1.0;
+
+          final scale1 = 2.6 - (progress1 * 1.6); // 2.6 down to 1.0
+          final scale2 = 2.6 - (progress2 * 1.6); // 2.6 down to 1.0
+
+          final opacity1 = 0.40 * math.sin(progress1 * math.pi);
+          final opacity2 = 0.40 * math.sin(progress2 * math.pi);
+
+          rings.addAll([
+            Transform.scale(
+              scale: scale1,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity1),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: color.withValues(alpha: opacity1 * 1.2),
+                    width: 0.75,
+                  ),
+                ),
+              ),
+            ),
+            Transform.scale(
+              scale: scale2,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity2),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: color.withValues(alpha: opacity2 * 1.2),
+                    width: 0.75,
+                  ),
+                ),
+              ),
+            ),
+          ]);
+        } else if (status == BookingStatus.onTheWay && onboard) {
+          // ==========================================
+          // TRIP IN PROGRESS (ONBOARD): Steady Sailing Wave
+          // ==========================================
+          final scale1 = 1.0 + (value * 1.4); // up to 2.4x
+          final scale2 = 1.0 + (((value + 0.5) % 1.0) * 0.9); // up to 1.9x
+          final opacity1 = 0.28 * (1.0 - value);
+          final opacity2 = 0.18 * (1.0 - ((value + 0.5) % 1.0));
+
+          rings.addAll([
+            Transform.scale(
+              scale: scale1,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity1),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+            Transform.scale(
+              scale: scale2,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity2),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          ]);
+        } else {
+          final scale = 1.0 + (value * 1.2);
+          final opacity = 0.3 * (1.0 - value);
+          rings.add(
+            Transform.scale(
+              scale: scale,
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: opacity),
+                  shape: BoxShape.circle,
+                ),
+              ),
+            ),
+          );
+        }
+
+        // Center dot size breathing if active
+        double centerScale = 1.0;
+        if (status == BookingStatus.accepted) {
+          centerScale = 0.92 + (value * 0.16);
+        } else if (status == BookingStatus.pending) {
+          centerScale = 0.95 + (value * 0.10);
+        } else if (status == BookingStatus.onTheWay) {
+          centerScale = 0.94 + (value * 0.12);
+        }
 
         return Stack(
           alignment: Alignment.center,
           children: [
+            ...rings,
             Transform.scale(
-              scale: outerScale,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: outerOpacity),
-                  shape: BoxShape.circle,
-                ),
-              ),
+              scale: centerScale,
+              child: child!,
             ),
-            Transform.scale(
-              scale: innerScale,
-              child: Container(
-                width: 12,
-                height: 12,
-                decoration: BoxDecoration(
-                  color: color.withValues(alpha: innerOpacity),
-                  shape: BoxShape.circle,
-                ),
-              ),
-            ),
-            child!,
           ],
         );
       },
       child: Container(
         width: 12,
         height: 12,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: color.withValues(alpha: 0.5),
+              blurRadius: 6,
+              spreadRadius: 1.5,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1768,18 +1946,47 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
     }
   }
 
-  _StatusRippleMode _rippleModeFor(BookingStatus status) {
+  void _updateAnimationForState(BookingStatus status, bool onboard) {
+    if (_lastAnimationStatus == status && _lastAnimationOnboard == onboard) {
+      return;
+    }
+    _lastAnimationStatus = status;
+    _lastAnimationOnboard = onboard;
+
+    Duration targetDuration;
+    bool reverse;
+
     switch (status) {
       case BookingStatus.pending:
-        return _StatusRippleMode.outward;
+        targetDuration = const Duration(milliseconds: 800);
+        reverse = false; // continuous outward scanning
+        break;
       case BookingStatus.accepted:
+        targetDuration = const Duration(milliseconds: 2000);
+        reverse = true; // slow breathing preparation
+        break;
       case BookingStatus.onTheWay:
-        return _StatusRippleMode.inward;
-      case BookingStatus.completed:
-      case BookingStatus.cancelled:
-      case BookingStatus.rejected:
-      case BookingStatus.unknown:
-        return _StatusRippleMode.none;
+        if (!onboard) {
+          targetDuration = const Duration(milliseconds: 1100);
+          reverse = false; // continuous inward incoming signal
+        } else {
+          targetDuration = const Duration(milliseconds: 1500);
+          reverse = true; // steady smooth sailing breathe
+        }
+        break;
+      default:
+        targetDuration = const Duration(milliseconds: 1400);
+        reverse = true;
+        break;
+    }
+
+    _pulseController.duration = targetDuration;
+    if (status == BookingStatus.pending ||
+        status == BookingStatus.accepted ||
+        status == BookingStatus.onTheWay) {
+      _pulseController.repeat(reverse: reverse);
+    } else {
+      _pulseController.stop();
     }
   }
 
@@ -1899,7 +2106,8 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
     super.dispose();
   }
 
-  _BookingStatusTheme _statusThemeFor(BookingStatus status) {
+  _BookingStatusTheme _statusThemeFor(BookingModel booking) {
+    final status = booking.status;
     switch (status) {
       case BookingStatus.pending:
         return const _BookingStatusTheme(
@@ -1914,6 +2122,14 @@ class _BookingTrackingScreenState extends State<BookingTrackingScreen>
           color: PassengerBrand.blue,
         );
       case BookingStatus.onTheWay:
+        if (!booking.onboard) {
+          return const _BookingStatusTheme(
+            title: 'Operator On The Way',
+            message:
+                'Your assigned operator is heading to your pickup location.',
+            color: PassengerBrand.blue,
+          );
+        }
         return const _BookingStatusTheme(
           title: 'Trip In Progress',
           message: 'Your assigned operator is currently handling this trip.',
@@ -2003,8 +2219,6 @@ class _SegmentProjection {
   final double t;
   final double distanceMeters;
 }
-
-enum _StatusRippleMode { outward, inward, none }
 
 class _AutoScrollText extends StatefulWidget {
   const _AutoScrollText({required this.text, required this.style});
