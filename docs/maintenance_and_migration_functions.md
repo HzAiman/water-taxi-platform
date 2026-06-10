@@ -123,7 +123,7 @@ Purpose: deletes old documents in `bookings_archive`.
 Retention configuration:
 
 - `BOOKING_ARCHIVE_RETENTION_DAYS`
-- default: `180`
+- default: `400`
 - non-positive or invalid values fall back to default
 
 Eligibility:

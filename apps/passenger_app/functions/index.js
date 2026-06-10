@@ -5116,7 +5116,7 @@ exports.releaseStaleAcceptedPooledBookings = onSchedule(
 /**
  * Scheduled cleanup for bookings_archive retention.
  *
- * Retention is configured by BOOKING_ARCHIVE_RETENTION_DAYS (default 180).
+ * Retention is configured by BOOKING_ARCHIVE_RETENTION_DAYS (default 400).
  * Deletes archive docs where archivedAt is older than retention cutoff.
  */
 exports.cleanupExpiredBookingArchive = onSchedule(
@@ -5128,7 +5128,7 @@ exports.cleanupExpiredBookingArchive = onSchedule(
   async () => {
     const retentionDays = parsePositiveRetentionDays(
       BOOKING_ARCHIVE_RETENTION_DAYS.value(),
-      180
+      400
     );
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
 

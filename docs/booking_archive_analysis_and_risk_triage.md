@@ -14,9 +14,9 @@ When a booking is completed, cancelled, or closed, the system writes a copy of t
 *   **Impact:** Over time, query performance on active collections will degrade, index sizes will balloon, and Firestore scan operations will become more resource-intensive and expensive.
 
 ### 2. Defeated Retention Policy (Privacy & Compliance Risk)
-There is a scheduled function, `cleanupExpiredBookingArchive` (in `apps/passenger_app/functions/index.js`), that runs every day at 2:00 AM to delete documents from `bookings_archive` that are older than `BOOKING_ARCHIVE_RETENTION_DAYS` (defaulting to 180 days).
-*   **The Problem:** Because the live `bookings` collection is never pruned, old bookings remain in the active `bookings` collection **forever**, bypassing the 180-day retention filter entirely.
-*   **Impact:** Sensitive user travel history is never deleted from the live system. This completely defeats the purpose of having a 180-day retention policy and poses a significant data privacy/compliance concern.
+There is a scheduled function, `cleanupExpiredBookingArchive` (in `apps/passenger_app/functions/index.js`), that runs every day at 2:00 AM to delete documents from `bookings_archive` that are older than `BOOKING_ARCHIVE_RETENTION_DAYS` (defaulting to 400 days).
+*   **The Problem:** Because the live `bookings` collection is never pruned, old bookings remain in the active `bookings` collection **forever**, bypassing the 400-day retention filter entirely.
+*   **Impact:** Sensitive user travel history is never deleted from the live system. This completely defeats the purpose of having a 400-day retention policy and poses a significant data privacy/compliance concern.
 
 ### 3. Archive Gaps (Silent Missing Rejections)
 The current system only triggers archiving for **successful completions** and **passenger-initiated cancellations**. It completely fails to archive rejections.
@@ -40,7 +40,7 @@ Both client apps query booking history directly from the live `bookings` collect
 
 The matrix below illustrates the inconsistent state transitions and archiving coverage:
 
-| Booking Status | Active `bookings` | Archived to `bookings_archive`? | Pruned from Active `bookings`? | Cleaned up after 180 Days? |
+| Booking Status | Active `bookings` | Archived to `bookings_archive`? | Pruned from Active `bookings`? | Cleaned up after 400 Days? |
 | :--- | :---: | :---: | :---: | :---: |
 | **`pending` / `accepted` / `on_the_way`** | Yes | ❌ No | ❌ No | ❌ No |
 | **`completed`** (via stop/callable) | Yes | **✅ Yes** | ❌ No | ⚠️ Only the Archive copy |
