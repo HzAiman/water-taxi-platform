@@ -1484,6 +1484,7 @@ function evaluatePoolingEligibility(
     routeDirectionForMetrics(candidateMetrics);
   const sameUncompletedPickupInActivePool =
     isSameUncompletedPickupInActivePool(activeBookings, candidateBooking);
+  const hasActivePool = activeBookings.length > 0;
 
   if (
     activeRouteDirection &&
@@ -1501,6 +1502,7 @@ function evaluatePoolingEligibility(
   }
 
   if (
+    hasActivePool &&
     !isBookingDirectionValidForPool(candidateMetrics, routeDirection) &&
     !sameUncompletedPickupInActivePool
   ) {

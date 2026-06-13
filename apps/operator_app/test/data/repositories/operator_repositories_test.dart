@@ -1226,6 +1226,7 @@ void main() {
           required String id,
           required DateTime created,
           DateTime? updated,
+          bool writeUpdatedAtAsIsoString = false,
         }) {
           final data = <String, dynamic>{
             BookingFields.bookingId: id,
@@ -1248,7 +1249,9 @@ void main() {
             BookingFields.createdAt: Timestamp.fromDate(created),
           };
           if (updated != null) {
-            data[BookingFields.updatedAt] = Timestamp.fromDate(updated);
+            data[BookingFields.updatedAt] = writeUpdatedAtAsIsoString
+                ? updated.toIso8601String()
+                : Timestamp.fromDate(updated);
           }
           return firestore
               .collection(FirestoreCollections.bookings)
@@ -1267,15 +1270,23 @@ void main() {
           created: DateTime.utc(2026, 4, 25, 8, 0),
           updated: DateTime.utc(2026, 4, 25, 12, 0),
         );
+        await seed(
+          id: 'history-4',
+          created: DateTime.utc(2026, 4, 25, 7, 0),
+          updated: DateTime.utc(2026, 4, 25, 13, 0),
+          writeUpdatedAtAsIsoString: true,
+        );
 
         final history = await repository
             .streamOperatorBookingHistory('operator-1')
             .first;
         expect(history.map((b) => b.bookingId), [
+          'history-4',
           'history-3',
           'history-2',
           'history-1',
         ]);
+        expect(history.first.updatedAt, DateTime.utc(2026, 4, 25, 13, 0));
       },
     );
   });

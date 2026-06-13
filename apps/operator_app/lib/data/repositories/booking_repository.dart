@@ -988,12 +988,18 @@ class BookingRepository {
           ? routePolyline
           : null,
     );
-    final createdAt = (data[BookingFields.createdAt] as Timestamp?)?.toDate();
-    final updatedAt = (data[BookingFields.updatedAt] as Timestamp?)?.toDate();
-    final cancelledAt = (data[BookingFields.cancelledAt] as Timestamp?)
-        ?.toDate();
-    final passengerPickedUpAt =
-        (data[BookingFields.passengerPickedUpAt] as Timestamp?)?.toDate();
+    final createdAt = _dateTimeFromFirestoreValue(
+      data[BookingFields.createdAt],
+    );
+    final updatedAt = _dateTimeFromFirestoreValue(
+      data[BookingFields.updatedAt],
+    );
+    final cancelledAt = _dateTimeFromFirestoreValue(
+      data[BookingFields.cancelledAt],
+    );
+    final passengerPickedUpAt = _dateTimeFromFirestoreValue(
+      data[BookingFields.passengerPickedUpAt],
+    );
 
     data = {
       ...data,
@@ -1021,6 +1027,18 @@ class BookingRepository {
       updatedAt: updatedAt,
       cancelledAt: cancelledAt,
     );
+  }
+
+  static DateTime? _dateTimeFromFirestoreValue(Object? value) {
+    if (value == null) return null;
+    if (value is Timestamp) return value.toDate();
+    if (value is DateTime) return value;
+    if (value is int) return DateTime.fromMillisecondsSinceEpoch(value);
+    if (value is num) {
+      return DateTime.fromMillisecondsSinceEpoch(value.toInt());
+    }
+    if (value is String) return DateTime.tryParse(value);
+    return null;
   }
 
   Future<List<Map<String, double>>?> _resolveRouteToOriginPolyline(

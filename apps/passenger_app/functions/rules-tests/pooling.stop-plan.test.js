@@ -648,6 +648,25 @@ test("same uncompleted pickup is not deferred by projection jitter", () => {
   );
 });
 
+test("first booking can start a pool even when route projection is ambiguous", () => {
+  const candidate = booking("First", 1, 2, {
+    [BOOKING_FIELDS.status]: "pending",
+    [BOOKING_FIELDS.routePolyline]: [
+      geo(jetty(1)),
+      geo(jetty(1)),
+    ],
+  });
+
+  const eligibility = evaluatePoolingEligibility([], candidate);
+
+  assert.equal(eligibility.eligible, true);
+  assert.equal(
+    eligibility.reason,
+    "eligible",
+    "An empty operator pool should not queue the first booking for a later route sweep"
+  );
+});
+
 test("same uncompleted pickup can add opposite-projected dropoff mid-trip", () => {
   const active = booking("A", 18, 24, {
     [BOOKING_FIELDS.status]: "on_the_way",
