@@ -419,6 +419,85 @@ void main() {
       },
     );
 
+    test(
+      'completeTrip locally advances pooled route after middle dropoff',
+      () async {
+        final bookingRepo = FakeOperatorBookingRepository();
+        final viewModel = createViewModel(
+          bookingRepo: bookingRepo,
+          operatorRepo: FakeOperatorRepository(),
+        );
+        final stopPlan = _sharedPickupThreeStopPlan(
+          currentStopId: 'dropoff-active-1',
+        );
+
+        await viewModel.initialize('operator-1');
+        bookingRepo.emitActive([
+          _sampleBooking(
+            id: 'active-1',
+            status: BookingStatus.onTheWay,
+            poolStopPlan: stopPlan,
+            currentStopIndex: 1,
+            currentStopId: 'dropoff-active-1',
+            currentPoolStopId: 'dropoff-active-1',
+            poolGroupId: 'pool-1',
+          ),
+          _sampleBooking(
+            id: 'active-2',
+            status: BookingStatus.onTheWay,
+            poolStopPlan: stopPlan,
+            currentStopIndex: 1,
+            currentStopId: 'dropoff-active-1',
+            currentPoolStopId: 'dropoff-active-1',
+            poolGroupId: 'pool-1',
+          ),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        final result = await viewModel.completeTrip('active-1');
+
+        expect(result, isA<OperationSuccess>());
+        expect(viewModel.activeBookings, hasLength(1));
+        final remaining = viewModel.activeBookings.single;
+        expect(remaining.bookingId, 'active-2');
+        expect(remaining.status, BookingStatus.onTheWay);
+        expect(remaining.currentStopId, 'dropoff-active-2');
+        expect(remaining.currentPoolStop?.stopName, 'Hard Rock');
+        expect(remaining.poolStopPlan[1].status, 'completed');
+        expect(remaining.poolStopPlan[2].status, 'active');
+
+        bookingRepo.emitActive([
+          _sampleBooking(
+            id: 'active-1',
+            status: BookingStatus.onTheWay,
+            poolStopPlan: stopPlan,
+            currentStopIndex: 1,
+            currentStopId: 'dropoff-active-1',
+            currentPoolStopId: 'dropoff-active-1',
+            poolGroupId: 'pool-1',
+          ),
+          _sampleBooking(
+            id: 'active-2',
+            status: BookingStatus.onTheWay,
+            poolStopPlan: stopPlan,
+            currentStopIndex: 1,
+            currentStopId: 'dropoff-active-1',
+            currentPoolStopId: 'dropoff-active-1',
+            poolGroupId: 'pool-1',
+          ),
+        ]);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(viewModel.activeBookings.map((booking) => booking.bookingId), [
+          'active-2',
+        ]);
+        expect(
+          viewModel.activeBookings.single.currentStopId,
+          'dropoff-active-2',
+        );
+      },
+    );
+
     test('busy guard blocks overlapping booking operations', () async {
       final bookingRepo = FakeOperatorBookingRepository()
         ..acceptCompleter = Completer<OperationResult>();
@@ -1517,65 +1596,71 @@ void main() {
       );
     });
 
-    test('navigation helper shows soft warning after passing stop slightly', () {
-      final booking = _sampleBooking(
-        id: 'slightly-passed-pickup',
-        status: BookingStatus.onTheWay,
-        routePolyline: const [
-          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
-        ],
-        poolStopPlan: _twoStopPlan(),
-        currentStopIndex: 0,
-        currentStopId: 'pickup-active-1',
-        currentPoolStopId: 'pickup-active-1',
-        routeDirection: 'forward',
-      );
+    test(
+      'navigation helper shows soft warning after passing stop slightly',
+      () {
+        final booking = _sampleBooking(
+          id: 'slightly-passed-pickup',
+          status: BookingStatus.onTheWay,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          ],
+          poolStopPlan: _twoStopPlan(),
+          currentStopIndex: 0,
+          currentStopId: 'pickup-active-1',
+          currentPoolStopId: 'pickup-active-1',
+          routeDirection: 'forward',
+        );
 
-      final guidance = computeOperatorNavigationGuidance(
-        booking: booking,
-        currentLat: 2.2016,
-        currentLng: 102.2516,
-        now: DateTime(2026, 3, 19, 10, 0, 10),
-      );
+        final guidance = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.2016,
+          currentLng: 102.2516,
+          now: DateTime(2026, 3, 19, 10, 0, 10),
+        );
 
-      expect(guidance, isNotNull);
-      expect(
-        guidance!.stopOvershootSeverity,
-        OperatorStopOvershootSeverity.soft,
-      );
-    });
+        expect(guidance, isNotNull);
+        expect(
+          guidance!.stopOvershootSeverity,
+          OperatorStopOvershootSeverity.soft,
+        );
+      },
+    );
 
-    test('navigation helper marks clear missed stop without movement sample', () {
-      final booking = _sampleBooking(
-        id: 'clear-missed-pickup',
-        status: BookingStatus.onTheWay,
-        routePolyline: const [
-          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
-          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
-          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
-        ],
-        poolStopPlan: _twoStopPlan(),
-        currentStopIndex: 0,
-        currentStopId: 'pickup-active-1',
-        currentPoolStopId: 'pickup-active-1',
-        routeDirection: 'forward',
-      );
+    test(
+      'navigation helper marks clear missed stop without movement sample',
+      () {
+        final booking = _sampleBooking(
+          id: 'clear-missed-pickup',
+          status: BookingStatus.onTheWay,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          ],
+          poolStopPlan: _twoStopPlan(),
+          currentStopIndex: 0,
+          currentStopId: 'pickup-active-1',
+          currentPoolStopId: 'pickup-active-1',
+          routeDirection: 'forward',
+        );
 
-      final guidance = computeOperatorNavigationGuidance(
-        booking: booking,
-        currentLat: 2.20185,
-        currentLng: 102.25185,
-        now: DateTime(2026, 3, 19, 10, 0, 10),
-      );
+        final guidance = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.20185,
+          currentLng: 102.25185,
+          now: DateTime(2026, 3, 19, 10, 0, 10),
+        );
 
-      expect(guidance, isNotNull);
-      expect(
-        guidance!.stopOvershootSeverity,
-        OperatorStopOvershootSeverity.missed,
-      );
-    });
+        expect(guidance, isNotNull);
+        expect(
+          guidance!.stopOvershootSeverity,
+          OperatorStopOvershootSeverity.missed,
+        );
+      },
+    );
 
     test('navigation helper warns when first pickup stop is missed', () {
       final booking = _sampleBooking(
@@ -1930,6 +2015,46 @@ List<PoolStopPlanItem> _twoStopPlan() {
       routePositionMeters: 300,
       bookingIds: ['active-1'],
       status: 'pending',
+    ),
+  ];
+}
+
+List<PoolStopPlanItem> _sharedPickupThreeStopPlan({
+  required String currentStopId,
+}) {
+  return [
+    PoolStopPlanItem(
+      stopId: 'pickup-shared',
+      index: 0,
+      stopType: 'pickup',
+      stopName: 'Kampung Jawa',
+      lat: 2.2010,
+      lng: 102.2510,
+      routePositionMeters: 100,
+      bookingIds: const ['active-1', 'active-2'],
+      status: currentStopId == 'pickup-shared' ? 'active' : 'completed',
+    ),
+    PoolStopPlanItem(
+      stopId: 'dropoff-active-1',
+      index: 1,
+      stopType: 'dropoff',
+      stopName: 'Stadthuys',
+      lat: 2.2020,
+      lng: 102.2520,
+      routePositionMeters: 200,
+      bookingIds: const ['active-1'],
+      status: currentStopId == 'dropoff-active-1' ? 'active' : 'completed',
+    ),
+    PoolStopPlanItem(
+      stopId: 'dropoff-active-2',
+      index: 2,
+      stopType: 'dropoff',
+      stopName: 'Hard Rock',
+      lat: 2.2030,
+      lng: 102.2530,
+      routePositionMeters: 300,
+      bookingIds: const ['active-2'],
+      status: currentStopId == 'dropoff-active-2' ? 'active' : 'pending',
     ),
   ];
 }

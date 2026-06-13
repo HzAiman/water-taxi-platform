@@ -753,9 +753,13 @@ class _OperatorHomeScreenState extends State<OperatorHomeScreen>
           ? 'Waiting for fresh GPS.'
           : _criticalRouteWarningText(booking, guidance),
       onPrimaryAction: () async {
+        final actionBooking = _bookingForCurrentPoolStop(
+          booking,
+          viewModel.activeBookings,
+        );
         final result = !isPickupStop
-            ? await viewModel.completeTrip(booking.bookingId)
-            : await viewModel.markPassengerPickedUp(booking.bookingId);
+            ? await viewModel.completeTrip(actionBooking.bookingId)
+            : await viewModel.markPassengerPickedUp(actionBooking.bookingId);
         if (!mounted) {
           return;
         }

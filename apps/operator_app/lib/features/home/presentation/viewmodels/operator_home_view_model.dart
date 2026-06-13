@@ -505,7 +505,7 @@ class OperatorHomeViewModel extends ChangeNotifier {
     );
 
     if (result is OperationSuccess) {
-      _markTripCompletedLocally(bookingId);
+      _markPoolStopCompletedLocally(bookingId);
       unawaited(refresh(operatorId));
     }
 
@@ -859,6 +859,89 @@ class OperatorHomeViewModel extends ChangeNotifier {
         .where((booking) => booking.bookingId != bookingId)
         .toList(growable: false);
     if (_trackingBookingId == bookingId) {
+      _stopLocationSharing();
+    } else {
+      _refreshNavigationGuidance(notify: false);
+    }
+    _clearSnapshotCaches();
+    notifyListeners();
+  }
+
+  void _markPoolStopCompletedLocally(String bookingId) {
+    BookingModel? current;
+    for (final booking in _activeBookings) {
+      if (booking.bookingId == bookingId) {
+        current = booking;
+        break;
+      }
+    }
+    if (current == null || current.currentPoolStop == null) {
+      _markTripCompletedLocally(bookingId);
+      return;
+    }
+
+    final currentStop = current.currentPoolStop!;
+    if (!currentStop.isDropoff) {
+      _markTripCompletedLocally(bookingId);
+      return;
+    }
+
+    final now = DateTime.now();
+    final stopBookingIds = currentStop.bookingIds.toSet();
+    final nextStopPlan = _completeAndAdvanceStopPlan(
+      current.poolStopPlan,
+      currentStop,
+      now,
+    );
+    final nextCurrentStop = _firstIncompleteStop(nextStopPlan);
+    final nextActiveBookings = <BookingModel>[];
+
+    for (final booking in _activeBookings) {
+      final belongsToPool =
+          current.poolGroupId == null ||
+          current.poolGroupId!.isEmpty ||
+          booking.poolGroupId == current.poolGroupId;
+      if (!belongsToPool) {
+        nextActiveBookings.add(booking);
+        continue;
+      }
+
+      if (stopBookingIds.contains(booking.bookingId)) {
+        _locallyCompletedBookingIds.add(booking.bookingId);
+        continue;
+      }
+
+      nextActiveBookings.add(
+        booking.copyWith(
+          poolStopPlan: nextStopPlan,
+          currentStopIndex: nextCurrentStop?.index ?? booking.currentStopIndex,
+          currentStopId: nextCurrentStop?.stopId ?? booking.currentStopId,
+          currentPoolStopId:
+              nextCurrentStop?.stopId ?? booking.currentPoolStopId,
+          poolStatus: nextCurrentStop == null
+              ? 'completed'
+              : booking.poolStatus ?? 'in_progress',
+          updatedAt: now,
+        ),
+      );
+    }
+
+    _activeBookings = nextActiveBookings;
+    if (_trackingBookingId != null &&
+        stopBookingIds.contains(_trackingBookingId)) {
+      String? nextTrackingBookingId;
+      for (final booking in nextActiveBookings) {
+        if (booking.status == BookingStatus.onTheWay) {
+          nextTrackingBookingId = booking.bookingId;
+          break;
+        }
+      }
+      _trackingBookingId = nextTrackingBookingId;
+      if (_trackingBookingId == null) {
+        _stopLocationSharing();
+      }
+    }
+    if (_activeBookings.isEmpty) {
       _stopLocationSharing();
     } else {
       _refreshNavigationGuidance(notify: false);
@@ -1316,10 +1399,25 @@ class OperatorHomeViewModel extends ChangeNotifier {
   }
 
   List<BookingModel> _filterLocallyCompleted(List<BookingModel> bookings) {
+    if (_locallyCompletedBookingIds.isEmpty) {
+      return bookings;
+    }
+    final localById = <String, BookingModel>{
+      for (final booking in _activeBookings) booking.bookingId: booking,
+    };
+    final hasStaleCompletedBooking = bookings.any(
+      (booking) => _locallyCompletedBookingIds.contains(booking.bookingId),
+    );
     return bookings
         .where(
           (booking) => !_locallyCompletedBookingIds.contains(booking.bookingId),
         )
+        .map((booking) {
+          if (!hasStaleCompletedBooking) {
+            return booking;
+          }
+          return localById[booking.bookingId] ?? booking;
+        })
         .toList(growable: false);
   }
 
