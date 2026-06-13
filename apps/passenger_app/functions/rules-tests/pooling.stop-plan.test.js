@@ -266,6 +266,35 @@ test("one pickup to two dropoffs stores grouped pickup passenger totals", () => 
   assert.equal(pickup?.childCount, 0);
 });
 
+test("same uncompleted pickup can add opposite-projected dropoff before start", () => {
+  const active = booking("A", 18, 24, {
+    [BOOKING_FIELDS.status]: "accepted",
+    [BOOKING_FIELDS.routeDirection]: "forward",
+  });
+  const candidate = booking("B", 18, 16, {
+    [BOOKING_FIELDS.status]: "pending",
+  });
+
+  const eligibility = evaluatePoolingEligibility([active], candidate);
+
+  assert.equal(eligibility.eligible, true);
+  assert.equal(eligibility.reason, "eligible");
+
+  const stopPlan = planFor([
+    active,
+    {
+      ...candidate,
+      [BOOKING_FIELDS.status]: "accepted",
+      [BOOKING_FIELDS.routeDirection]: eligibility.routeDirection,
+    },
+  ]);
+  assert.deepEqual(pendingStopLabels(stopPlan), [
+    "pickup:Jetty 18:A,B",
+    "dropoff:Jetty 16:B",
+    "dropoff:Jetty 24:A",
+  ]);
+});
+
 test("two pickups to one dropoff stores shared dropoff passenger totals", () => {
   const a = booking("A", 15, 22);
   const b = booking("B", 18, 22);
@@ -616,5 +645,26 @@ test("same uncompleted pickup is not deferred by projection jitter", () => {
     eligibility.eligible,
     true,
     "A booking at the same uncompleted pickup should stay in the current sweep when projection is near the pickup"
+  );
+});
+
+test("same uncompleted pickup can add opposite-projected dropoff mid-trip", () => {
+  const active = booking("A", 18, 24, {
+    [BOOKING_FIELDS.status]: "on_the_way",
+    [BOOKING_FIELDS.routeDirection]: "forward",
+    [BOOKING_FIELDS.operatorLat]: baseLat,
+    [BOOKING_FIELDS.operatorLng]: baseLng + 17.95 * lngStep,
+  });
+  const samePickupCandidate = booking("B", 18, 16, {
+    [BOOKING_FIELDS.status]: "pending",
+  });
+
+  const eligibility = evaluatePoolingEligibility([active], samePickupCandidate);
+
+  assert.equal(eligibility.eligible, true);
+  assert.equal(
+    eligibility.reason,
+    "eligible",
+    "Same pickup should merge into the current pickup stop instead of being queued for a later route sweep"
   );
 });

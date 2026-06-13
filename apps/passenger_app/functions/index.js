@@ -783,19 +783,50 @@ function routeStopsForBooking(corridor, booking, bookingIndex = 0) {
   return stops;
 }
 
+function routeStopDependencyOrder(a, b) {
+  if (a.bookingIndex === b.bookingIndex && a.type !== b.type) {
+    return a.type === "pickup" ? -1 : 1;
+  }
+  const aBookingIds = Array.isArray(a.bookingIds) ? a.bookingIds.map(asString) : [];
+  const bBookingIds = Array.isArray(b.bookingIds) ? b.bookingIds.map(asString) : [];
+  const sharesBooking = aBookingIds.some((id) => bBookingIds.includes(id));
+  if (sharesBooking && a.stopType !== b.stopType) {
+    return a.stopType === "pickup" ? -1 : 1;
+  }
+  return 0;
+}
+
+function compareRouteStops(a, b) {
+  const dependencyOrder = routeStopDependencyOrder(a, b);
+  if (dependencyOrder !== 0) return dependencyOrder;
+  if (a.alongMeters !== b.alongMeters) {
+    return a.alongMeters - b.alongMeters;
+  }
+  if (a.type === b.type) return 0;
+  return a.type === "pickup" ? -1 : 1;
+}
+
+function comparePoolStops(a, b, direction = "forward") {
+  const dependencyOrder = routeStopDependencyOrder(a, b);
+  if (dependencyOrder !== 0) return dependencyOrder;
+  if (a.routePositionMeters !== b.routePositionMeters) {
+    return direction === "reverse"
+      ? b.routePositionMeters - a.routePositionMeters
+      : a.routePositionMeters - b.routePositionMeters;
+  }
+  if (a.stopType !== b.stopType) {
+    return a.stopType === "pickup" ? -1 : 1;
+  }
+  return asString(a.stopName).localeCompare(asString(b.stopName));
+}
+
 function estimateOrderedRouteDistanceMeters(anchor, corridor, bookings) {
   const stops = [];
   for (const booking of bookings) {
     stops.push(...routeStopsForBooking(corridor, booking));
   }
 
-  stops.sort((a, b) => {
-    if (a.alongMeters !== b.alongMeters) {
-      return a.alongMeters - b.alongMeters;
-    }
-    if (a.type === b.type) return 0;
-    return a.type === "pickup" ? -1 : 1;
-  });
+  stops.sort(compareRouteStops);
 
   let distance = 0;
   let currentAlong = 0;
@@ -821,13 +852,7 @@ function orderedPoolStops(corridor, bookings) {
     stops.push(...routeStopsForBooking(corridor, booking, bookingIndex));
   });
 
-  return stops.sort((a, b) => {
-    if (a.alongMeters !== b.alongMeters) {
-      return a.alongMeters - b.alongMeters;
-    }
-    if (a.type === b.type) return 0;
-    return a.type === "pickup" ? -1 : 1;
-  });
+  return stops.sort(compareRouteStops);
 }
 
 function estimateDropoffArrivalDistances(anchor, corridor, bookings) {
@@ -1179,17 +1204,9 @@ function buildPoolStopPlan({
     }
   }
 
-  const pendingStops = [...grouped.values()].sort((a, b) => {
-    if (a.routePositionMeters !== b.routePositionMeters) {
-      return direction === "reverse"
-        ? b.routePositionMeters - a.routePositionMeters
-        : a.routePositionMeters - b.routePositionMeters;
-    }
-    if (a.stopType !== b.stopType) {
-      return a.stopType === "pickup" ? -1 : 1;
-    }
-    return a.stopName.localeCompare(b.stopName);
-  });
+  const pendingStops = [...grouped.values()].sort((a, b) =>
+    comparePoolStops(a, b, direction)
+  );
 
   return [...completedStops, ...pendingStops].map((stop, index) => ({
     stopId:
@@ -1465,11 +1482,14 @@ function evaluatePoolingEligibility(
     activeRouteDirection ||
     requestedDirection ||
     routeDirectionForMetrics(candidateMetrics);
+  const sameUncompletedPickupInActivePool =
+    isSameUncompletedPickupInActivePool(activeBookings, candidateBooking);
 
   if (
     activeRouteDirection &&
     requestedDirection &&
-    activeRouteDirection !== requestedDirection
+    activeRouteDirection !== requestedDirection &&
+    !sameUncompletedPickupInActivePool
   ) {
     return {
       eligible: false,
@@ -1480,7 +1500,10 @@ function evaluatePoolingEligibility(
     };
   }
 
-  if (!isBookingDirectionValidForPool(candidateMetrics, routeDirection)) {
+  if (
+    !isBookingDirectionValidForPool(candidateMetrics, routeDirection) &&
+    !sameUncompletedPickupInActivePool
+  ) {
     return {
       eligible: false,
       reason: "reverse_direction",
@@ -1528,8 +1551,6 @@ function evaluatePoolingEligibility(
       candidateBooking,
       liveOperatorPoint: hasLiveOperatorAnchor ? liveOperatorPoint : null,
     });
-    const sameUncompletedPickupInActivePool =
-      isSameUncompletedPickupInActivePool(activeBookings, candidateBooking);
     const samePickupProjectionJitter =
       sameUncompletedPickupInActivePool &&
       Math.abs(
