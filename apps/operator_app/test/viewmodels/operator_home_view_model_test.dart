@@ -1581,8 +1581,8 @@ void main() {
 
       final guidance = computeOperatorNavigationGuidance(
         booking: booking,
-        currentLat: 2.2014,
-        currentLng: 102.2514,
+        currentLat: 2.20125,
+        currentLng: 102.25125,
         now: DateTime(2026, 3, 19, 10, 0, 10),
         lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
         lastSampleLat: 2.2020,
@@ -1616,9 +1616,45 @@ void main() {
 
         final guidance = computeOperatorNavigationGuidance(
           booking: booking,
-          currentLat: 2.2016,
-          currentLng: 102.2516,
+          currentLat: 2.20135,
+          currentLng: 102.25135,
           now: DateTime(2026, 3, 19, 10, 0, 10),
+        );
+
+        expect(guidance, isNotNull);
+        expect(
+          guidance!.stopOvershootSeverity,
+          OperatorStopOvershootSeverity.soft,
+        );
+      },
+    );
+
+    test(
+      'navigation helper warns after passing stop outside 50m proximity zone',
+      () {
+        final booking = _sampleBooking(
+          id: 'near-passed-pickup',
+          status: BookingStatus.onTheWay,
+          routePolyline: const [
+            BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+            BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+            BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+          ],
+          poolStopPlan: _twoStopPlan(),
+          currentStopIndex: 0,
+          currentStopId: 'pickup-active-1',
+          currentPoolStopId: 'pickup-active-1',
+          routeDirection: 'forward',
+        );
+
+        final guidance = computeOperatorNavigationGuidance(
+          booking: booking,
+          currentLat: 2.2014,
+          currentLng: 102.2514,
+          now: DateTime(2026, 3, 19, 10, 0, 10),
+          lastSampleAt: DateTime(2026, 3, 19, 10, 0, 0),
+          lastSampleLat: 2.2012,
+          lastSampleLng: 102.2512,
         );
 
         expect(guidance, isNotNull);
@@ -1661,6 +1697,36 @@ void main() {
         );
       },
     );
+
+    test('navigation helper marks missed stop after 75m clear pass', () {
+      final booking = _sampleBooking(
+        id: 'missed-at-75m',
+        status: BookingStatus.onTheWay,
+        routePolyline: const [
+          BookingRoutePoint(lat: 2.2000, lng: 102.2500),
+          BookingRoutePoint(lat: 2.2010, lng: 102.2510),
+          BookingRoutePoint(lat: 2.2020, lng: 102.2520),
+        ],
+        poolStopPlan: _twoStopPlan(),
+        currentStopIndex: 0,
+        currentStopId: 'pickup-active-1',
+        currentPoolStopId: 'pickup-active-1',
+        routeDirection: 'forward',
+      );
+
+      final guidance = computeOperatorNavigationGuidance(
+        booking: booking,
+        currentLat: 2.20155,
+        currentLng: 102.25155,
+        now: DateTime(2026, 3, 19, 10, 0, 10),
+      );
+
+      expect(guidance, isNotNull);
+      expect(
+        guidance!.stopOvershootSeverity,
+        OperatorStopOvershootSeverity.missed,
+      );
+    });
 
     test('navigation helper warns when first pickup stop is missed', () {
       final booking = _sampleBooking(

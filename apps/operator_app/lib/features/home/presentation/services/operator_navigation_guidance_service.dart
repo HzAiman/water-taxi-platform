@@ -234,9 +234,9 @@ _StopOvershoot _resolveStopOvershoot({
 }) {
   const softOvershootMeters = 50.0;
   const missedOvershootMeters = 75.0;
-  const stopProximityMeters = 80.0;
-  const missedDistanceFromStopMeters = 120.0;
-  const clearMissedOvershootMeters = 120.0;
+  const stopProximityMeters = 50.0;
+  const missedDistanceFromStopMeters = 75.0;
+  const clearMissedOvershootMeters = 75.0;
   const minMovementMeters = 8.0;
   const movingAwayToleranceMeters = 5.0;
 
@@ -271,8 +271,7 @@ _StopOvershoot _resolveStopOvershoot({
     currentStop.lat,
     currentStop.lng,
   );
-  if (distanceToStopMeters <= stopProximityMeters ||
-      offRouteSeverity == OperatorOffRouteSeverity.severe) {
+  if (offRouteSeverity == OperatorOffRouteSeverity.severe) {
     return const _StopOvershoot.none();
   }
 
@@ -298,6 +297,12 @@ _StopOvershoot _resolveStopOvershoot({
     isMovingAwayFromStop =
         distanceToStopMeters >
         previousDistanceToStopMeters + movingAwayToleranceMeters;
+  }
+
+  if (distanceToStopMeters <= stopProximityMeters &&
+      hasReliableMovementSample &&
+      !isMovingAwayFromStop) {
+    return const _StopOvershoot.none();
   }
 
   final isFarFromStop = distanceToStopMeters > missedDistanceFromStopMeters;
