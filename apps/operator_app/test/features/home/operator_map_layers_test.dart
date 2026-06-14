@@ -491,9 +491,9 @@ void main() {
       },
     );
 
-    test('stop-first route uses shortest segment on closed loop', () {
+    test('stop-first route follows direction on closed loop', () {
       final booking = _bookingFixture(
-        bookingId: 'stop-first-loop-shortest',
+        bookingId: 'stop-first-loop-directed',
         operatorLat: 2.0,
         operatorLng: 102.0,
         routeDirection: 'forward',
@@ -526,10 +526,55 @@ void main() {
         includeOperatorAnchors: false,
       );
 
-      expect(points, hasLength(2));
-      expect(points.first, const LatLng(2.0, 102.0));
-      expect(points.last, const LatLng(2.0, 102.003));
+      expect(points, const <LatLng>[
+        LatLng(2.0, 102.0),
+        LatLng(2.0, 102.001),
+        LatLng(2.0, 102.002),
+        LatLng(2.0, 102.003),
+      ]);
     });
+
+    test(
+      'stop-first route uses shortest segment on closed loop without direction',
+      () {
+        final booking = _bookingFixture(
+          bookingId: 'stop-first-loop-shortest',
+          operatorLat: 2.0,
+          operatorLng: 102.0,
+          routePolyline: const <BookingRoutePoint>[
+            BookingRoutePoint(lat: 2.0, lng: 102.0),
+            BookingRoutePoint(lat: 2.0, lng: 102.001),
+            BookingRoutePoint(lat: 2.0, lng: 102.002),
+            BookingRoutePoint(lat: 2.0, lng: 102.003),
+            BookingRoutePoint(lat: 2.0, lng: 102.0),
+          ],
+          currentStopId: 'dropoff-stop-1',
+          poolStopPlan: const <PoolStopPlanItem>[
+            PoolStopPlanItem(
+              stopId: 'dropoff-stop-1',
+              index: 0,
+              stopType: 'dropoff',
+              stopJettyId: 'jetty-24',
+              stopName: 'Stadthuys',
+              lat: 2.0,
+              lng: 102.003,
+              bookingIds: <String>['stop-first-loop-shortest'],
+              status: 'active',
+            ),
+          ],
+        );
+
+        final points = OperatorMapLayers.resolvedRoutePointsForPhase(
+          booking,
+          passengerPickedUp: true,
+          includeOperatorAnchors: false,
+        );
+
+        expect(points.first, const LatLng(2.0, 102.0));
+        expect(points.last, const LatLng(2.0, 102.003));
+        expect(points, hasLength(2));
+      },
+    );
 
     test(
       'stop-first route shows amber fallback when live location is far from route',

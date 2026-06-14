@@ -864,6 +864,15 @@ class OperatorMapLayers {
         routeDirection: routeDirection,
       );
     }
+    final normalizedDirection = routeDirection?.trim().toLowerCase();
+    if (normalizedDirection == 'forward' || normalizedDirection == 'reverse') {
+      return _extractDirectedSegment(
+        routePoints,
+        startSnap,
+        endSnap,
+        routeDirection: normalizedDirection,
+      );
+    }
     return _extractShortestLoopSegment(routePoints, startSnap, endSnap);
   }
 
