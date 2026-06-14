@@ -530,7 +530,7 @@ class OperatorMapLayers {
       return const <LatLng>[];
     }
 
-    final segment = _extractDirectedSegment(
+    final segment = _extractCurrentStopSegment(
       routePoints,
       startSnap,
       endSnap,
@@ -846,6 +846,23 @@ class OperatorMapLayers {
     }
     if (normalizedDirection == 'reverse') {
       return _extractLoopSegment(routePoints, startSnap, endSnap, step: -1);
+    }
+    return _extractShortestLoopSegment(routePoints, startSnap, endSnap);
+  }
+
+  static List<LatLng> _extractCurrentStopSegment(
+    List<LatLng> routePoints,
+    _SnappedRoutePoint startSnap,
+    _SnappedRoutePoint endSnap, {
+    String? routeDirection,
+  }) {
+    if (!_isClosedLoopPolyline(routePoints)) {
+      return _extractDirectedSegment(
+        routePoints,
+        startSnap,
+        endSnap,
+        routeDirection: routeDirection,
+      );
     }
     return _extractShortestLoopSegment(routePoints, startSnap, endSnap);
   }

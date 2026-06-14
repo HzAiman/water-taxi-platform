@@ -314,6 +314,42 @@ test("two pickups to one dropoff stores shared dropoff passenger totals", () => 
   assert.equal(sharedDropoff?.childCount, 0);
 });
 
+test("numbered jetties keep forward route order when polyline projection loops", () => {
+  const loopedRoute = [
+    routePolyline[0],
+    routePolyline[1],
+    routePolyline[2],
+    routePolyline[3],
+    routePolyline[4],
+    routePolyline[5],
+    routePolyline[0],
+  ];
+  const a = booking("A", 19, 22, {
+    [BOOKING_FIELDS.origin]: "19 - Hang Tuah",
+    [BOOKING_FIELDS.destination]: "22 - Kampung Jawa",
+    [BOOKING_FIELDS.routePolyline]: loopedRoute,
+  });
+  const b = booking("B", 20, 22, {
+    [BOOKING_FIELDS.origin]: "20 - Tun Fatimah",
+    [BOOKING_FIELDS.destination]: "22 - Kampung Jawa",
+    [BOOKING_FIELDS.routePolyline]: loopedRoute,
+  });
+  const c = booking("C", 20, 24, {
+    [BOOKING_FIELDS.origin]: "20 - Tun Fatimah",
+    [BOOKING_FIELDS.destination]: "24 - Stadthuys",
+    [BOOKING_FIELDS.routePolyline]: loopedRoute,
+  });
+
+  const stopPlan = planFor([a, b, c]);
+
+  assert.deepEqual(pendingStopLabels(stopPlan), [
+    "pickup:19 - Hang Tuah:A",
+    "pickup:20 - Tun Fatimah:B,C",
+    "dropoff:22 - Kampung Jawa:A,B",
+    "dropoff:24 - Stadthuys:C",
+  ]);
+});
+
 test("two pickups to one dropoff is eligible until the second pickup is passed", () => {
   const active = booking("A", 15, 22, {
     [BOOKING_FIELDS.status]: "on_the_way",

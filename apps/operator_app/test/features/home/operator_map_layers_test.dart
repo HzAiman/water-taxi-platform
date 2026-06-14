@@ -16,6 +16,7 @@ BookingModel _bookingFixture({
   List<BookingRoutePoint> routePolyline = const <BookingRoutePoint>[],
   List<PoolStopPlanItem> poolStopPlan = const <PoolStopPlanItem>[],
   String? currentStopId,
+  String? routeDirection,
 }) {
   return BookingModel(
     bookingId: bookingId,
@@ -31,6 +32,7 @@ BookingModel _bookingFixture({
     routePolyline: routePolyline,
     routeToOriginPolyline: routeToOriginPolyline,
     routeToDestinationPolyline: routeToDestinationPolyline,
+    routeDirection: routeDirection,
     poolStopPlan: poolStopPlan,
     currentStopId: currentStopId,
     adultCount: 1,
@@ -488,6 +490,46 @@ void main() {
         expect(points, isNot(contains(const LatLng(9, 109))));
       },
     );
+
+    test('stop-first route uses shortest segment on closed loop', () {
+      final booking = _bookingFixture(
+        bookingId: 'stop-first-loop-shortest',
+        operatorLat: 2.0,
+        operatorLng: 102.0,
+        routeDirection: 'forward',
+        routePolyline: const <BookingRoutePoint>[
+          BookingRoutePoint(lat: 2.0, lng: 102.0),
+          BookingRoutePoint(lat: 2.0, lng: 102.001),
+          BookingRoutePoint(lat: 2.0, lng: 102.002),
+          BookingRoutePoint(lat: 2.0, lng: 102.003),
+          BookingRoutePoint(lat: 2.0, lng: 102.0),
+        ],
+        currentStopId: 'dropoff-stop-1',
+        poolStopPlan: const <PoolStopPlanItem>[
+          PoolStopPlanItem(
+            stopId: 'dropoff-stop-1',
+            index: 0,
+            stopType: 'dropoff',
+            stopJettyId: 'jetty-24',
+            stopName: 'Stadthuys',
+            lat: 2.0,
+            lng: 102.003,
+            bookingIds: <String>['stop-first-loop-shortest'],
+            status: 'active',
+          ),
+        ],
+      );
+
+      final points = OperatorMapLayers.resolvedRoutePointsForPhase(
+        booking,
+        passengerPickedUp: true,
+        includeOperatorAnchors: false,
+      );
+
+      expect(points, hasLength(2));
+      expect(points.first, const LatLng(2.0, 102.0));
+      expect(points.last, const LatLng(2.0, 102.003));
+    });
 
     test(
       'stop-first route shows amber fallback when live location is far from route',

@@ -709,6 +709,24 @@ function normalizedJettyId(value) {
   return asString(value).toLowerCase();
 }
 
+function routeStopOrdinal(stop) {
+  const candidates = [
+    stop?.jettyId,
+    stop?.stopJettyId,
+    stop?.jettyName,
+    stop?.stopName,
+  ];
+  for (const candidate of candidates) {
+    const text = asString(candidate);
+    if (!text) continue;
+    const match = text.match(/\d+/);
+    if (!match) continue;
+    const value = Number(match[0]);
+    if (Number.isFinite(value)) return value;
+  }
+  return null;
+}
+
 function bookingOriginsMatch(a, b) {
   const aJettyId = normalizedJettyId(a?.[BOOKING_FIELDS.originJettyId]);
   const bJettyId = normalizedJettyId(b?.[BOOKING_FIELDS.originJettyId]);
@@ -809,6 +827,13 @@ function compareRouteStops(a, b) {
 function comparePoolStops(a, b, direction = "forward") {
   const dependencyOrder = routeStopDependencyOrder(a, b);
   if (dependencyOrder !== 0) return dependencyOrder;
+  const aOrdinal = routeStopOrdinal(a);
+  const bOrdinal = routeStopOrdinal(b);
+  if (aOrdinal != null && bOrdinal != null && aOrdinal !== bOrdinal) {
+    return direction === "reverse"
+      ? bOrdinal - aOrdinal
+      : aOrdinal - bOrdinal;
+  }
   if (a.routePositionMeters !== b.routePositionMeters) {
     return direction === "reverse"
       ? b.routePositionMeters - a.routePositionMeters
